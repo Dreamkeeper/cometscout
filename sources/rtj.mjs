@@ -5,21 +5,25 @@
 //                          page_size: 100, max_pages: 3, title_exclude: [], max_headcount: null }
 // Usage: node sources/rtj.mjs [--dry-run] [--hours 72]
 import fs from 'node:fs';
-import { SETTINGS, STATE, readJson, secret, log } from '../lib/config.mjs';
+import { SETTINGS, STATE, readJson, secret, log, num } from '../lib/config.mjs';
 import { writeJob, matchesAny } from '../lib/queue.mjs';
 
 const cfg = SETTINGS.sources.rtj || {};
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry-run');
-const HOURS = Number((i => i >= 0 ? args[i + 1] : null)(args.indexOf('--hours')) || cfg.hours || 24);
+const HOURS = num((i => i >= 0 ? args[i + 1] : null)(args.indexOf('--hours')) ?? cfg.hours, 24, 1);
+const MAX_BACK = num(cfg.max_lookback_hours, 168, HOURS);   // after missed days, catch up at most this far back
 if (!cfg.enabled) { log('rtj: disabled in settings.json'); process.exit(0); }
 const token = secret(cfg.token_env || 'RTJ_API_TOKEN');
 if (!token) { log(`rtj: ${cfg.token_env || 'RTJ_API_TOKEN'} is not set in .env`); process.exit(2); }
 
 const stateFile = STATE('rtj-state.json'); const state = readJson(stateFile, { last_before: null });
 const before = new Date();
+// Start from the last successful run (minus overlap), so a missed day is caught up instead of skipped; never less
+// than HOURS back and never more than max_lookback_hours back.
 let after = new Date(before - HOURS * 3600e3);
-if (state.last_before) { const resume = new Date(new Date(state.last_before) - (cfg.overlap_hours ?? 6) * 3600e3); if (resume > after) after = resume; }
+if (state.last_before) { const resume = new Date(new Date(state.last_before) - num(cfg.overlap_hours, 6, 0) * 3600e3); if (resume < after) after = resume; }
+if (after < new Date(before - MAX_BACK * 3600e3)) after = new Date(before - MAX_BACK * 3600e3);
 
 async function page(body) {
   const r = await fetch('https://rtj.app/api/jobs/search', { method: 'POST', signal: AbortSignal.timeout(60000),
@@ -27,11 +31,12 @@ async function page(body) {
   const t = await r.text(); if (!r.ok) throw new Error(`RTJ ${r.status}: ${t.slice(0, 200)}`);
   return JSON.parse(t);
 }
-const items = []; let cursor;
-for (let i = 0; i < (cfg.max_pages || 3); i++) {
-  const p = await page({ after: after.toISOString(), before: before.toISOString(), pageSize: cfg.page_size || 100, ...(cursor ? { cursor } : {}) });
+const items = []; let cursor; const PAGES = num(cfg.max_pages, 3, 1), SIZE = num(cfg.page_size, 100, 1, 500);
+for (let i = 0; i < PAGES; i++) {
+  const p = await page({ after: after.toISOString(), before: before.toISOString(), pageSize: SIZE, ...(cursor ? { cursor } : {}) });
   items.push(...(p.positions || [])); cursor = p.nextCursor; if (!cursor) break;
 }
+if (cursor) log(`rtj: max_pages ${PAGES} x page_size ${SIZE} reached; more positions exist in this window (raise max_pages to take them)`);
 
 const place = l => [l.city, l.country].filter(Boolean).join(', ') + (l.attendance?.length ? ` (${l.attendance.join('/')})` : '');
 let written = 0, skipped = 0;

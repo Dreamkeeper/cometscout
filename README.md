@@ -19,7 +19,7 @@ sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack 
 - **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn job-alert emails, read from your Gmail with read-only access, each job's full text taken from LinkedIn's public job page. More sources (Hirify, hh.ru) are being ported.
 - **Decode:** each job is judged against `profile/profile.md`: your experience, what you want, location and work permit, hard gates, and scope guards (what you must never claim). Verdicts: strong fit, investable stretch, long shot (with the reason it was held), weak fit, gate.
 - **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you already applied to excluded.
-- **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Company blocks are never split across pages. A "check before sending" list names every decision that is yours (salary, location, gaps).
+- **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
 
 ## Quick start
 
@@ -43,6 +43,8 @@ node cli.mjs sources | decode | picks | pack
 node cli.mjs applied <company> [role]     # you applied: picks move on
 node cli.mjs status <company> interview|offer|rejected|skipped [role] [--note "..."]
 node cli.mjs list
+node cli.mjs timer [HH:MM]                # reinstall the daily timer from settings.json (run_time, timezone)
+node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
 ```
 
 ## Configuration

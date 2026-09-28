@@ -2,6 +2,7 @@
   "_comment": "Copy to settings.json. Secrets (tokens) go in .env, never here. Every source is optional: enable what you have.",
   "candidate_name": "Alex Rivera",
   "timezone": "Europe/Madrid",
+  "run_time": "18:00",
   "llm": {
     "provider": "claude",
     "model": "sonnet",

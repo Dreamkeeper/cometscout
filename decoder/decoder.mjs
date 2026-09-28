@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log } from '../lib/config.mjs';
+import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num } from '../lib/config.mjs';
 import { loadJob, parseResult, frontMatter, norm } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
@@ -14,7 +14,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const flag = n => args.includes(`--${n}`);
 const DRY = flag('dry-run'), NO_TG = flag('no-telegram') || DRY, PICKS_ONLY = flag('picks');
-const CAP = Number((i => (i >= 0 ? args[i + 1] : null))(args.indexOf('--cap')) || SETTINGS.decoder?.cap || 30);
+const CAP = num((i => (i >= 0 ? args[i + 1] : null))(args.indexOf('--cap')) ?? SETTINGS.decoder?.cap, 30, 1);
+const MAX_TRIES = num(SETTINGS.decoder?.max_tries, 3, 1);
 const MIN_TEXT = 300;
 const SCHEMA = JSON.parse(read(path.join(HERE, 'verdict.schema.json')));
 const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', SETTINGS.candidate_name).replace('{{PROFILE}}', PROFILE.facts || '(no profile yet: run onboarding)');
@@ -61,18 +62,32 @@ function resultBlock(v) {
 // ---------- picks ----------
 const PICKS_FILE = STATE('picks.json');
 const shapeRank = loc => { const l = norm(loc); const remote = /\bremote\b|udalen|удален/.test(l), onsite = /\bhybrid\b|\bonsite\b|on site|\boffice\b|гибрид/.test(l); return remote && !onsite ? 0 : remote ? 1.5 : 2; };
+// A closed posting must not become a pick. Greenhouse and Lever answer 404; Ashby pages are an app shell that
+// answers 200 for any id, so Ashby is asked through its public GraphQL (null posting = closed); LinkedIn and
+// other boards are checked for "no longer accepting" style text. Network errors count as alive (never drop on doubt).
+const DEAD_TEXT = /No longer accepting applications|This job is no longer available|job (?:posting )?(?:has been )?closed|This vacancy is archived|Вакансия в архиве|Эта вакансия в архиве/i;
 async function linkAlive(url) {
   if (!/^https?:/.test(url || '')) return true;
   try {
-    const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(12000), headers: { 'User-Agent': 'Mozilla/5.0 jobpilot' } });
+    const ash = String(url).match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([0-9a-f-]{36})/i);
+    if (ash) {
+      const r = await fetch('https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(12000),
+        body: JSON.stringify({ operationName: 'ApiJobPosting', variables: { o: ash[1], j: ash[2] }, query: 'query ApiJobPosting($o: String!, $j: String!) { jobPosting(organizationHostedJobsPageName: $o, jobPostingId: $j) { id } }' }) });
+      if (r.ok) return !!(await r.json()).data?.jobPosting;
+      return true;
+    }
+    const li = String(url).match(/linkedin\.com\/jobs\/view\/(\d+)/);
+    const target = li ? `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${li[1]}` : url;
+    const r = await fetch(target, { redirect: 'follow', signal: AbortSignal.timeout(12000), headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36' } });
     if (r.status === 404 || r.status === 410 || /[?&]error=true/.test(r.url)) return false;
-    if (/hirify\.me\/jobs\/|hh\.ru\/vacancy\//.test(url) && r.ok && /Эта вакансия в архиве|This vacancy is archived|Вакансия в архиве/i.test(await r.text())) return false;
+    if (r.ok && DEAD_TEXT.test(await r.text())) return false;
     return true;
   } catch { return true; }
 }
 const CLOSED = /applied|rejected|withdrawn|closed|skipped|offer|interview/;
 export async function buildPicks(extra = []) {
-  const P = SETTINGS.picks, since = Date.now() - P.window_days * 86400000, state = readJson(PICKS_FILE, {}), A = apps();
+  const P = { ...SETTINGS.picks, per_day: num(SETTINGS.picks.per_day, 2, 0, 10), window_days: num(SETTINGS.picks.window_days, 14, 1), max_shown: num(SETTINGS.picks.max_shown, 3, 1) };
+  const since = Date.now() - P.window_days * 86400000, state = readJson(PICKS_FILE, {}), A = apps();
   const excludeLoc = P.exclude_location_regex ? new RegExp(P.exclude_location_regex, 'i') : null;
   const pool = [];
   for (const f of fs.readdirSync(DIRS.decoded).filter(x => x.endsWith('.md'))) {
@@ -112,27 +127,42 @@ const fair = []; for (let round = 0; fair.length < waiting.length; round++) for 
 const files = fair.slice(0, CAP);
 const LEFT = waiting.length - files.length;
 if (LEFT) log(`decoder.cap ${CAP} reached: ${LEFT} job(s) stay in the inbox for the next run (raise decoder.cap to take them now)`);
-const done = [], failed = [];
+if (files.length && PROFILE.facts.trim().length < 50) { log('decoder: profile/profile.md is missing or empty; not decoding (every verdict would ignore you). Run the onboarding first.'); process.exit(2); }
+// A job whose decode keeps failing (model refusal, timeout) is retried decoder.max_tries times, then moved to
+// rejected/ as "failed" and named in the digest, so it cannot take a cap slot every evening forever.
+const TRIES_FILE = STATE('decode-failures.json'); const tries = readJson(TRIES_FILE, {});
+const done = [], failed = [], gaveUp = [];
 for (const f of files) {
   try {
     const v = await decodeOne(f); const job = loadJob(f);
     const dest = ['gate-reject', 'weak-fit'].includes(v.verdict) ? DIRS.rejected : DIRS.decoded;
-    if (!DRY) { fs.writeFileSync(path.join(dest, f), job.text.trimEnd() + '\n' + resultBlock(v), 'utf8'); fs.rmSync(job.path); }
+    if (!DRY) { fs.writeFileSync(path.join(dest, f), job.text.trimEnd() + '\n' + resultBlock(v), 'utf8'); fs.rmSync(job.path); delete tries[f]; }
     done.push({ file: f, fm: job.fm, v }); log(`${f}: ${v.verdict}`);
-  } catch (e) { failed.push({ file: f, error: e.message }); log(`${f}: FAILED ${e.message}`); }
+  } catch (e) {
+    log(`${f}: FAILED ${e.message}`);
+    if (DRY) { failed.push({ file: f, error: e.message }); continue; }
+    tries[f] = (tries[f] || 0) + 1;
+    if (tries[f] >= MAX_TRIES) {
+      try { const job = loadJob(f); fs.writeFileSync(path.join(DIRS.rejected, f), job.text.trimEnd() + `\n\n## Decode Result\nDecoded ${today()} by jobpilot: gave up after ${tries[f]} failed attempts.\nverdict: failed\nrationale: ${e.message.replace(/\s+/g, ' ').slice(0, 300)}\n`, 'utf8'); fs.rmSync(job.path); } catch { /* leave it */ }
+      delete tries[f]; gaveUp.push({ file: f, error: e.message });
+    } else failed.push({ file: f, error: e.message });
+  }
 }
+if (!DRY) fs.writeFileSync(TRIES_FILE, JSON.stringify(tries, null, 1));
 const pk = await buildPicks(DRY ? done : []);
 if (!DRY) recordPicks(pk.picks);
-if (!done.length && !failed.length && !pk.picks.length) { log('nothing new and no picks'); process.exit(0); }
+if (!done.length && !failed.length && !gaveUp.length && !pk.picks.length) { log(`nothing new and no picks${LEFT ? ` (${LEFT} waiting in the inbox)` : ''}`); process.exit(0); }
 const worth = done.filter(d => APPLY_WORTHY.includes(d.v.verdict)), held = done.filter(d => ['long-shot', 'unreadable'].includes(d.v.verdict)), rej = done.filter(d => ['gate-reject', 'weak-fit'].includes(d.v.verdict));
 const L = [...picksText(pk), `${SETTINGS.candidate_name}: ${done.length} decoded ${today()}${DRY ? ' (dry run)' : ''}`, ''];
 if (worth.length) L.push(`Worth applying (${worth.length})`, ...worth.flatMap((d, i) => [`${i + 1}. ${d.fm.company}: ${d.fm.role} [${String(d.fm.location || '').slice(0, 60)}] ${label(d.v.verdict)}, p${d.v.apply_priority}`, `   ${d.v.action}`, ...(d.v.fact_flags?.length ? [`   Fact check: ${d.v.fact_flags.map(x => x.why).join(' ')}`] : []), `   ${d.fm.url || ''}`]), '');
 if (held.length) L.push(`Held (${held.length})`, ...held.flatMap(d => [`- ${d.fm.company}: ${d.fm.role}`, `   Why held: ${d.v.hold_reason || d.v.rationale}`, `   ${d.fm.url || ''}`]), '');
 if (rej.length) L.push(`Rejected (${rej.length})`, ...rej.map(d => `- ${d.fm.company}: ${d.v.gate || 'weak fit'}`), '');
 if (failed.length) L.push(`Failed (${failed.length}), will retry: ${failed.map(f => f.file).join(', ')}`);
+if (gaveUp.length) L.push(`Gave up after ${MAX_TRIES} failed tries (${gaveUp.length}), moved to rejected/: ${gaveUp.map(f => f.file).join(', ')}`);
 if (LEFT) L.push(`Waiting (${LEFT}): decoder.cap ${CAP} reached, the rest are decoded next run.`);
 const text = L.join('\n');
-fs.writeFileSync(path.join(DIRS.digests, `${today()}.md`), text + '\n', 'utf8');
+// A dry run never touches the digest; a second real run on the same day is appended, not written over the first.
+if (!DRY) { const dg = path.join(DIRS.digests, `${today()}.md`); fs.existsSync(dg) ? fs.appendFileSync(dg, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(dg, text + '\n', 'utf8'); }
 console.log('\n' + text);
 if (!NO_TG) { try { await sendText(text); } catch (e) { log(`telegram failed: ${e.message}`); process.exitCode = 3; } }
 if (failed.length) process.exitCode = process.exitCode || 1;

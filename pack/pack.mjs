@@ -11,9 +11,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, log } from '../lib/config.mjs';
+import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, log, today as runDate } from '../lib/config.mjs';
 import { callJson } from '../lib/llm.mjs';
-import { loadJob } from '../lib/queue.mjs';
+import { loadJob, slug } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -23,10 +23,22 @@ const multi = n => args.flatMap((a, i) => (a === `--${n}` && args[i + 1] ? [args
 const OUT_ROOT = DIRS.packs;
 const MODEL = SETTINGS.llm.pack_model || SETTINGS.llm.model;
 const NO_TG = flag('no-telegram');
-const today = new Date().toISOString().slice(0, 10);
+const today = runDate();   // the run's date in settings.timezone (pinned by cli.mjs run), same as the decoder's
 const LIB = PROFILE.cvLibrary;
 if (!LIB) { log('pack: profile/cv-library.json is missing; run the onboarding first'); process.exit(2); }
 LIB.ai_work = LIB.ai_work || { heading: 'HIGHLIGHTS', items: [] };
+// Check the library once, so a missing field is named here instead of printing "undefined" inside a CV.
+{
+  const miss = []; const need = (o, keys, where) => { for (const k of keys) if (o?.[k] == null || o[k] === '') miss.push(`${where}.${k}`); };
+  need(LIB, ['name', 'contact'], 'cv-library');
+  if (!Array.isArray(LIB.experience) || !LIB.experience.length) miss.push('cv-library.experience (a list)');
+  (LIB.experience || []).forEach((e, i) => { need(e, ['key', 'company', 'dates'], `experience[${i}]`); if (!e.roles?.length) miss.push(`experience[${i}].roles`); (e.roles || []).forEach((r, j) => { need(r, ['title'], `experience[${i}].roles[${j}]`); (r.bullets || []).forEach((b, k) => need(b, ['id', 'text'], `experience[${i}].roles[${j}].bullets[${k}]`)); }); });
+  (LIB.skills || []).forEach((x, i) => need(x, ['id', 'label', 'text'], `skills[${i}]`));
+  (LIB.awards || []).forEach((x, i) => need(x, ['id', 'text'], `awards[${i}]`));
+  (LIB.taglines || []).forEach((x, i) => need(x, ['id', 'text'], `taglines[${i}]`)); (LIB.summaries || []).forEach((x, i) => need(x, ['id', 'text'], `summaries[${i}]`));
+  (LIB.ai_work.items || []).forEach((x, i) => need(x, ['id', 'text'], `ai_work.items[${i}]`));
+  if (miss.length) { log(`pack: profile/cv-library.json is missing required fields: ${miss.join(', ')}`); process.exit(2); }
+}
 // Optional sections. education: an object {left, right}, a list of them, or absent/null for no EDUCATION section.
 // awards: certifications, courses and awards; items with "required": true always appear; the heading is
 // awards_heading (default "AWARDS & CERTIFICATIONS", e.g. "CERTIFICATIONS" if there are no awards).
@@ -218,7 +230,8 @@ function toPdf(docx) {
     if (r.status !== 0 || !fs.existsSync(pdf)) throw new Error(`Word PDF export failed: ${(r.stderr || r.stdout || '').slice(0, 300)}`);
   } else {
     const bin = process.env.SOFFICE || SETTINGS.pack.soffice || 'soffice';
-    const prof = `file://${path.join(os.tmpdir(), 'apply-pack-lo-profile')}`;
+    // one LibreOffice profile per process: two runs at once must not fight over one locked profile
+    const prof = `file://${path.join(os.tmpdir(), `jobpilot-lo-profile-${process.pid}`)}`;
     const r = spawnSync(bin, [`-env:UserInstallation=${prof}`, '--headless', '--norestore', '--convert-to', 'pdf', '--outdir', path.dirname(docx), docx], { encoding: 'utf8', timeout: 180000 });
     if (r.status !== 0 || !fs.existsSync(pdf)) throw new Error(`LibreOffice PDF export failed: ${(r.stderr || r.stdout || '').slice(0, 300)}`);
   }
@@ -227,7 +240,8 @@ function toPdf(docx) {
 }
 
 // ---------- one pack ----------
-const safe = s => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+// File-name part: at most 80 bytes (ext4 allows 255 bytes per name; Cyrillic takes 2 bytes a letter).
+const safe = s => { let t = String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim(); while (Buffer.byteLength(t) > 80) t = t.slice(0, -1); return t.trim(); };
 async function buildPack(file) {
   const job = loadJob(file);
   const { fm } = job;
@@ -265,12 +279,15 @@ async function buildPack(file) {
     if (!cv[k] || issues.length) { flags.push(`CV ${k} replaced with the vetted version (${issues.join('; ') || 'empty'}).`); cv[k] = fb; }
   }
   const xml = renderCv(cv);
-  const dir = path.join(OUT_ROOT, `${today}--${safe(fm.company).toLowerCase().replace(/ /g, '-')}`); fs.mkdirSync(dir, { recursive: true });
+  // one folder per role (two roles at one company must not share answers.md / pack.json)
+  const dir = path.join(OUT_ROOT, `${today}--${slug(fm.company)}--${slug(fm.role)}`); fs.mkdirSync(dir, { recursive: true });
   const base = `${PERSON} CV - ${safe(fm.company)} (${safe(fm.role)})`;
   const cvDocx = path.join(dir, `${base}.docx`); writeDocx('tpl_cv', xml, cvDocx);
   // PACK_NO_PDF=1 (evals): keep the DOCX only; page counts are taken later in one pass.
   const NO_PDF = !!process.env.PACK_NO_PDF;
-  let cvPdf = NO_PDF ? { pdf: null, pages: null } : layoutCv(cv, cvDocx);
+  // A PDF failure (no LibreOffice, a locked profile) must not lose the drafted answers: keep the DOCX and flag it.
+  let cvPdf = { pdf: null, pages: null };
+  if (!NO_PDF) try { cvPdf = layoutCv(cv, cvDocx); } catch (e) { flags.push(`CV PDF export failed, send the DOCX or export it yourself: ${e.message.slice(0, 160)}`); }
   if (cvPdf.level === 1) flags.push('A CV section splits across pages: keeping every section whole would have made a third page.');
   if (cvPdf.level === 0) flags.push('A company block splits across pages: keeping it whole would have made a third page.');
   if (cvPdf.pages > 2) flags.push(`CV is ${cvPdf.pages} pages: trim before sending.`);
@@ -285,7 +302,7 @@ async function buildPack(file) {
     clText = blocks.map(b => (b.kind === 'bullet' ? `- ${b.text}` : b.text)).join('\n\n');
     if (clNeed !== 'text') {
       const clDocx = path.join(dir, `${PERSON} CL - ${safe(fm.company)} (${safe(fm.role)}).docx`);
-      writeDocx('tpl_cl', renderCl(blocks), clDocx); const cl = NO_PDF ? { pdf: null, pages: 0 } : toPdf(clDocx); if (cl.pages > 1) flags.push(`Cover letter is ${cl.pages} pages.`); if (cl.pdf) files.push(cl.pdf);
+      writeDocx('tpl_cl', renderCl(blocks), clDocx); let cl = { pdf: null, pages: 0 }; if (!NO_PDF) try { cl = toPdf(clDocx); } catch (e) { flags.push(`Cover letter PDF export failed, use the DOCX: ${e.message.slice(0, 160)}`); } if (cl.pages > 1) flags.push(`Cover letter is ${cl.pages} pages.`); if (cl.pdf) files.push(cl.pdf);
     }
   } else if (clNeed !== 'no') flags.push('The model returned no cover letter.');
 

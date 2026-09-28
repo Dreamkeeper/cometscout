@@ -73,7 +73,7 @@ bash deploy/install.sh
 
 - поставит Python, LibreOffice для PDF и шрифты;
 - создаст `settings.json` и `.env`, закрытый от чужих глаз;
-- настроит ежедневный запуск в 18:00 по часовому поясу из `settings.json`. Другое время можно задать при установке: `JOBPILOT_TIME=19:30 bash deploy/install.sh`;
+- настроит ежедневный запуск в 18:00. Пока нет вашего профиля (папки `profile/`), вечерний запуск ничего не делает. Время и часовой пояс потом задаются в `settings.json` (`run_time`, `timezone`), после чего нужно выполнить `node cli.mjs timer`;
 - в конце запустит проверку `node cli.mjs doctor`.
 
 Проверка выводит список: `ok` значит готово, `TODO` значит, что ещё сделать. Сразу после установки пункты про профиль и настройки будут в `TODO`, так и должно быть.
@@ -157,6 +157,7 @@ node sources/linkedin-alerts.mjs --dry-run --max-fetch 3
 - Откликнулись: `node cli.mjs applied Компания`, чтобы вакансия больше не предлагалась.
 - Появились новости: `node cli.mjs status Компания interview` (или `offer`, `rejected`, `skipped`).
 - Все отклики: `node cli.mjs list`.
+- Очистить данные после пробы на примере: `node cli.mjs reset --yes`.
 
 ## Если что-то не работает
 
