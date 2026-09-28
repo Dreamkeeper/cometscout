@@ -57,3 +57,7 @@ Models: decoding uses `llm.model` (a mid-size model is enough), packs use `llm.p
 ## Status
 
 v0.1, first testers. Working: ATS boards, RealtimeJobs and LinkedIn-alerts sources, decode, picks, packs (Claude and Codex), Telegram, installer. Next: guided onboarding polish from tester sessions, Hirify source, outcome tracking from Gmail, evals for your own voice and CV quality.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
