@@ -22,7 +22,7 @@ apt-get update && apt-get install -y sudo && usermod -aG sudo ИМЯ
 **Debian 13:** Node 20 есть в стандартных репозиториях.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git nodejs npm
+sudo apt-get update && sudo apt-get install -y git curl nodejs npm
 ```
 
 **Debian 12:** там Node 18, он не подойдёт. Нужная версия ставится из NodeSource.
@@ -43,8 +43,11 @@ sudo apt-get install -y nodejs
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
+source ~/.profile
 claude
 ```
+
+Установщик кладёт `claude` в `~/.local/bin`. Debian добавляет эту папку в PATH при входе в систему, поэтому сразу после установки нужна строка `source ~/.profile` (или просто перезайдите по SSH).
 
 При первом запуске Claude Code покажет ссылку. Откройте её в браузере на своём компьютере, войдите и вставьте в терминал код, который покажет сайт. После входа выйдите командой `/exit`.
 

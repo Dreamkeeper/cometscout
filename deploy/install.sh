@@ -39,6 +39,8 @@ Description=jobpilot evening run: sources, decode, picks, application packs
 [Service]
 Type=oneshot
 WorkingDirectory=${HOME_DIR}
+# systemd user units get a minimal PATH; keep the one that finds claude/codex (~/.local/bin, npm globals)
+Environment="PATH=${HOME}/.local/bin:${PATH}"
 ExecStart=$(command -v node) ${HOME_DIR}/cli.mjs run
 TimeoutStartSec=2h
 EOF
@@ -54,7 +56,7 @@ EOF
 sudo loginctl enable-linger "$USER"
 systemctl --user daemon-reload
 systemctl --user enable --now jobpilot.timer
-systemctl --user list-timers jobpilot.timer --no-pager | head -2
+systemctl --user list-timers jobpilot.timer --no-pager || true   # no | head: with pipefail, SIGPIPE would end the script
 
 echo "==> Check"
 node cli.mjs doctor
