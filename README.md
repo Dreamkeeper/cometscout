@@ -1,5 +1,7 @@
 # jobpilot
 
+**По-русски:** установка на Debian шаг за шагом в [README-rus.md](README-rus.md).
+
 A self-hosted job search pipeline that runs every evening on your own server and ends with something you can act on: **up to two roles worth applying to, each with a CV tailored from your own checked wording and draft answers for its application form.**
 
 It is built by a product manager for his own search (seven applications in four days once it was running) and uses the Claude or ChatGPT subscription you already have. Your data never leaves your server except for the model calls.
