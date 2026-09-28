@@ -18,21 +18,26 @@ const CAP = num((i => (i >= 0 ? args[i + 1] : null))(args.indexOf('--cap')) ?? S
 const MAX_TRIES = num(SETTINGS.decoder?.max_tries, 3, 1);
 const MIN_TEXT = 300;
 const SCHEMA = JSON.parse(read(path.join(HERE, 'verdict.schema.json')));
-const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', SETTINGS.candidate_name).replace('{{PROFILE}}', PROFILE.facts || '(no profile yet: run onboarding)');
+// Replacement functions, not strings: "$$" or "$&" inside the profile must reach the model unchanged.
+const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', () => SETTINGS.candidate_name).replace('{{PROFILE}}', () => PROFILE.facts || '(no profile yet: run onboarding)');
 export const APPLY_WORTHY = ['strong-fit', 'investable-stretch'];
 const label = v => ({ 'strong-fit': 'Strong fit', 'investable-stretch': 'Investable stretch', 'long-shot': 'Long shot', 'weak-fit': 'Weak fit', 'gate-reject': 'Gate', unreadable: 'No job text' }[v] || v);
 
 // ---------- applications (the user's own record of what happened) ----------
 export const APPS_FILE = STATE('applications.json');
 export const apps = () => readJson(APPS_FILE, {});
+// What the candidate recorded (applied, rejected, offer ...) always reaches the model, newest first; past decodes,
+// newest first, fill the remaining lines. A long history must never drop "they already rejected me".
 function history(company) {
-  const c = norm(company); const lines = [];
-  for (const [f, a] of Object.entries(apps())) if (norm(a.company) === c) lines.push(`- ${a.updated}: ${a.role}: ${a.status}${a.note ? ` (${a.note})` : ''}`);
+  const c = norm(company); const recorded = [], decodes = [];
+  for (const a of Object.values(apps())) if (norm(a.company) === c) recorded.push({ d: a.updated || '', line: `- ${a.updated}: ${a.role}: ${a.status}${a.note ? ` (${a.note})` : ''} [recorded by the candidate]` });
   for (const dir of ['decoded', 'rejected']) for (const f of fs.readdirSync(DIRS[dir])) {
     if (!f.endsWith('.md')) continue; const t = read(path.join(DIRS[dir], f)); const fm = frontMatter(t);
-    if (norm(fm.company) === c) { const v = parseResult(t); lines.push(`- ${v.decoded_on || f.slice(0, 10)}: decoded "${fm.role}": ${v.verdict}`); }
+    if (norm(fm.company) === c) { const v = parseResult(t); const d = v.decoded_on || f.slice(0, 10); decodes.push({ d, line: `- ${d}: decoded "${fm.role}": ${v.verdict}` }); }
   }
-  return lines.length ? lines.slice(-12).join('\n') : '(nothing before with this company)';
+  const newest = list => list.sort((x, y) => (x.d < y.d ? 1 : x.d > y.d ? -1 : 0)).map(x => x.line);
+  const lines = [...newest(recorded).slice(0, 20), ...newest(decodes).slice(0, Math.max(5, 15 - recorded.length))];
+  return lines.length ? lines.join('\n') : '(nothing before with this company)';
 }
 
 // ---------- fact check: regex guards from profile/fact-rules.json ----------

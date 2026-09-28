@@ -47,8 +47,9 @@ const EDU = (Array.isArray(LIB.education) ? LIB.education : LIB.education ? [LIB
 const AWARDS_HEADING = LIB.awards_heading || 'AWARDS & CERTIFICATIONS';
 const SCHEMA = JSON.parse(read(path.join(HERE, 'pack.schema.json')));
 const VOICE = PROFILE.voice ? `## The candidate's voice (applies to every form answer and cover letter)\n\n${PROFILE.voice}` : '';
-const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', SETTINGS.candidate_name).replace('{{PROFILE}}', PROFILE.facts || '').replace('{{VOICE}}', VOICE)
-  .replace('{{CL_TEMPLATE}}', PROFILE.coverLetter ? `### Cover letter template\n\n${PROFILE.coverLetter}` : '');
+// Replacement functions, not strings: "$$" or "$&" inside the profile, voice or template must reach the model unchanged.
+const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', () => SETTINGS.candidate_name).replace('{{PROFILE}}', () => PROFILE.facts || '').replace('{{VOICE}}', () => VOICE)
+  .replace('{{CL_TEMPLATE}}', () => (PROFILE.coverLetter ? `### Cover letter template\n\n${PROFILE.coverLetter}` : ''));
 const PERSON = String(LIB.file_name || LIB.name || 'Candidate').toLowerCase().replace(/(^|\s|-)\S/g, s => s.toUpperCase());
 const PACKS_FILE = STATE('packs.json');
 
