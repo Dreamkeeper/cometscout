@@ -100,7 +100,10 @@ const picksText = ({ picks, open }) => picks.length ? [`🎯 Apply today (${pick
 
 // ---------- main ----------
 if (PICKS_ONLY) { const pk = await buildPicks(); console.log(picksText(pk).join('\n') || `no picks (${pk.open} open)`); process.exit(0); }
-const files = fs.readdirSync(DIRS.inbox).filter(f => f.endsWith('.md') && Date.now() - fs.statSync(path.join(DIRS.inbox, f)).mtimeMs > 60000).sort().slice(0, CAP);
+// jobpilot's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
+// into data/inbox on its own schedule, set decoder.settle_sec (e.g. 60) so half-written files are left for later.
+const SETTLE_MS = Number(SETTINGS.decoder?.settle_sec || 0) * 1000;
+const files = fs.readdirSync(DIRS.inbox).filter(f => f.endsWith('.md') && Date.now() - fs.statSync(path.join(DIRS.inbox, f)).mtimeMs >= SETTLE_MS).sort().slice(0, CAP);
 const done = [], failed = [];
 for (const f of files) {
   try {
