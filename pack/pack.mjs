@@ -158,27 +158,31 @@ function docXml(tplDir, paras, sect) {
   const raw = read(path.join(tplDir, 'word', 'document.xml'));
   return raw.substring(0, raw.indexOf('<w:body>') + 8) + paras.join('') + sect + '</w:body></w:document>';
 }
-// Standing rule (candidate, 2026-09-28): never split one company's experience across pages when it fits on one.
-// Every paragraph of a company block gets keepNext (except the last) and keepLines, so Word and LibreOffice move
-// the whole block to the next page instead of breaking it. keepNext goes right after pStyle (schema order).
+// Layout rule: never split a CV section, or one company's experience, across pages when two pages have room.
+// Every paragraph of a block gets keepNext (except the last) and keepLines, so Word and LibreOffice move the
+// whole block to the next page instead of breaking it. keepNext goes right after pStyle (schema order).
+// Levels: 2 = sections + company blocks whole, 1 = company blocks only, 0 = normal flow; layoutCv picks the
+// strictest level that fits two pages. A section heading always stays with what follows it.
 const keep = (p, next) => p.replace(/<w:pPr>(<w:pStyle [^>]*\/>)?/, (m, s) => `<w:pPr>${s || ''}${next ? '<w:keepNext/>' : ''}<w:keepLines/>`);
 const keepBlock = paras => paras.map((p, i) => keep(p, i < paras.length - 1));
-function renderCv(cv, { keepCompanies = true } = {}) {
-  const out = [cvx.name(LIB.name), cvx.tagline(cv.tagline), cvx.contact(LIB.contact), cvx.section('PROFESSIONAL SUMMARY'), cvx.plain(cv.summary)];
+function renderCv(cv, { level = 2 } = {}) {
+  const out = [cvx.name(LIB.name), cvx.tagline(cv.tagline), cvx.contact(LIB.contact)];
+  const add = block => out.push(...(level >= 2 ? keepBlock(block) : [keep(block[0], true), ...block.slice(1)]));
+  add([cvx.section('PROFESSIONAL SUMMARY'), cvx.plain(cv.summary)]);
   for (const sec of cv.order) {
-    if (sec === 'ai_work' && cv.ai_work_ids.length) { out.push(cvx.section(LIB.ai_work.heading)); for (const id of cv.ai_work_ids) { const it = index.get(id); out.push(cvx.bulletLead(it.lead, it.text)); } }
+    if (sec === 'ai_work' && cv.ai_work_ids.length) add([cvx.section(LIB.ai_work.heading), ...cv.ai_work_ids.map(id => { const it = index.get(id); return cvx.bulletLead(it.lead, it.text); })]);
     if (sec === 'experience') {
-      out.push(cvx.section('PROFESSIONAL EXPERIENCE'));
+      out.push(keep(cvx.section('PROFESSIONAL EXPERIENCE'), true));
       for (const e of cv.experience) {
         const lib = LIB.experience.find(x => x.key === e.key);
         const block = [cvx.company(lib.company, lib.dates)]; if (lib.blurb) block.push(cvx.blurb(lib.blurb));
         lib.roles.forEach((r, ri) => { const ids = e.bullet_ids.filter(id => index.get(id).role === ri); if (!ids.length) return; block.push(cvx.role(r.title)); ids.forEach(id => block.push(cvx.bullet(index.get(id).text))); });
-        out.push(...(keepCompanies ? keepBlock(block) : block));
+        out.push(...(level >= 1 ? keepBlock(block) : block));
       }
     }
-    if (sec === 'skills') { out.push(cvx.section('SKILLS')); for (const id of cv.skill_ids) { const s = index.get(id); out.push(cvx.skill(s.label, s.text)); } }
-    if (sec === 'awards' && cv.award_ids.length) { out.push(cvx.section('AWARDS & CERTIFICATIONS')); for (const id of cv.award_ids) out.push(cvx.bullet(index.get(id).text)); }
-    if (sec === 'education') { out.push(cvx.section('EDUCATION')); out.push(cvx.edu(LIB.education.left, LIB.education.right)); }
+    if (sec === 'skills') add([cvx.section('SKILLS'), ...cv.skill_ids.map(id => { const s = index.get(id); return cvx.skill(s.label, s.text); })]);
+    if (sec === 'awards' && cv.award_ids.length) add([cvx.section('AWARDS & CERTIFICATIONS'), ...cv.award_ids.map(id => cvx.bullet(index.get(id).text))]);
+    if (sec === 'education') add([cvx.section('EDUCATION'), cvx.edu(LIB.education.left, LIB.education.right)]);
   }
   const sect = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="620" w:right="864" w:bottom="620" w:left="864" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="720"/><w:docGrid w:linePitch="360"/></w:sectPr>';
   return docXml(path.join(HERE, 'templates', 'tpl_cv'), out, sect);
@@ -259,13 +263,9 @@ async function buildPack(file) {
   const cvDocx = path.join(dir, `${base}.docx`); writeDocx('tpl_cv', xml, cvDocx);
   // PACK_NO_PDF=1 (evals): keep the DOCX only; page counts are taken later in one pass.
   const NO_PDF = !!process.env.PACK_NO_PDF;
-  let cvPdf = NO_PDF ? { pdf: null, pages: null } : toPdf(cvDocx);
-  if (cvPdf.pages > 2) {
-    // keeping company blocks whole must not cost a third page: fall back to normal flow
-    writeDocx('tpl_cv', renderCv(cv, { keepCompanies: false }), cvDocx); const alt = toPdf(cvDocx);
-    if (alt.pages < cvPdf.pages) { cvPdf = alt; flags.push('A company block splits across pages: keeping it whole would have made a third page.'); }
-    else { writeDocx('tpl_cv', xml, cvDocx); cvPdf = toPdf(cvDocx); }
-  }
+  let cvPdf = NO_PDF ? { pdf: null, pages: null } : layoutCv(cv, cvDocx);
+  if (cvPdf.level === 1) flags.push('A CV section splits across pages: keeping every section whole would have made a third page.');
+  if (cvPdf.level === 0) flags.push('A company block splits across pages: keeping it whole would have made a third page.');
   if (cvPdf.pages > 2) flags.push(`CV is ${cvPdf.pages} pages: trim before sending.`);
   const files = cvPdf.pdf ? [cvPdf.pdf] : [];
 
@@ -304,15 +304,26 @@ function mdToText(md) {
     .replace(/\*\*(.+?)\*\*/g, '$1').replace(/^_(.+)_$/gm, '($1)').replace(/\n{3,}/g, '\n\n');
 }
 
+// Render the CV with the strictest keep level that still fits two pages; ties go to the stricter level.
+function layoutCv(cv, docx) {
+  let best = null, last = null;
+  for (const level of [2, 1, 0]) {
+    writeDocx('tpl_cv', renderCv(cv, { level }), docx); const r = toPdf(docx); last = level;
+    if (!best || r.pages < best.pages) best = { ...r, level };
+    if (r.pages <= 2) break;
+  }
+  if (last !== best.level) { writeDocx('tpl_cv', renderCv(cv, { level: best.level }), docx); best = { ...toPdf(docx), level: best.level }; }
+  return best;
+}
+
 // ---------- main ----------
 // --rerender-dir <pack dir>: rebuild the CV DOCX + PDF from the pack's saved pack.json (same content, current layout rules)
 for (const d of multi('rerender-dir')) {
   const dir = path.isAbsolute(d) ? d : path.join(OUT_ROOT, d);
   const pj = JSON.parse(read(path.join(dir, 'pack.json')));
   const docx = path.join(dir, fs.readdirSync(dir).find(f => f.startsWith(`${PERSON} CV`) && f.endsWith('.docx')));
-  writeDocx('tpl_cv', renderCv(pj.cv), docx); let r = toPdf(docx);
-  if (r.pages > 2) { writeDocx('tpl_cv', renderCv(pj.cv, { keepCompanies: false }), docx); const alt = toPdf(docx); if (alt.pages < r.pages) r = alt; else { writeDocx('tpl_cv', renderCv(pj.cv), docx); r = toPdf(docx); } }
-  log(`re-rendered ${path.basename(docx)}: ${r.pages} page(s)`);
+  const r = layoutCv(pj.cv, docx);
+  log(`re-rendered ${path.basename(docx)}: ${r.pages} page(s), keep level ${r.level}`);
 }
 if (multi('rerender-dir').length && !multi('send-dir').length) process.exit(0);
 const sendDirs = multi('send-dir');
