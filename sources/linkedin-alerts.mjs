@@ -11,7 +11,7 @@
 // Usage: node sources/linkedin-alerts.mjs [--dry-run] [--hours 96] [--max-fetch 10]
 import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, log } from '../lib/config.mjs';
-import { writeJob, alreadyQueued, htmlText } from '../lib/queue.mjs';
+import { writeJob, alreadyQueued, htmlText, matchesAny } from '../lib/queue.mjs';
 import { Gmail, messageText } from '../lib/gmail.mjs';
 
 const cfg = { sender: 'jobalerts-noreply@linkedin.com', first_run_hours: 48, overlap_hours: 24, max_fetch: 40, delay_ms: 3000, title_exclude: [], location_exclude_regex: '', ...(SETTINGS.sources.linkedin_alerts || {}) };
@@ -77,7 +77,7 @@ for (const j of jobs) {
   } finally { await sleep(DELAY); }
   if (!DRY) state.seen[j.id] = new Date().toISOString().slice(0, 10);
   if (!job) { skip('closed or removed'); continue; }
-  if (cfg.title_exclude.some(x => job.title.toLowerCase().includes(x.toLowerCase()))) { skip('title excluded'); continue; }
+  if (matchesAny(job.title, cfg.title_exclude)) { skip('title excluded'); continue; }
   if (excludeLoc && excludeLoc.test(job.location)) { skip('location excluded'); continue; }
   if (alreadyQueued(job.company, job.title)) { skip('already queued'); continue; }
   const r = DRY ? { written: true } : writeJob({ company: job.company, role: job.title, url: `https://www.linkedin.com/jobs/view/${j.id}/`, source: 'linkedin',

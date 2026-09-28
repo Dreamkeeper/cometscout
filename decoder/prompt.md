@@ -22,3 +22,4 @@ You are the decode step of {{NAME}}'s job-search pipeline. You receive ONE job f
 - apply_priority: 1 (apply today) to 5 (only if nothing better exists). Required for every verdict except gate-reject; use 5 for weak-fit.
 - confidence: high only when the job text states the logistics (location, contract shape, language) explicitly.
 - If the history section lists this company, say what happened before and factor it in.
+- If the job file has a MANDATORY CRITERIA block, check every line against the profile before choosing the verdict. A LEGAL_AUTHORIZATION line (work authorization, "without sponsorship", citizenship) that the profile cannot meet is a gate-reject when the profile has no route to it; name the line. Other mandatory lines the profile clearly misses count as gaps. These lines override a vaguer "visa sponsorship" field.

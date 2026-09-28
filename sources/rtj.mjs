@@ -6,7 +6,7 @@
 // Usage: node sources/rtj.mjs [--dry-run] [--hours 72]
 import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, secret, log } from '../lib/config.mjs';
-import { writeJob } from '../lib/queue.mjs';
+import { writeJob, matchesAny } from '../lib/queue.mjs';
 
 const cfg = SETTINGS.sources.rtj || {};
 const args = process.argv.slice(2);
@@ -37,14 +37,26 @@ const place = l => [l.city, l.country].filter(Boolean).join(', ') + (l.attendanc
 let written = 0, skipped = 0;
 for (const it of items) {
   const pos = it.position || {}, emp = it.employer || {};
-  if ((cfg.title_exclude || []).some(x => String(pos.title || '').toLowerCase().includes(x.toLowerCase()))) { skipped++; continue; }
+  if (matchesAny(pos.title, cfg.title_exclude)) { skipped++; continue; }
   const hc = emp.headcount ? `${emp.headcount.min ?? '?'}-${emp.headcount.max && emp.headcount.max < 1e7 ? emp.headcount.max : '+'}` : 'unknown';
   if (cfg.max_headcount && emp.headcount?.min > cfg.max_headcount) { skipped++; continue; }
+  // visa_sponsorship_availability is often AMBIGUOUS even when the text says "without sponsorship"; the reliable
+  // signal is objective_criteria (class LEGAL_AUTHORIZATION), so mandatory criteria go into a block of their own
+  // with the legal ones first, and the decoder prompt tells the model to check each one.
+  const crit = (pos.objective_criteria || []).filter(c => c?.criteria);
+  const legal = c => /^LEGAL/.test(c.class || '');
+  const mandatory = crit.filter(c => c.is_mandatory).sort((a, b) => legal(b) - legal(a));
   const header = [
     `Remote scope: ${pos.remote_scope || 'unknown'}${pos.allowed_regions?.length ? ` (${pos.allowed_regions.join(', ')})` : ''}`,
-    `Visa sponsorship: ${pos.visa_sponsorship_availability || 'unknown'}`, `Languages: ${(pos.languages || []).join(', ') || 'unknown'}`,
+    `Visa sponsorship (RTJ field, often AMBIGUOUS; the mandatory criteria below win): ${pos.visa_sponsorship_availability || 'unknown'}${pos.visa_sponsorship?.length ? ` (${pos.visa_sponsorship.join(', ')})` : ''}`,
+    pos.required_citizenships?.length ? `Required citizenships: ${pos.required_citizenships.join(', ')}` : '',
+    pos.forbidden_citizenships?.length ? `Forbidden citizenships: ${pos.forbidden_citizenships.join(', ')}` : '',
+    pos.relocation_support_availability && pos.relocation_support_availability !== 'NOT_MENTIONED' ? `Relocation support: ${pos.relocation_support_availability}` : '',
+    pos.timezone_requirements ? `Time zone requirements: ${typeof pos.timezone_requirements === 'string' ? pos.timezone_requirements : JSON.stringify(pos.timezone_requirements)}` : '',
+    `Languages: ${(pos.languages || []).join(', ') || 'unknown'}`,
     `Employer: ${emp.name}; ${emp.tagline || ''}; industries: ${(emp.industries || []).join(', ')}; headcount ${hc}; ${emp.stage || ''}`,
-  ].join('\n');
+    mandatory.length ? `\nMANDATORY CRITERIA (from the employer's text; check every one against the profile):\n${mandatory.map(c => `- [${c.class || 'OTHER'}] ${c.criteria}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n');
   const job = { company: emp.name || 'Unknown', role: pos.title || 'Unknown role', url: pos.apply_url, source: 'rtj',
     location: [(pos.locations || []).map(place).join(' | '), pos.remote_scope && pos.remote_scope !== 'none' ? `remote: ${pos.remote_scope}` : ''].filter(Boolean).join('; '),
     headcount: hc, salary: pos.salary?.min ? `${pos.salary.min}-${pos.salary.max} ${pos.salary.currency}` : '', posted: pos.metadata?.computed_posted_at,

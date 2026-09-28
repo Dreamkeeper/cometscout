@@ -103,7 +103,15 @@ if (PICKS_ONLY) { const pk = await buildPicks(); console.log(picksText(pk).join(
 // jobpilot's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
 // into data/inbox on its own schedule, set decoder.settle_sec (e.g. 60) so half-written files are left for later.
 const SETTLE_MS = Number(SETTINGS.decoder?.settle_sec || 0) * 1000;
-const files = fs.readdirSync(DIRS.inbox).filter(f => f.endsWith('.md') && Date.now() - fs.statSync(path.join(DIRS.inbox, f)).mtimeMs >= SETTLE_MS).sort().slice(0, CAP);
+// Order: one job per company in turn (companies with the oldest waiting job first), oldest first within a company.
+// Plain name order would let the cap spend itself on companies early in the alphabet and starve the rest.
+const waiting = fs.readdirSync(DIRS.inbox).filter(f => f.endsWith('.md') && Date.now() - fs.statSync(path.join(DIRS.inbox, f)).mtimeMs >= SETTLE_MS).sort();
+const byCompany = new Map();
+for (const f of waiting) { const k = norm(frontMatter(read(path.join(DIRS.inbox, f))).company || f.split('--')[1] || f); if (!byCompany.has(k)) byCompany.set(k, []); byCompany.get(k).push(f); }
+const fair = []; for (let round = 0; fair.length < waiting.length; round++) for (const list of byCompany.values()) if (list[round]) fair.push(list[round]);
+const files = fair.slice(0, CAP);
+const LEFT = waiting.length - files.length;
+if (LEFT) log(`decoder.cap ${CAP} reached: ${LEFT} job(s) stay in the inbox for the next run (raise decoder.cap to take them now)`);
 const done = [], failed = [];
 for (const f of files) {
   try {
@@ -122,6 +130,7 @@ if (worth.length) L.push(`Worth applying (${worth.length})`, ...worth.flatMap((d
 if (held.length) L.push(`Held (${held.length})`, ...held.flatMap(d => [`- ${d.fm.company}: ${d.fm.role}`, `   Why held: ${d.v.hold_reason || d.v.rationale}`, `   ${d.fm.url || ''}`]), '');
 if (rej.length) L.push(`Rejected (${rej.length})`, ...rej.map(d => `- ${d.fm.company}: ${d.v.gate || 'weak fit'}`), '');
 if (failed.length) L.push(`Failed (${failed.length}), will retry: ${failed.map(f => f.file).join(', ')}`);
+if (LEFT) L.push(`Waiting (${LEFT}): decoder.cap ${CAP} reached, the rest are decoded next run.`);
 const text = L.join('\n');
 fs.writeFileSync(path.join(DIRS.digests, `${today()}.md`), text + '\n', 'utf8');
 console.log('\n' + text);

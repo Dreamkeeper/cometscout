@@ -1,5 +1,5 @@
 {
-  "_comment": "FICTIONAL EXAMPLE. Vetted CV content: every sentence here is true and approved by the candidate. The pack builder only selects and orders these items; it may write a new tagline and summary from these facts. Items that share a `group` are variants; at most one per group is used. `required` skills always appear.",
+  "_comment": "FICTIONAL EXAMPLE. Vetted CV content: every sentence here is true and approved by the candidate. The pack builder only selects and orders these items; it may write a new tagline and summary from these facts. Items that share a `group` are variants; at most one per group is used. `required` skills always appear. Optional: `education` (object, list, or omit), `awards` with `awards_heading` and `required: true` for items that must always appear.",
   "name": "ALEX RIVERA",
   "contact": "Valencia, Spain  |  Remote (EU)  |  alex.rivera@example.com  |  linkedin.com/in/example",
   "taglines": [

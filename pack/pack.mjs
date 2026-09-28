@@ -27,6 +27,12 @@ const today = new Date().toISOString().slice(0, 10);
 const LIB = PROFILE.cvLibrary;
 if (!LIB) { log('pack: profile/cv-library.json is missing; run the onboarding first'); process.exit(2); }
 LIB.ai_work = LIB.ai_work || { heading: 'HIGHLIGHTS', items: [] };
+// Optional sections. education: an object {left, right}, a list of them, or absent/null for no EDUCATION section.
+// awards: certifications, courses and awards; items with "required": true always appear; the heading is
+// awards_heading (default "AWARDS & CERTIFICATIONS", e.g. "CERTIFICATIONS" if there are no awards).
+LIB.awards = LIB.awards || [];
+const EDU = (Array.isArray(LIB.education) ? LIB.education : LIB.education ? [LIB.education] : []).filter(e => e && (e.left || e.right));
+const AWARDS_HEADING = LIB.awards_heading || 'AWARDS & CERTIFICATIONS';
 const SCHEMA = JSON.parse(read(path.join(HERE, 'pack.schema.json')));
 const VOICE = PROFILE.voice ? `## The candidate's voice (applies to every form answer and cover letter)\n\n${PROFILE.voice}` : '';
 const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', SETTINGS.candidate_name).replace('{{PROFILE}}', PROFILE.facts || '').replace('{{VOICE}}', VOICE)
@@ -115,10 +121,11 @@ function validateCv(cv, flags) {
   cv.skill_ids = (cv.skill_ids || []).filter(id => keep(id, 'skills'));
   for (const s of LIB.skills.filter(x => x.required)) if (!cv.skill_ids.includes(s.id)) cv.skill_ids.push(s.id);
   cv.award_ids = (cv.award_ids || []).filter(id => keep(id, 'awards'));
-  const order = (cv.order || []).filter((x, i, a) => a.indexOf(x) === i);
-  for (const s of ['experience', 'skills', 'education']) if (!order.includes(s)) order.push(s);
+  for (const a of LIB.awards.filter(x => x.required)) if (!cv.award_ids.includes(a.id) && keep(a.id, 'awards')) cv.award_ids.push(a.id);
+  const order = (cv.order || []).filter((x, i, a) => a.indexOf(x) === i && (x !== 'education' || EDU.length));
+  for (const s of ['experience', 'skills', ...(EDU.length ? ['education'] : [])]) if (!order.includes(s)) order.push(s);
   if (cv.ai_work_ids.length && !order.includes('ai_work')) order.splice(order.indexOf('experience'), 0, 'ai_work');
-  if (cv.award_ids.length && !order.includes('awards')) order.splice(order.indexOf('education'), 0, 'awards');
+  if (cv.award_ids.length && !order.includes('awards')) { const at = order.indexOf('education'); order.splice(at < 0 ? order.length : at, 0, 'awards'); }
   cv.order = order;
   return cv;
 }
@@ -181,8 +188,8 @@ function renderCv(cv, { level = 2 } = {}) {
       }
     }
     if (sec === 'skills') add([cvx.section('SKILLS'), ...cv.skill_ids.map(id => { const s = index.get(id); return cvx.skill(s.label, s.text); })]);
-    if (sec === 'awards' && cv.award_ids.length) add([cvx.section('AWARDS & CERTIFICATIONS'), ...cv.award_ids.map(id => cvx.bullet(index.get(id).text))]);
-    if (sec === 'education') add([cvx.section('EDUCATION'), cvx.edu(LIB.education.left, LIB.education.right)]);
+    if (sec === 'awards' && cv.award_ids.length) add([cvx.section(AWARDS_HEADING), ...cv.award_ids.map(id => cvx.bullet(index.get(id).text))]);
+    if (sec === 'education' && EDU.length) add([cvx.section('EDUCATION'), ...EDU.map(e => cvx.edu(e.left || '', e.right || ''))]);
   }
   const sect = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="620" w:right="864" w:bottom="620" w:left="864" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="720"/><w:docGrid w:linePitch="360"/></w:sectPr>';
   return docXml(path.join(HERE, 'templates', 'tpl_cv'), out, sect);
