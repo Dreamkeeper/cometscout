@@ -1,0 +1,8 @@
+{
+  "_comment": "Regex guards against claims the candidate cannot back. A hit flags the decode or pack text; in a CV tagline or summary it replaces the model's text with the vetted version. Case-insensitive JavaScript regex.",
+  "rules": [
+    { "id": "managed-pm-team", "pattern": "\\b(managed|led|hired)\\b[^.]{0,40}\\bteam of (product managers|PMs)\\b", "why": "Alex mentored two junior PMs but never managed a product team." },
+    { "id": "whole-platform", "pattern": "\\bowned\\b[^.]{0,40}\\bParcelpoint('s)? (platform|product)\\b", "why": "At Parcelpoint Alex owned carrier integrations only, not the whole platform." },
+    { "id": "ab-program", "pattern": "\\b(ran|led|owned)\\b[^.]{0,40}\\b(a/b|experimentation) (program|platform)\\b", "why": "Alex ran two pricing experiments; no experimentation program." }
+  ]
+}

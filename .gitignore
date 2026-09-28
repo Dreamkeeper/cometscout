@@ -1,0 +1,7 @@
+# personal data and state: never commit
+settings.json
+.env
+profile/
+data/
+node_modules/
+*.log

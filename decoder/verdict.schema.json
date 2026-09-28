@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "confidence", "rationale", "fit_signals", "gaps", "action"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["strong-fit", "investable-stretch", "long-shot", "weak-fit", "gate-reject"] },
+    "gate": { "type": "string", "description": "Required when verdict is gate-reject: which hard gate failed." },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+    "rationale": { "type": "string", "maxLength": 700 },
+    "fit_signals": { "type": "array", "items": { "type": "string" }, "maxItems": 6 },
+    "gaps": { "type": "array", "items": { "type": "string" }, "maxItems": 6 },
+    "action": { "type": "string", "maxLength": 300 },
+    "hold_reason": { "type": "string", "maxLength": 220, "description": "Required when verdict is long-shot: one sentence naming the decisive blockers." },
+    "apply_priority": { "type": "integer", "minimum": 1, "maximum": 5 }
+  }
+}

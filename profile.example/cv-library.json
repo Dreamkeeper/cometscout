@@ -1,0 +1,42 @@
+{
+  "_comment": "FICTIONAL EXAMPLE. Vetted CV content: every sentence here is true and approved by the candidate. The pack builder only selects and orders these items; it may write a new tagline and summary from these facts. Items that share a `group` are variants; at most one per group is used. `required` skills always appear.",
+  "name": "ALEX RIVERA",
+  "contact": "Valencia, Spain  |  Remote (EU)  |  alex.rivera@example.com  |  linkedin.com/in/example",
+  "taglines": [
+    { "id": "t-core", "text": "Senior Product Manager  |  B2B SaaS, APIs & Integrations  |  Energy and Logistics" },
+    { "id": "t-ai", "ai": true, "text": "Senior Product Manager  |  AI-assisted Products and Workflows  |  B2B SaaS" }
+  ],
+  "summaries": [
+    { "id": "s-core", "text": "Product manager with seven years in B2B SaaS and connected devices. At Brightgrid I took a grid-analytics product from pilot to 40 paying utilities; at Parcelpoint I owned carrier integrations used by 1,200 shippers. I work closest to engineers and operations teams, and I judge results by adoption and revenue." },
+    { "id": "s-ai", "ai": true, "text": "Product manager who ships AI-assisted features into operational software. At Brightgrid I launched anomaly alerts that cut false call-outs by a third; at Parcelpoint I owned the integrations layer 1,200 shippers depend on. Seven years in B2B SaaS, working directly with engineers." }
+  ],
+  "ai_work": {
+    "heading": "SELECTED AI WORK",
+    "items": [
+      { "id": "ai-alerts", "lead": "Anomaly alerts: ", "text": "launched model-based alerts for meter data at Brightgrid; false call-outs fell by a third in six months." },
+      { "id": "ai-tools", "lead": "Daily practice: ", "text": "prototype internal tools with Claude and Cursor before asking engineering to build them." }
+    ]
+  },
+  "experience": [
+    { "key": "brightgrid", "company": "Brightgrid (fictional)  |  Madrid, hybrid", "dates": "Mar 2022 - present", "required": true,
+      "blurb": "Grid-analytics software for regional electricity distributors. 60 people.",
+      "roles": [ { "title": "Senior Product Manager", "bullets": [
+        { "id": "bg-pilot", "text": "Took the grid-analytics product from a two-utility pilot to 40 paying utilities and EUR 2.1M ARR in 30 months." },
+        { "id": "bg-alerts", "group": "alerts", "text": "Launched anomaly alerts on meter data; false call-outs fell by a third within six months." },
+        { "id": "bg-pricing", "text": "Redesigned pricing from per-seat to per-meter, lifting average contract value by 28 percent." }
+      ] } ] },
+    { "key": "parcelpoint", "company": "Parcelpoint (fictional)  |  Barcelona", "dates": "Jan 2019 - Feb 2022", "required": true,
+      "blurb": "Shipping platform for mid-size e-commerce. 400 people.",
+      "roles": [ { "title": "Product Manager, Carrier Integrations", "bullets": [
+        { "id": "pp-integrations", "text": "Owned the carrier-integrations product: 14 carriers, used by 1,200 shippers, 99.9 percent label uptime." },
+        { "id": "pp-api", "text": "Shipped a public API and partner onboarding flow that cut integration time from six weeks to ten days." }
+      ] } ] }
+  ],
+  "skills": [
+    { "id": "sk-product", "label": "Product", "text": "Discovery, roadmapping, pricing, PRDs, product analytics (Amplitude, SQL), API products" },
+    { "id": "sk-domain", "label": "Domains", "text": "Energy software, logistics, IoT data platforms" },
+    { "id": "sk-lang", "label": "Languages", "text": "English (C1), Spanish (native)", "required": true }
+  ],
+  "awards": [],
+  "education": { "left": "BSc Computer Science  |  Universitat de València", "right": "2016" }
+}

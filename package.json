@@ -1,0 +1,16 @@
+{
+  "name": "jobpilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted job search pipeline: sources, AI decode against your profile, daily picks, tailored CV and form answers",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "run": "node cli.mjs run",
+    "doctor": "node cli.mjs doctor",
+    "decode": "node cli.mjs decode",
+    "pack": "node cli.mjs pack"
+  }
+}

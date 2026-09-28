@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cv", "answers", "flags", "positioning"],
+  "properties": {
+    "positioning": { "type": "string", "maxLength": 400, "description": "One or two sentences: what this CV leads with and why, for the candidate." },
+    "cv": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tagline", "summary", "order", "ai_work_ids", "experience", "skill_ids", "award_ids"],
+      "properties": {
+        "tagline": { "type": "string", "maxLength": 140 },
+        "summary": { "type": "string", "maxLength": 1100 },
+        "order": { "type": "array", "items": { "enum": ["ai_work", "experience", "skills", "awards", "education"] } },
+        "ai_work_ids": { "type": "array", "items": { "type": "string" } },
+        "experience": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["key", "bullet_ids"],
+            "properties": { "key": { "type": "string" }, "bullet_ids": { "type": "array", "items": { "type": "string" } } }
+          }
+        },
+        "skill_ids": { "type": "array", "items": { "type": "string" } },
+        "award_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "cover_letter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocks"],
+      "properties": {
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["kind", "text"],
+            "properties": { "kind": { "enum": ["p", "bullet", "sign"] }, "text": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "answers": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["field", "answer", "own_words"],
+        "properties": {
+          "field": { "type": "string" },
+          "answer": { "type": "string" },
+          "own_words": { "type": "boolean" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "flags": { "type": "array", "items": { "type": "string" } }
+  }
+}

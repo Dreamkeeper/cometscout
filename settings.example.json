@@ -1,0 +1,36 @@
+{
+  "_comment": "Copy to settings.json. Secrets (tokens) go in .env, never here. Every source is optional: enable what you have.",
+  "candidate_name": "Alex Rivera",
+  "timezone": "Europe/Madrid",
+  "llm": {
+    "provider": "claude",
+    "model": "sonnet",
+    "pack_model": "opus",
+    "timeout_sec": 300
+  },
+  "decoder": { "cap": 30 },
+  "picks": { "per_day": 2, "window_days": 14, "max_shown": 3, "exclude_location_regex": "" },
+  "sources": {
+    "ats_boards": {
+      "enabled": true,
+      "companies": [
+        { "name": "ScorePlay", "ats": "ashby", "board": "scoreplay" },
+        { "name": "Ready", "ats": "ashby", "board": "ready" }
+      ],
+      "title_include": ["product manager", "product owner"],
+      "title_exclude": ["intern", "associate", "junior"],
+      "location_include": [],
+      "max_per_run": 30
+    },
+    "rtj": { "enabled": false, "token_env": "RTJ_API_TOKEN", "hours": 24, "title_exclude": [] },
+    "linkedin_alerts": {
+      "enabled": false,
+      "sender": "jobalerts-noreply@linkedin.com",
+      "first_run_hours": 48, "overlap_hours": 24,
+      "max_fetch": 40, "delay_ms": 3000,
+      "title_exclude": ["intern", "junior"], "location_exclude_regex": ""
+    }
+  },
+  "delivery": { "telegram": { "enabled": false, "token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID" } },
+  "pack": { "enabled": true, "pdf": "auto" }
+}
