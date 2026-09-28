@@ -24,7 +24,7 @@ sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack 
 On a Debian or Ubuntu VPS, as your normal user:
 
 ```bash
-git clone <this repo> jobpilot && cd jobpilot
+git clone https://github.com/Dreamkeeper/jobpilot.git && cd jobpilot
 bash deploy/install.sh
 ```
 
