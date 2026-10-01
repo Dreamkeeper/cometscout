@@ -14,6 +14,7 @@ Each source filters jobs its own way today (title words, a location regex, a hea
   required_languages: [{ lang: 'de', level: 'c1' }],
   attendance: ['remote' | 'hybrid' | 'office'],
   countries: ['ES'],                         // ISO 3166 alpha-2 of on-site / office locations
+  locations: [{ country: 'ES', attendance: ['office'] }],   // optional per-location pairs; without them every country pairs with attendance
   remote_scope: 'worldwide' | 'geo_restricted' | 'none' | null,
   allowed_regions: ['Europe', 'ES'],         // free text or ISO codes
   excluded_countries: ['ES'],
@@ -30,7 +31,7 @@ Settings (`settings.gates`, every key optional; absent = no check):
   "user": { "citizenships": ["XX"], "work_authorization": ["ES"] },
   "languages": ["en"],
   "onsite_countries": ["ES", "DE", "NL", "FR"],
-  "remote": { "accept_worldwide": true, "accept_regions": ["Europe", "EU", "EMEA"] },
+  "remote": { "accept_worldwide": true, "accept_regions": ["Europe", "EU", "EMEA"] },   // shipped example: ["Europe*", "EU", "EEA", "EMEA"]
   "sponsorship_refusal_phrases": ["without sponsorship", "no visa sponsorship", "must be authorized to work in"],
   "must_reside_phrases": [],
   "headcount": { "demote_over": 500, "reject_over": null, "reject_keywords_over": { "min": 500, "keywords": ["smart home"] }, "demote_unless": ["remote_worldwide", "remote_region", "sponsorship"] },
@@ -43,9 +44,9 @@ Order of checks and gate names (first reject wins; flags accumulate):
 1. `company` excluded (whole-word, case-insensitive via `matchesAny`), or listed as an agency → reject `company`.
 2. `industry`: any of `industries` or the company/title text matches `industries.exclude` → reject `industry`.
 3. `language`: posting languages present and none in `gates.languages` → reject; a `required_languages` entry not in `gates.languages` at level B2 or higher (b2, c1, c2, native, fluent) → reject; lower levels → flag.
-4. `legal`: any of the user's citizenships in `forbidden_citizenships` → reject; `required_citizenships` non-empty and not matching → reject; a `LEGAL_AUTHORIZATION` mandatory line or a `sponsorship_refusal_phrases` hit when the job is on-site/hybrid outside `user.work_authorization` → reject; `sponsorship: NOT_AVAILABLE` with on-site outside `work_authorization` → reject; remote jobs only get a flag for these.
+4. `legal`: any of the user's citizenships in `forbidden_citizenships` → reject; `required_citizenships` non-empty and not matching → reject; a `LEGAL_AUTHORIZATION` mandatory line or a `sponsorship_refusal_phrases` hit when the job is on-site/hybrid outside `user.work_authorization` → reject; `sponsorship: NOT_AVAILABLE` with on-site outside `work_authorization` → reject; when the source says `sponsorship: AVAILABLE` these are a flag, not a reject, even if the text says "must be authorized to work in"; jobs that are not on-site only (remote, or attendance unknown) only get a flag for these. Language codes compare by primary subtag (`en-US` is `en`).
 5. `geo`: on-site/hybrid only (no remote) and no country in `onsite_countries` → reject; `excluded_countries` contains a `work_authorization` country → reject (`geo-remote`).
-6. `remote`: remote with scope `geo_restricted` → pass if any allowed region matches `remote.accept_regions` or a `work_authorization`/`onsite_countries` country, else reject `geo-remote`; `worldwide` → pass if `accept_worldwide`. A `must_reside_phrases` hit in a remote job's text → reject `geo-remote` (e.g. phrases meaning "must live in country X").
+6. `remote`: remote with scope `geo_restricted` → pass if any allowed region matches `remote.accept_regions` or names (in words or ISO codes) a `work_authorization`/`onsite_countries` country; else, if the job has an office or hybrid location (that location's own attendance) in one of those countries → pass with a flag; a location there with no attendance listed counts too, flagged "on-site option in <CC>, attendance unknown" (a remote-only location does not); else reject `geo-remote`. No regions listed, or no `accept_regions` in settings → flag only. Region text with an exclusion word (except, excluding, excl., outside, not in, кроме, за исключением) → flag "region text has an exclusion, check it", never a reject by itself. `worldwide` → pass if `accept_worldwide`. A `must_reside_phrases` hit in a remote job's text → reject `geo-remote` (e.g. phrases meaning "must live in country X").
 7. `headcount`: `min > reject_over` → reject; `reject_keywords_over` when `min >= its min` and a keyword appears in industries/title → reject; `min > demote_over` → demote unless one of `demote_unless` holds (remote worldwide, remote region accepted, sponsorship AVAILABLE).
 
 `demote` means: do not queue now; the source logs it under "demoted" (the user can lower the bar later).
@@ -57,7 +58,7 @@ Order of checks and gate names (first reject wins; flags accumulate):
 - `settings.example.json`: a `gates` block with neutral example values; README section.
 
 ## Tests (`test/gates.test.mjs`)
-- Every `_expect` in `test/fixtures/rtj/positions.json` with a sample `gates` config where the user has citizenship `RU`, work authorization `ES`, on-site countries ES/DE/NL/FR, languages en/ru, demote over 500.
+- Every `_expect` in `test/fixtures/rtj/positions.json` with a sample `gates` config where a fictional user has citizenship `XX`, work authorization `ES`, on-site countries ES/DE/NL/FR, languages en/es, demote over 500.
 - Unit cases per gate, including Cyrillic text and missing fields (must pass, not reject).
 
 ## Done when
