@@ -2,7 +2,7 @@
   "title": "Product Manager - AI",
   "shortcode": "ABCDEF1234",
   "location": { "city": "Madrid", "region": "", "country": "Spain", "telecommuting": true },
-  "description": "&lt;p&gt;Northwind is hiring a Product Manager to drive our AI roadmap.&lt;/p&gt;",
-  "requirements": "&lt;ul&gt;&lt;li&gt;3+ years in product&lt;/li&gt;&lt;/ul&gt;",
-  "benefits": "&lt;p&gt;Equity, remote-first.&lt;/p&gt;"
+  "description": "<p>Northwind is hiring a Product Manager to drive our AI roadmap.</p>",
+  "requirements": "<ul><li>3+ years in product</li></ul>",
+  "benefits": "<p>Equity, remote-first.</p>"
 }

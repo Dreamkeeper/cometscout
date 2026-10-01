@@ -5,7 +5,7 @@
     "city": "Lisbon",
     "country": "Portugal",
     "remote": true,
-    "description": "&lt;p&gt;Join our backend team building the core platform.&lt;/p&gt;",
-    "requirements_description": "&lt;ul&gt;&lt;li&gt;Node.js experience&lt;/li&gt;&lt;/ul&gt;"
+    "description": "<p>We&rsquo;re hiring: join our backend team building the core platform &amp; APIs.</p>",
+    "requirements_description": "<ul><li>Node.js experience</li></ul>"
   }
 }
