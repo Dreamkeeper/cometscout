@@ -99,21 +99,23 @@ For hh.ru users: with `sources.hh_alerts.enabled`, every run reads your hh.ru sa
   "enabled": true, "sender": "noreply@hh.ru",
   "first_run_hours": 72, "overlap_hours": 24, "max_lookback_hours": 168,
   "max_fetch": 40, "delay_ms": 3000,
-  "title_include": [], "title_exclude": ["стажер", "стажёр", "intern", "junior"],
-  "must_reside_phrases": ["находиться на территории РФ", "проживание в России"],
+  "title_include": ["менеджер продукта", "продакт*", "product manager", "product owner"],
+  "title_exclude": ["стажер", "стажёр", "intern", "junior"],
+  "must_reside_phrases": ["находиться на территории РФ", "находиться в РФ", "проживать в России", "проживающий в России", "проживающих в России"],
   "abroad_signals": ["из любой страны", "релокант*"],
   "tax_residency_phrases": ["налоговый резидент*"],
   "city_countries": { "Лимасол": "CY" }
 }
 ```
 
-- `title_include` and `title_exclude` take Russian and English terms (whole words; end a term with `*` for word prefixes). An empty `title_include` lets every title through.
+- `title_include` and `title_exclude` take Russian and English terms (whole words; end a term with `*` for word prefixes). An empty `title_include` lets every title through. In the example above, `"продакт*"` keeps "Продакт-менеджер" and "продакт менеджер".
 - `must_reside_phrases`: for a remote job, phrases that mean you must live in a given country. A hit rejects the job (gate `geo-remote`). Useful when you live abroad and many remote jobs need you to be in Russia; the example file leaves it empty.
+- How phrases match (all the lists here): whole words, case-insensitive, with no other folding. "ё" and "е" are different letters, so list both spellings ("стажер", "стажёр"). Word endings are not folded either, so "проживать в России" does not match "проживающий в России": list each form you want caught. A `*` matches a word prefix only at the very end of a term ("продакт*", "налоговый резидент*"); inside a phrase it is an ordinary character.
 - `abroad_signals`: phrases that suggest working from abroad is fine. When the list is not empty, every remote job gets a flag: the signals found, or "confirm working from your country is allowed" when there are none.
 - `tax_residency_phrases`: a hit adds a flag (a tax residency requirement is worth checking before you apply).
-- `city_countries`: extra city to country pairs. Major Russian and nearby cities are built in; the country is what the on-site gate checks, so an on-site job in Moscow is rejected when RU is not in your `gates.onsite_countries`. A city that is not known leaves the country empty, which never rejects.
+- `city_countries`: extra city to country pairs. The city and country come from the vacancy page itself when it has them; otherwise the city is read from the address and looked up in a built-in table of major Russian and nearby cities, then in `city_countries`. The country is what the on-site gate checks, so an on-site job in Moscow is rejected when RU is not in your `gates.onsite_countries`. A city that is not known leaves the country empty, which never rejects.
 
-The shared gates then apply as for every source. A posting written mostly in Cyrillic counts as Russian for the language gate, so add `"ru"` to `gates.languages` if you use that gate (`doctor` warns when it is missing). Pages are read one at a time, at least 2 seconds apart (`delay_ms`, default 3), at most `max_fetch` per run. A 403 alone means the vacancy is hidden from visitors who are not logged in; two 403s in a row or a 429 mean hh.ru is slowing jobpilot down, so the run stops. Archived and removed vacancies are skipped. Three pages in a row without a title or description stop the run too (hh.ru probably changed its page layout). Vacancies left over for any of these reasons, or past `max_fetch`, are kept in `data/state/hh-alerts.json` and tried first on the next run. Try it with `node sources/hh-alerts.mjs --dry-run` (writes nothing), test single vacancies with `--ids 123456789,987654321` (no Gmail), or look further back with `--hours 168`.
+The shared gates then apply as for every source. A posting written mostly in Cyrillic counts as Russian for the language gate, so add `"ru"` to `gates.languages` if you use that gate (`doctor` warns when it is missing). Pages are read one at a time, at least 2 seconds apart (`delay_ms`, default 3), at most `max_fetch` per run. A 403 alone means the vacancy is hidden from visitors who are not logged in; two 403s in a row or a 429 mean hh.ru is slowing jobpilot down, so the run stops. Archived and removed vacancies are skipped. A page without a title or description is not marked seen but tried again on later runs (3 times at most); three such pages in a row stop the run (hh.ru probably changed its page layout). Vacancies left over for any of these reasons, or past `max_fetch`, are kept in `data/state/hh-alerts.json` and tried first on the next run. Try it with `node sources/hh-alerts.mjs --dry-run` (writes nothing) or look further back with `--hours 168`. `--ids 123456789,987654321` only looks: it reads those vacancies (no Gmail, even ones seen before), prints what would happen to each, and writes no job files, does not mark them seen and leaves the state file alone.
 
 ### Outcomes from Gmail
 

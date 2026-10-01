@@ -16,22 +16,25 @@
 // Emailed links carry login keys (key=...). They are never followed, logged or stored: only the vacancy id is kept
 // and only https://hh.ru/vacancy/<id> is fetched, without following redirects.
 // A 403 alone means the vacancy is hidden from logged-out visitors (marked seen). Two 403s in a row or any 429 mean
-// hh.ru is throttling: the run stops and the rest is kept for the next run. A page without a title or description is
-// treated as unavailable; three in a row mean the page layout probably changed, so those are not marked seen and the
-// run stops. Ids that could not be handled (throttling, max_fetch, a network error) are kept in the state file under
-// "pending" and tried first on the next run (a network or HTTP error at most 3 times, any pending id at most 14 days).
+// hh.ru is throttling: the run stops and the rest is kept for the next run. Archived and removed vacancies are marked
+// seen. A page without a title or description is not marked seen but kept for a later run; three in a row mean the
+// page layout probably changed, so the run stops. Ids that could not be handled (throttling, max_fetch, a network
+// error, a blank page) are kept in the state file under "pending" and tried first on the next run (an error or a
+// blank page at most 3 times, any pending id at most 14 days).
 // The search window starts at the last run in which every email could be read, minus overlap_hours (never further
 // back than max_lookback_hours); the first run looks back first_run_hours.
 // settings.gates (lib/gates.mjs) applies after the checks above; rejects are counted per gate in the log, demotes
 // are appended to data/state/demoted.jsonl and not marked seen.
 // State: data/state/hh-alerts.json = { last_run, seen: { id: date }, pending: { id: { since, alerts, tries } } };
 // seen ids older than 120 days are dropped.
+// --ids only looks: it fetches and checks the given vacancies and prints the result, without reading Gmail, writing
+// job files or touching the state file.
 // Usage: node sources/hh-alerts.mjs [--dry-run] [--hours 96] [--max-fetch 10] [--ids 123456789,987654321]
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, STATE, read, log, num } from '../lib/config.mjs';
-import { writeJob, htmlText, matchesAny } from '../lib/queue.mjs';
+import { writeJob, htmlText, matchesAny, decodeEntities } from '../lib/queue.mjs';
 import { checkGates, countriesIn, gateTally, settle } from '../lib/gates.mjs';
 
 export const MIN_DELAY_MS = 2000;
@@ -49,12 +52,12 @@ export const SUBJECTS = ['Вакансии по подписке', 'Подход
 export function searchQuery(sender, afterEpoch) {
   return `from:${sender} (${SUBJECTS.map(s => `subject:"${s}"`).join(' OR ')}) after:${afterEpoch}`;
 }
-/** "Вакансии по подписке: X" -> "подписка: X"; "Подходящие вакансии по резюме «X»" -> "резюме: X". */
+/** "Вакансии по подписке: X" -> "подписка: X"; "Подходящие вакансии для резюме: X" -> "резюме: X". */
 export function alertName(subject) {
   const s = String(subject || '').replace(/\s+/g, ' ').trim();
   const rest = (m, prefix) => { const r = s.slice(m[0].length).replace(/^[\s:«"'“„-]+|[\s»"'”.]+$/g, '').trim(); return r ? `${prefix}: ${r}` : prefix; };
   let m = s.match(/^вакансии по (?:вашей )?подписке/i); if (m) return rest(m, 'подписка');
-  m = s.match(/^подходящие вакансии(?: (?:для вас|по (?:вашему )?резюме))?/i); if (m) return rest(m, 'резюме');
+  m = s.match(/^подходящие вакансии(?: (?:для вас|(?:для|по) (?:вашему )?резюме))?/i); if (m) return rest(m, 'резюме');
   return s || 'hh alert';
 }
 /** Vacancy ids in an email, in order, once each. Only the digits are kept: the links themselves carry login keys. */
@@ -68,33 +71,53 @@ const header = (msg, name) => String((msg?.payload?.headers || []).find(h => Str
 // ---------- 2. the vacancy page ----------
 export const vacancyUrl = id => `https://hh.ru/vacancy/${id}`;
 const openTag = name => new RegExp(`<([a-z][a-z0-9]*)\\b[^>]*\\bdata-qa="(?:[^"]*\\s)?${name}(?:\\s[^"]*)?"[^>]*>`, 'i');
-/** Inner HTML of the first element with this data-qa marker (same-tag nesting counted), or null. */
-function element(html, name) {
+/** Where the first element with this data-qa marker is: { start, inner, innerEnd, end } (same-tag nesting counted), or null. */
+function bounds(html, name) {
   const m = openTag(name).exec(html); if (!m) return null;
-  const start = m.index + m[0].length, re = new RegExp(`<(/?)${m[1]}\\b[^>]*>`, 'gi');
-  re.lastIndex = start; let depth = 1, t;
-  while ((t = re.exec(html))) { if (t[1]) { if (--depth === 0) return html.slice(start, t.index); } else if (!t[0].endsWith('/>')) depth++; }
-  return html.slice(start);
+  const inner = m.index + m[0].length, re = new RegExp(`<(/?)${m[1]}\\b[^>]*>`, 'gi');
+  re.lastIndex = inner; let depth = 1, t;
+  while ((t = re.exec(html))) { if (t[1]) { if (--depth === 0) return { start: m.index, inner, innerEnd: t.index, end: t.index + t[0].length }; } else if (!t[0].endsWith('/>')) depth++; }
+  return { start: m.index, inner, innerEnd: html.length, end: html.length };
 }
+/** Inner HTML of the first element with this data-qa marker, or null. */
+const element = (html, name) => { const b = bounds(html, name); return b ? html.slice(b.inner, b.innerEnd) : null; };
 const oneLine = h => htmlText(h || '').replace(/\s+/g, ' ').trim();
 const field = (html, name) => oneLine(element(html, name));
-const DESC_END = /data-qa="(?:[^"]*\s)?(?:skills-element|vacancy-skills|vacancy-address|vacancy-contacts|vacancy-response-link-bottom|bloko-tag-list)[\s"]/i;
+// the description ends at the first of these markers, or at the "Ключевые навыки" heading that comes before the skills
+const DESC_END = /data-qa="(?:[^"]*\s)?(?:skills-element|vacancy-skills|vacancy-address|vacancy-contacts|vacancy-response-link-bottom|bloko-tag-list)[\s"]|Ключевые\s+навыки/i;
 function description(html) {
   const m = openTag('vacancy-description').exec(html); if (!m) return '';
   const rest = html.slice(m.index + m[0].length), end = DESC_END.exec(rest);
-  return htmlText(end ? rest.slice(0, rest.lastIndexOf('<', end.index)) : element(html, 'vacancy-description')).trim();
+  return htmlText(end ? rest.slice(0, rest.lastIndexOf('<', end.index)) : element(html, 'vacancy-description')).split('\n').map(l => l.trim()).join('\n').trim();
 }
-// the "В архиве" label is an element of its own inside the title, so a title like "Работа в архиве" is not archived
-const ARCHIVED = /<([a-z][a-z0-9]*)\b[^>]*>\s*в\s+архиве\s*<\/\1>/i;
-/** Fields of a public vacancy page, read by data-qa markers. Anything missing is ''. */
+// The page state is JSON with HTML-escaped quotes (archived&#34;:true); plain and &quot; quotes are read too.
+const Q = '(?:"|&#34;|&quot;)';
+const ARCHIVED_JSON = new RegExp(`archived${Q}\\s*:\\s*true`);
+const AREA = new RegExp(`${Q}area${Q}\\s*:\\s*\\{([^{}]*)\\}`, 'g');
+/** City and country of the vacancy from the page state: the first "area" object that has countryIsoCode. */
+export function pageArea(html) {
+  for (const m of String(html || '').matchAll(AREA)) {
+    const obj = decodeEntities(m[1]), iso = obj.match(/"countryIsoCode"\s*:\s*"([A-Za-z]{2})"/);
+    if (!iso) continue;
+    const name = (obj.match(/"name"\s*:\s*"((?:[^"\\]|\\.)*)"/) || [])[1] || '';
+    let city = name; try { city = JSON.parse(`"${name}"`); } catch { /* keep it as written */ }
+    return { country: iso[1].toUpperCase(), city: String(city).trim() };
+  }
+  return { country: null, city: '' };
+}
+/** Fields of a public vacancy page, read by data-qa markers and the page state. Anything missing is '' (country null). */
 export function parseVacancy(html) {
   const h = String(html || ''), titleHtml = element(h, 'vacancy-title') || '';
-  const place = field(h, 'vacancy-view-raw-address') || field(h, 'vacancy-view-location');
+  // the archive label ("В архиве с 28 сентября") sits inside the title element; it is not part of the role
+  const label = bounds(titleHtml, 'vacancy-title-archived-text');
+  const area = pageArea(h);
+  const place = field(h, 'vacancy-address-with-map') || field(h, 'vacancy-view-raw-address') || field(h, 'vacancy-view-location');
   return {
-    title: oneLine(titleHtml.replace(ARCHIVED, ' ')),
-    archived: ARCHIVED.test(titleHtml) || /"archived"\s*:\s*true/.test(h),
+    title: oneLine(label ? `${titleHtml.slice(0, label.start)} ${titleHtml.slice(label.end)}` : titleHtml),
+    archived: !!label || /в\s+архиве/i.test(oneLine(titleHtml)) || ARCHIVED_JSON.test(h),
     company: field(h, 'vacancy-company-name'),
-    city: place.split(',')[0].trim(),
+    city: area.city || place.split(',')[0].trim(),
+    country: area.country,
     formats: field(h, 'work-formats-text').replace(/^формат(?:ы)?\s+работы\s*:?\s*/i, '').trim(),
     salary: field(h, 'vacancy-salary'),
     experience: field(h, 'vacancy-experience'),
@@ -104,7 +127,7 @@ export function parseVacancy(html) {
 }
 
 // ---------- 3. what the page says about place, remote work and language ----------
-const REMOTE = /(?<!\p{L})(?:удал[её]нно|remote|полностью\s+удал[её]нн\p{L}*)(?!\p{L})/iu;
+const REMOTE = /(?<!\p{L})(?:удал[её]нно|удал[её]нн(?:ая|ой|ую)|remote)(?!\p{L})/iu;   // "удалённая работа", "полностью удаленная"
 export const isRemote = (title, formats) => REMOTE.test(`${title || ''}\n${formats || ''}`);
 /** Attendance words gates understands, from the work formats (and a title that says remote). */
 export function attendanceOf(formats, title) {
@@ -143,7 +166,7 @@ export function postingLanguage(text) {
 }
 /** The normalised job lib/gates.mjs checks. Nothing guessed: an unknown city or format leaves the field empty. */
 export function gatesJob(v, cfg = settings()) {
-  const attendance = attendanceOf(v.formats, v.title), country = cityCountry(v.city, cfg.city_countries);
+  const attendance = attendanceOf(v.formats, v.title), country = v.country || cityCountry(v.city, cfg.city_countries);
   const text = `${v.title}\n${v.description}`, lang = postingLanguage(text);
   return { company: v.company || null, title: v.title || null, text, languages: lang ? [lang] : [], required_languages: [],
     attendance, countries: country ? [country] : [], locations: country ? [{ country, attendance }] : [],
@@ -197,13 +220,15 @@ function saveState(file, state) {
 // ---------- 5. run ----------
 /**
  * One pass. Tests inject gmail ({ list(q, max), get(id) }), messageHtml, fetch, sleep, now and check (the gates function).
- * ids: vacancy ids to fetch without reading Gmail (they skip the seen list and are never kept as pending).
+ * ids: vacancy ids to look at without reading Gmail: they skip the seen list, and nothing is written (no job files,
+ * no state, no demoted.jsonl), as with dryRun.
  * hours: the search window instead of the one from the state file. Returns what happened to every id in `results`.
  */
 export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetch, sleep = defaultSleep, now = new Date(), dryRun = false,
   ids = null, hours = null, maxFetch = null, check = checkGates } = {}) {
   const cfg = settings();
   if (!cfg.enabled) { log('hh-alerts: disabled in settings.json'); return { ran: false }; }
+  const look = dryRun || !!ids;   // --dry-run and --ids write nothing
   const MAX = num(maxFetch ?? cfg.max_fetch, 40, 0), DELAY = Math.max(MIN_DELAY_MS, num(cfg.delay_ms, 3000, 0));   // a typo never removes the limit or the delay
   const stateFile = STATE('hh-alerts.json'), state = loadState(stateFile), nowMs = now.getTime(), today = day(now);
   const pendingCutoff = day(nowMs - PENDING_DAYS * 864e5);
@@ -240,11 +265,11 @@ export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetc
   const results = [], skipped = {}, gated = gateTally(), seenThisRun = new Set();
   const count = (why, n = 1) => { if (!why) return; skipped[why] = (skipped[why] || 0) + n; if (!skipped[why]) delete skipped[why]; };
   const result = (id, outcome, extra = {}) => { const r = { id, outcome, ...extra }; results.push(r); return r; };
-  const markSeen = id => { if (dryRun) return; state.seen[id] = today; seenThisRun.add(id); delete state.pending[id]; };
+  const markSeen = id => { if (look) return; state.seen[id] = today; seenThisRun.add(id); delete state.pending[id]; };
   const unmarkSeen = id => { if (seenThisRun.has(id)) { delete state.seen[id]; seenThisRun.delete(id); } };
   // kept for the next run; countTry for errors that may never go away, so an id cannot stay pending for ever
   const defer = (id, countTry = false) => {
-    if (dryRun || ids) return;
+    if (look) return;
     const p = state.pending[id] || { since: today, alerts: [], tries: 0 };
     p.alerts = [...new Set([...list(p.alerts), ...(found.get(id) || [])])];
     if (countTry) p.tries = (Number(p.tries) || 0) + 1;
@@ -270,19 +295,22 @@ export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetc
     }
     const v = parseVacancy(page.html);
     if (v.archived) { markSeen(id); return { outcome: 'unavailable', reason: 'archived', counted: 'archived' }; }
-    if (!v.title || !v.description) { markSeen(id); return { outcome: 'unavailable', reason: 'no title or description', counted: 'no title or description', unparsed: true }; }
+    if (!v.title || !v.description) {   // not seen: kept for a later run, at most MAX_TRIES times
+      defer(id, true);
+      return { outcome: 'deferred', reason: 'no title or description', counted: 'no title or description (next run)', unparsed: true };
+    }
 
     const url = vacancyUrl(id), company = v.company || 'Unknown', role = v.title;
     const sc = sourceChecks(v, cfg);
     if (sc.skip) { markSeen(id); return { outcome: 'skipped', reason: sc.skip, counted: sc.skip }; }
     const g = sc.reject ? { decision: 'reject', gate: sc.reject.gate, reason: sc.reject.reason, flags: [] } : check(gatesJob(v, cfg));
-    const s = settle(g, { source: 'hh', company, role, url }, { dry: dryRun });
-    if (s.markSeen) markSeen(id); else if (!dryRun) delete state.pending[id];   // a demoted job stays unseen, so it comes back once the bar is lowered
+    const s = settle(g, { source: 'hh', company, role, url }, { dry: look });
+    if (s.markSeen) markSeen(id); else if (!look) delete state.pending[id];   // a demoted job stays unseen, so it comes back once the bar is lowered
     if (!s.queue) { gated.add(g); return { outcome: g.decision === 'demote' ? 'demoted' : 'rejected', gate: g.gate, reason: g.reason }; }
     const flags = [...sc.flags, ...(g.flags || [])], lang = postingLanguage(`${v.title}\n${v.description}`);
     const head = [v.city && `Город: ${v.city}`, v.formats && `Формат работы: ${v.formats}`, v.experience && `Опыт: ${v.experience}`,
       v.employment && `Занятость: ${v.employment}`, v.salary && `Зарплата: ${v.salary}`].filter(Boolean).join('\n');
-    const r = dryRun ? { written: true } : writeJob({ company, role, url, source: 'hh', location: [v.city, v.formats].filter(Boolean).join('; '), salary: v.salary,
+    const r = look ? { written: true } : writeJob({ company, role, url, source: 'hh', location: [v.city, v.formats].filter(Boolean).join('; '), salary: v.salary,
       text: `${head}${head ? '\n\n' : ''}${v.description}`, notes: `hh alert: ${[...alerts].join(', ') || 'earlier alert'}`,
       extra: { experience: v.experience, employment: v.employment, posting_language: lang, gate_flags: flags.join('; ') } });
     if (r.written) written++;
@@ -291,8 +319,8 @@ export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetc
 
   try {
     for (const [id, alerts] of found) {
+      if (!ids && state.seen[id]) { if (!look) delete state.pending[id]; count('seen before'); result(id, 'seen'); continue; }
       if (stopped) { defer(id); result(id, 'deferred', { reason: stopped }); continue; }
-      if (!ids && state.seen[id]) { if (!dryRun) delete state.pending[id]; count('seen before'); result(id, 'seen'); continue; }
       if (fetched >= MAX) { defer(id); count('over max_fetch (next run)'); result(id, 'deferred', { reason: 'max_fetch' }); continue; }
       if (fetched > 0) await sleep(DELAY);
       fetched++;
@@ -306,14 +334,17 @@ export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetc
         const r = await handle(id, alerts, page);
         result(id, r.outcome, r); if (r.counted) count(r.counted);
         if (!r.unparsed) unparsed = [];
-        else if (unparsed.push(id) >= UNPARSED_STOP) stop(`${UNPARSED_STOP} pages in a row without a title or description (the page layout probably changed)`, unparsed);
+        else if (unparsed.push(id) >= UNPARSED_STOP) {
+          stopped = `${UNPARSED_STOP} pages in a row without a title or description (the page layout probably changed)`;
+          log(`hh-alerts: ${stopped}; stopping this run, the rest is kept for the next run`);
+        }
       } catch (e) {   // one broken vacancy never stops the run
         last403 = null; unparsed = []; unmarkSeen(id); defer(id, true); count('fetch error (next run)');
         result(id, 'error', { reason: e.message }); log(`hh-alerts: vacancy ${id}: ${e.message}`);
       }
     }
   } finally {
-    if (!dryRun) {
+    if (!look) {
       const cutoff = day(nowMs - PRUNE_DAYS * 864e5);
       for (const [k, d] of Object.entries(state.seen)) if (!(String(d) >= cutoff)) delete state.seen[k];
       // the next window starts here only when every email was read; ids left behind are in pending
@@ -323,8 +354,8 @@ export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetc
   }
   for (const r of results) { delete r.counted; delete r.unparsed; }
   const pend = Object.keys(state.pending).length;
-  log(`hh-alerts: ${ids ? `${found.size} id(s) given` : `${searchFailed ? 'Gmail search failed' : `${emails} email(s) in ${windowHours}h`}${emailErrors ? ` (${emailErrors} could not be read)` : ''}, ${found.size} vacancy id(s)`}, ${fetched} page(s) fetched, ${written} new${dryRun ? ' (dry run)' : ''}` +
-    `${gated.total ? `, ${gated}` : ''}; skipped ${JSON.stringify(skipped)}${pend && !dryRun ? `; ${pend} kept for the next run` : ''}${stopped ? `; stopped: ${stopped}` : ''}`);
+  log(`hh-alerts: ${ids ? `${found.size} id(s) given` : `${searchFailed ? 'Gmail search failed' : `${emails} email(s) in ${windowHours}h`}${emailErrors ? ` (${emailErrors} could not be read)` : ''}, ${found.size} vacancy id(s)`}, ${fetched} page(s) fetched, ${written} new${ids ? ' (look only, nothing written)' : dryRun ? ' (dry run)' : ''}` +
+    `${gated.total ? `, ${gated}` : ''}; skipped ${JSON.stringify(skipped)}${pend && !look ? `; ${pend} kept for the next run` : ''}${stopped ? `; stopped: ${stopped}` : ''}`);
   return { ran: true, emails, emailErrors, searchFailed, windowHours, fetched, written, stopped, results, skipped };
 }
 
@@ -333,6 +364,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const ids = opt('ids') ? opt('ids').split(',').map(s => s.trim()).filter(Boolean) : null;
   if (ids && (!ids.length || ids.some(id => !/^\d{6,}$/.test(id)))) { log('hh-alerts: --ids takes vacancy numbers, e.g. --ids 123456789,987654321'); process.exit(1); }
   try {
-    await run({ dryRun: args.includes('--dry-run'), ids, hours: opt('hours'), maxFetch: opt('max-fetch') });
+    const r = await run({ dryRun: args.includes('--dry-run'), ids, hours: opt('hours'), maxFetch: opt('max-fetch') });
+    if (ids) for (const x of r.results || []) log(`hh-alerts: ${x.id}: ${x.outcome}${x.gate ? ` (${x.gate})` : ''}${x.reason ? `: ${x.reason}` : ''}${x.flags?.length ? `; flags: ${x.flags.join('; ')}` : ''}`);
   } catch (e) { log(`hh-alerts: ${e.message}`); process.exit(2); }
 }

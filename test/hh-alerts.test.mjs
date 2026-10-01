@@ -81,6 +81,9 @@ const state = () => JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
 const inboxJob = url => fs.readdirSync(DIRS.inbox).map(f => ({ f, txt: fs.readFileSync(path.join(DIRS.inbox, f), 'utf8') }))
   .map(x => ({ ...x, fm: frontMatter(x.txt) })).find(x => x.fm.url === url);
 const runWith = (extra = {}) => hh.run({ messageHtml, sleep: noSleep(), now: NOW, ...extra });
+/** A Gmail client with one alert email that lists exactly these vacancy ids. */
+const emailWith = ids => fakeGmail([message('m-ids', SUBJECT, ids.map(id => `<a href="https://hh.ru/vacancy/${id}?from=email">x</a>`).join('\n'))]);
+const withoutState = html => html.replace(/<template id="HH-Lux-InitialState">[\s\S]*?<\/template>/, '');
 const byId = (r, id) => r.results.find(x => x.id === id);
 
 test('every line of expected.json holds for the fixture email', async () => {
@@ -117,7 +120,7 @@ test('every line of expected.json holds for the fixture email', async () => {
   assert.equal(job.fm.posting_language, 'ru');
   assert.match(job.fm.gate_flags, /abroad/);
   assert.match(job.txt, /Удалённая работа из любой страны/);
-  assert.doesNotMatch(job.txt, /Product management/, 'skills block is not part of the description');
+  assert.doesNotMatch(job.txt, /Product management|Ключевые навыки/, 'skills block is not part of the description');
   // only one job file from this email
   assert.equal(r.written, 1);
   // state: all four seen, nothing pending, last_run set
@@ -178,6 +181,7 @@ test('alert names: the subject with the prefix shortened', () => {
   assert.equal(hh.alertName('Вакансии по подписке «Product Owner»'), 'подписка: Product Owner');
   assert.equal(hh.alertName('Подходящие вакансии по вашему резюме «Менеджер продукта»'), 'резюме: Менеджер продукта');
   assert.equal(hh.alertName('Подходящие вакансии для вас'), 'резюме');
+  assert.equal(hh.alertName('Подходящие вакансии для резюме: Менеджер продукта'), 'резюме: Менеджер продукта', 'the subject hh.ru sends today');
   assert.equal(hh.alertName(''), 'hh alert');
 });
 
@@ -201,17 +205,38 @@ test('the page parser reads every data-qa field and cuts the description before 
   assert.match(v.description, /^Удалённая работа из любой страны/);
   assert.match(v.description, /- Работать с командой разработки$/);
   assert.equal(v.archived, false);
-  const a = hh.parseVacancy(fixture('vacancy-123456703.html'));
-  assert.equal(a.archived, true, '"В архиве" in the title');
-  assert.equal(a.title, 'Менеджер продукта');
-  const archivist = hh.parseVacancy(fixture('vacancy-123456704.html').replace('>Менеджер продукта</h1>', '>Специалист по работе в архиве</h1>'));
-  assert.deepEqual([archivist.title, archivist.archived], ['Специалист по работе в архиве', false], 'words in the title are not the archive label');
-  assert.equal(hh.parseVacancy(fixture('vacancy-123456704.html').replace('<body>', '<body><script>{"archived": true}</script>')).archived, true);
-  const raw = hh.parseVacancy(fixture('vacancy-123456704.html').replace('<p data-qa="vacancy-view-location">Москва</p>', '<p data-qa="vacancy-view-raw-address">Санкт-Петербург, Невский проспект, 1</p>'));
-  assert.equal(raw.city, 'Санкт-Петербург', 'raw address first, city is its first part');
+  assert.doesNotMatch(v.description, /Ключевые навыки|Product management/);
+  assert.equal(v.country, 'RU', 'from the page state');
   const noEnd = hh.parseVacancy('<h1 data-qa="vacancy-title">X</h1><div data-qa="vacancy-description"><div><p>Текст</p></div></div><footer>Подвал</footer>');
   assert.equal(noEnd.description, 'Текст', 'with no end marker the description element itself is used');
-  assert.deepEqual(hh.parseVacancy(''), { title: '', archived: false, company: '', city: '', formats: '', salary: '', experience: '', employment: '', description: '' });
+  assert.deepEqual(hh.parseVacancy(''), { title: '', archived: false, company: '', city: '', country: null, formats: '', salary: '', experience: '', employment: '', description: '' });
+});
+
+test('archived pages: the label inside the title, the escaped page state, or "в архиве" in the title text', () => {
+  const a = hh.parseVacancy(fixture('vacancy-123456703.html'));
+  assert.equal(a.archived, true, 'the vacancy-title-archived-text label');
+  assert.equal(a.title, 'Менеджер продукта', 'the label is not part of the role');
+  // only the escaped page state says so (no label in the title)
+  const open = fixture('vacancy-123456704.html');
+  assert.equal(hh.parseVacancy(open).archived, false);
+  assert.equal(hh.parseVacancy(open.replace('archived&#34;:false', 'archived&#34;:true')).archived, true);
+  assert.equal(hh.parseVacancy(open.replace('archived&#34;:false', 'archived&quot;:true')).archived, true);
+  assert.equal(hh.parseVacancy(open.replace('<span>Менеджер продукта</span>', '<span>Менеджер продукта (в архиве)</span>')).archived, true);
+});
+
+test('city and country: the escaped page state first, then vacancy-address-with-map, then the old markers', () => {
+  const open = fixture('vacancy-123456704.html');
+  // the first "area" (with "@id") has no country; the second one has countryIsoCode
+  const state = hh.parseVacancy(open.replace('&#34;countryIsoCode&#34;:&#34;RU&#34;,&#34;name&#34;:&#34;Москва&#34;', '&#34;countryIsoCode&#34;:&#34;RS&#34;,&#34;name&#34;:&#34;Нови-Сад&#34;'));
+  assert.deepEqual([state.city, state.country], ['Нови-Сад', 'RS']);
+  assert.deepEqual(hh.pageArea('{"area":{"id":2,"countryIsoCode":"ru","name":"\\u041c\\u043e\\u0441\\u043a\\u0432\\u0430"}}'), { city: 'Москва', country: 'RU' }, 'plain JSON and \\u escapes');
+  const noState = hh.parseVacancy(withoutState(open).replace('<span>Москва</span>', '<span>Казань</span>'));
+  assert.deepEqual([noState.city, noState.country], ['Казань', null], 'first part of vacancy-address-with-map');
+  const old = hh.parseVacancy(withoutState(open).replace(/<span data-qa="vacancy-address-with-map">[\s\S]*?<\/span><\/span>/, '<p data-qa="vacancy-view-raw-address">Пермь, Тестовый проспект, 1</p>'));
+  assert.equal(old.city, 'Пермь', 'the old raw-address marker still works');
+  assert.equal(hh.gatesJob(old).countries[0], 'RU', 'then the city table');
+  const none = hh.parseVacancy(withoutState(open).replace(/<span data-qa="vacancy-address-with-map">[\s\S]*?<\/span><\/span>/, ''));
+  assert.deepEqual([none.city, none.country, hh.gatesJob(none).countries], ['', null, []]);
 });
 
 test('remote, attendance, city -> country and language for the gates', () => {
@@ -219,6 +244,8 @@ test('remote, attendance, city -> country and language for the gates', () => {
   assert.equal(hh.isRemote('Менеджер продукта (удаленно)', ''), true);
   assert.equal(hh.isRemote('Product manager, remote', ''), true);
   assert.equal(hh.isRemote('Менеджер', 'полностью удалённая работа'), true);
+  assert.equal(hh.isRemote('Менеджер продукта (удалённая работа)', ''), true);
+  assert.equal(hh.isRemote('Удаленная работа: аналитик', ''), true);
   assert.equal(hh.isRemote('Менеджер', 'на месте работодателя'), false);
   assert.deepEqual(hh.attendanceOf('на месте работодателя'), ['office']);
   assert.deepEqual(hh.attendanceOf('удалённо, гибрид'), ['remote', 'hybrid']);
@@ -241,11 +268,11 @@ test('remote, attendance, city -> country and language for the gates', () => {
 test('a missing or oddly written field never rejects: unknown city, no format, no company, an English page', async () => {
   reset();
   const p = nextPrefix();
-  const odd = fixture('vacancy-123456704.html').replace('Москва</p>', 'Урюпинск</p>').replace(/<p data-qa="work-formats-text">[^<]*<\/p>/, '')
-    .replace(/<a data-qa="vacancy-company-name"[^>]*>[^<]*<\/a>/, '').replace('Работа в офисе в Москве, пять дней в неделю.', 'Office work, details on request.')
+  const odd = withoutState(fixture('vacancy-123456704.html')).replace('<span>Москва</span>', '<span>Урюпинск</span>').replace(/<p data-qa="work-formats-text">[^<]*<\/p>/, '')
+    .replace(/<a data-qa="vacancy-company-name"[\s\S]*?<\/a>/, '').replace('Работа в офисе, пять дней в неделю.', 'Office work, details on request.')
     .replace(/<li>[^<]*<\/li>/g, '<li>Build the product</li>');
   const fetch = fakeFetch({ [`${p}04`]: page(200, odd) });
-  const r = await runWith({ ids: [`${p}04`], fetch });
+  const r = await runWith({ gmail: emailWith([`${p}04`]), fetch });
   assert.equal(byId(r, `${p}04`).outcome, 'written');
   assert.equal(inboxJob(`https://hh.ru/vacancy/${p}04`).fm.company, 'Unknown');
 });
@@ -254,15 +281,15 @@ test('hh checks: title_include and title_exclude skip (marked seen), tax residen
   reset();
   const p = nextPrefix();
   SETTINGS.sources.hh_alerts = { ...BASE_CFG, title_exclude: ['IoT'] };
-  let r = await runWith({ ids: [`${p}01`], fetch: fakeFetch() });
+  let r = await runWith({ gmail: emailWith([`${p}01`]), fetch: fakeFetch() });
   assert.deepEqual([byId(r, `${p}01`).outcome, byId(r, `${p}01`).reason], ['skipped', 'title excluded']);
   assert.ok(state().seen[`${p}01`]);
   SETTINGS.sources.hh_alerts = { ...BASE_CFG, title_include: ['аналитик', 'analyst'] };
-  r = await runWith({ ids: [`${p}04`], fetch: fakeFetch() });
+  r = await runWith({ gmail: emailWith([`${p}04`]), fetch: fakeFetch() });
   assert.deepEqual([byId(r, `${p}04`).outcome, byId(r, `${p}04`).reason], ['skipped', 'title not included']);
   SETTINGS.sources.hh_alerts = { ...BASE_CFG, title_include: ['product owner'] };
   const taxed = fixture('vacancy-123456702.html').replace('кандидат должен находиться на территории РФ', 'нужен статус: налоговый резидент РФ');
-  r = await runWith({ ids: [`${p}02`], fetch: fakeFetch({ [`${p}02`]: page(200, taxed) }) });
+  r = await runWith({ gmail: emailWith([`${p}02`]), fetch: fakeFetch({ [`${p}02`]: page(200, taxed) }) });
   const got = byId(r, `${p}02`);
   assert.equal(got.outcome, 'written');
   assert.ok(got.flags.includes('abroad: confirm working from your country is allowed'));
@@ -315,23 +342,65 @@ test('a 429 stops the run; what is left is tried first on the next run, with its
   assert.deepEqual(state().pending, {});
 });
 
-test('three pages in a row without a title or description: layout changed, stop, none of them seen', async () => {
+test('a blank page (no title, no description, not archived) is not marked seen; it is retried up to 3 runs', async () => {
+  reset();
+  const p = nextPrefix(), blank = () => page(200, '<html><body><p>Что-то пошло не так</p></body></html>'), id = `${p}01`;
+  let r = await runWith({ gmail: emailWith([id, `${p}02`]), fetch: fakeFetch({ [id]: blank }) });
+  assert.deepEqual([byId(r, id).outcome, byId(r, id).reason], ['deferred', 'no title or description']);
+  assert.equal(r.stopped, null, 'one blank page does not stop the run');
+  assert.equal(byId(r, `${p}02`).outcome, 'rejected');
+  assert.equal(state().seen[id], undefined);
+  assert.equal(state().pending[id].tries, 1);
+  for (let i = 1; i <= 2; i++) await runWith({ gmail: fakeGmail([]), fetch: fakeFetch({ [id]: blank }), now: new Date(NOW.getTime() + i * 864e5) });
+  assert.equal(state().pending[id], undefined, 'dropped after 3 tries');
+  assert.equal(state().seen[id], undefined, 'never marked seen');
+});
+
+test('three blank pages in a row: layout changed, stop, none of them seen', async () => {
   reset();
   const p = nextPrefix(), blank = page(200, '<html><body><p>Что-то пошло не так</p></body></html>');
   const ids = ['01', '02', '03', '04'].map(x => p + x);
-  // one blank page alone is unavailable and seen
-  let r = await runWith({ ids: [ids[0]], fetch: fakeFetch({ [ids[0]]: blank }) });
-  assert.deepEqual([byId(r, ids[0]).outcome, byId(r, ids[0]).reason], ['unavailable', 'no title or description']);
-  assert.ok(state().seen[ids[0]]);
-  reset();
   const fetch = fakeFetch({ [ids[0]]: blank, [ids[1]]: blank, [ids[2]]: blank });
-  r = await runWith({ gmail: fakeGmail([message('m1', SUBJECT, emailHtml(p))]), fetch });
+  const r = await runWith({ gmail: fakeGmail([message('m1', SUBJECT, emailHtml(p))]), fetch });
   assert.match(r.stopped, /page layout probably changed/);
   assert.equal(fetch.calls.length, 3);
   const s = state();
   assert.deepEqual(s.seen, {});
   assert.deepEqual(Object.keys(s.pending).sort(), ids);
-  assert.deepEqual(r.skipped, {});
+  assert.deepEqual(ids.map(id => s.pending[id].tries), [1, 1, 1, 0], 'only the blank pages count a try');
+  assert.deepEqual(r.skipped, { 'no title or description (next run)': 3 });
+});
+
+test('archived pages never count toward the layout-changed stop', async () => {
+  reset();
+  const p = nextPrefix(), archived = () => page(200, fixture('vacancy-123456703.html'));
+  const ids = ['01', '02', '03', '04'].map(x => p + x);
+  const r = await runWith({ gmail: emailWith(ids), fetch: fakeFetch({ [ids[0]]: archived, [ids[1]]: archived, [ids[2]]: archived }) });
+  assert.equal(r.stopped, null);
+  assert.deepEqual(ids.slice(0, 3).map(id => byId(r, id).outcome), ['unavailable', 'unavailable', 'unavailable']);
+  assert.equal(byId(r, ids[3]).outcome, 'rejected', 'the run goes on to the next vacancy');
+  assert.deepEqual(Object.keys(state().seen).sort(), ids);
+});
+
+test('on-site jobs are gated by the country from the page state; a city the table does not know still counts', async () => {
+  reset();
+  const p = nextPrefix(), id = `${p}04`;
+  const serbia = fixture('vacancy-123456704.html').replaceAll('Москва', 'Нови-Сад').replace('&#34;countryIsoCode&#34;:&#34;RU&#34;', '&#34;countryIsoCode&#34;:&#34;RS&#34;');
+  const r = await runWith({ gmail: emailWith([id]), fetch: fakeFetch({ [id]: page(200, serbia) }), now: NOW });
+  assert.deepEqual([byId(r, id).outcome, byId(r, id).gate], ['rejected', 'geo']);
+  assert.match(byId(r, id).reason, /RS/);
+});
+
+test('after a throttle stop, ids already seen are not put in pending', async () => {
+  reset();
+  const p = nextPrefix(), ids = ['01', '02', '03', '04'].map(x => p + x);
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ last_run: null, seen: { [ids[3]]: '2026-09-30' }, pending: {} }));
+  const r = await runWith({ gmail: emailWith(ids), fetch: fakeFetch({ [ids[1]]: page(429) }) });
+  assert.match(r.stopped, /HTTP 429/);
+  assert.equal(byId(r, ids[3]).outcome, 'seen');
+  const s = state();
+  assert.deepEqual(Object.keys(s.pending).sort(), [ids[1], ids[2]]);
+  assert.equal(s.seen[ids[3]], '2026-09-30');
 });
 
 test('one email that cannot be read does not stop the run; state is saved and the window does not move', async () => {
@@ -369,7 +438,7 @@ test('one vacancy that fails does not stop the run; it is retried up to 3 runs, 
   assert.equal(s.seen[`${p}01`], undefined, 'never marked seen');
   // an error after the fetch (here, in the gates) is handled the same way
   reset();
-  r = await runWith({ ids: [`${p}01`, `${p}02`], fetch: fakeFetch(), check: () => { throw new Error('gates exploded'); } });
+  r = await runWith({ gmail: emailWith([`${p}01`, `${p}02`]), fetch: fakeFetch(), check: () => { throw new Error('gates exploded'); } });
   assert.deepEqual(r.results.map(x => x.outcome), ['error', 'rejected']);
   assert.equal(state().seen[`${p}01`], undefined);
 });
@@ -403,19 +472,23 @@ test('--dry-run writes nothing: no job, no state, no demoted.jsonl', async () =>
   assert.equal(fs.existsSync(STATE_FILE), false);
 });
 
-test('--ids fetches the given vacancies without Gmail, even ones seen before, and keeps nothing pending', async () => {
+test('--ids only looks: no Gmail, seen ids are fetched too, and nothing is written (no job, no state, no demoted.jsonl)', async () => {
   reset();
-  const p = nextPrefix();
-  fs.writeFileSync(STATE_FILE, JSON.stringify({ last_run: null, seen: { [`${p}01`]: '2026-09-30' }, pending: {} }));
+  const p = nextPrefix(), before = fs.readdirSync(DIRS.inbox).length;
+  const saved = JSON.stringify({ last_run: null, seen: { [`${p}01`]: '2026-09-30' }, pending: {} });
+  fs.writeFileSync(STATE_FILE, saved);
   const gmail = { list: async () => assert.fail('Gmail must not be read'), get: async () => assert.fail('Gmail must not be read') };
-  const fetch = fakeFetch({ [`${p}02`]: page(429) });
-  const r = await runWith({ ids: [`${p}01`, `${p}02`], gmail, fetch });
-  assert.deepEqual(fetch.calls.map(c => c.url), [`https://hh.ru/vacancy/${p}01`, `https://hh.ru/vacancy/${p}02`]);
-  assert.equal(byId(r, `${p}01`).outcome, 'written');
-  assert.equal(inboxJob(`https://hh.ru/vacancy/${p}01`).fm.notes, 'hh alert: --ids');
-  const s = state();
-  assert.deepEqual(s.pending, {});
-  assert.equal(s.last_run, null, '--ids does not move the window');
+  const fetch = fakeFetch({ [`${p}04`]: page(403) });
+  const r = await runWith({ ids: [`${p}01`, `${p}02`, `${p}04`], gmail, fetch });
+  assert.deepEqual(fetch.calls.map(c => c.url.slice(-2)), ['01', '02', '04']);
+  assert.equal(byId(r, `${p}01`).outcome, 'written', 'reported as it would be written');
+  assert.equal(byId(r, `${p}02`).gate, 'geo-remote');
+  assert.equal(inboxJob(`https://hh.ru/vacancy/${p}01`), undefined, 'no job file');
+  assert.equal(fs.readdirSync(DIRS.inbox).length, before);
+  assert.equal(fs.readFileSync(STATE_FILE, 'utf8'), saved, 'the state file is untouched');
+  await runWith({ ids: [`${p}03`], fetch: fakeFetch(), check: () => ({ decision: 'demote', gate: 'headcount', reason: 'x', flags: [] }) });
+  await runWith({ ids: [`${p}01`], fetch: fakeFetch(), check: () => ({ decision: 'demote', gate: 'headcount', reason: 'x', flags: [] }) });
+  assert.equal(fs.existsSync(DEMOTED), false);
 });
 
 test('pages are fetched at least 2 seconds apart and at most max_fetch per run; the rest waits in pending', async () => {
