@@ -60,6 +60,36 @@ Models: decoding uses `llm.model` (a mid-size model is enough), packs use `llm.p
 
 `JOBPILOT_HOME`, `JOBPILOT_DATA` and `JOBPILOT_SETTINGS` point jobpilot at another folder, data directory or settings file (handy for trials and evals).
 
+### Gates
+
+Gates are hard rules every source applies before a job is queued, so a job you could never take costs no model call. They live in `settings.gates`; every key is optional, and a missing key means no check. With no `gates` block at all, sources work exactly as before.
+
+```json
+"gates": {
+  "user": { "citizenships": ["XX"], "work_authorization": ["ES"] },
+  "languages": ["en"],
+  "onsite_countries": ["ES", "DE"],
+  "remote": { "accept_worldwide": true, "accept_regions": ["Europe", "EU", "EMEA"] },
+  "sponsorship_refusal_phrases": ["without sponsorship", "no visa sponsorship"],
+  "must_reside_phrases": [],
+  "headcount": { "demote_over": 500, "reject_over": null, "reject_keywords_over": { "min": 500, "keywords": ["smart home"] }, "demote_unless": ["remote_worldwide", "remote_region", "sponsorship"] },
+  "companies": { "exclude": [], "agencies": [] },
+  "industries": { "exclude": [] }
+}
+```
+
+Checks run in this order, and the first one that rejects wins:
+
+1. **company:** the company is in `companies.exclude` or `companies.agencies`.
+2. **industry:** an industry, the company or the title matches `industries.exclude`.
+3. **language:** the posting is in none of your `languages`, or it needs another language at B2 or higher (a lower level is only flagged).
+4. **legal:** your citizenship is not accepted, or a work permit is required (or sponsorship refused) for an on-site job outside `user.work_authorization`. For remote jobs this is a flag, not a reject.
+5. **geo:** an on-site or hybrid job with no country in `onsite_countries`, or a job that excludes a country you can work in.
+6. **remote:** a remote job limited to regions you did not accept (unless it also has an office in a country you accept), worldwide remote when `accept_worldwide` is false, or a `must_reside_phrases` hit.
+7. **headcount:** more people than `reject_over`, or more than `reject_keywords_over.min` with one of its keywords in the industries or title. Over `demote_over`, the job is held back (demoted) unless one of `demote_unless` holds.
+
+Names match as whole words, case-insensitive, in any script. A field a source does not know (RealtimeJobs gives the most, ATS boards and LinkedIn give the least) never rejects a job. Each source logs how many jobs each gate stopped, and flags on a queued job go into its `gate_flags` field. `node cli.mjs doctor` shows which gates are on and warns about unknown keys.
+
 ### Hooks
 
 Hooks let your own scripts react to the pipeline without changing jobpilot, for example to copy decodes into your notes or update a tracker:

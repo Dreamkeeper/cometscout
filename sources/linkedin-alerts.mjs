@@ -8,11 +8,13 @@
 //   max_fetch: 40, delay_ms: 3000,          // stay slow: LinkedIn's terms forbid automated access; keep volume small
 //   title_exclude: ["intern"], location_exclude_regex: ""
 // }
+// settings.gates (lib/gates.mjs) applies to every fetched job; rejects and demotes are counted under skipped.
 // Usage: node sources/linkedin-alerts.mjs [--dry-run] [--hours 96] [--max-fetch 10]
 import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, log, num } from '../lib/config.mjs';
 import { writeJob, alreadyQueued, htmlText, matchesAny } from '../lib/queue.mjs';
 import { Gmail, messageText } from '../lib/gmail.mjs';
+import { checkGates, fromText } from '../lib/gates.mjs';
 
 const cfg = { sender: 'jobalerts-noreply@linkedin.com', first_run_hours: 48, overlap_hours: 24, max_fetch: 40, delay_ms: 3000, title_exclude: [], location_exclude_regex: '', ...(SETTINGS.sources.linkedin_alerts || {}) };
 const args = process.argv.slice(2);
@@ -86,9 +88,12 @@ for (const j of jobs) {
   if (!job) { skip('closed or removed'); continue; }
   if (matchesAny(job.title, cfg.title_exclude)) { skip('title excluded'); continue; }
   if (excludeLoc && excludeLoc.test(job.location)) { skip('location excluded'); continue; }
+  const g = checkGates(fromText({ company: job.company, title: job.title, text: job.text, location: job.location }));
+  if (g.decision === 'reject') { skip(`gate: ${g.gate}`); continue; }
+  if (g.decision === 'demote') { skip('demoted'); continue; }
   if (alreadyQueued(job.company, job.title, `https://www.linkedin.com/jobs/view/${j.id}/`, job.location)) { skip('already queued'); continue; }
   const r = DRY ? { written: true } : writeJob({ company: job.company, role: job.title, url: `https://www.linkedin.com/jobs/view/${j.id}/`, source: 'linkedin',
-    location: job.location, posted: job.posted, notes: `LinkedIn alert: ${j.alert}`, text: job.text });
+    location: job.location, posted: job.posted, notes: `LinkedIn alert: ${j.alert}`, text: job.text, extra: g.flags.length ? { gate_flags: g.flags.join('; ') } : undefined });
   if (r.written) written++; else skip('duplicate');
 }
 // seen ids older than 120 days are dropped: alerts do not resend them, and the list must not grow forever

@@ -3,10 +3,12 @@
 // subscription settings decide which roles come back, so this file only adds light client-side filters.
 // settings.sources.rtj = { enabled: true, token_env: "RTJ_API_TOKEN", hours: 24, overlap_hours: 6,
 //                          page_size: 100, max_pages: 3, title_exclude: [], max_headcount: null }
+// settings.gates (lib/gates.mjs) applies on top: rejects and demotes are not queued and are counted per gate in the log.
 // Usage: node sources/rtj.mjs [--dry-run] [--hours 72]
 import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, secret, log, num } from '../lib/config.mjs';
 import { writeJob, matchesAny } from '../lib/queue.mjs';
+import { checkGates, fromRtj, gateTally } from '../lib/gates.mjs';
 
 const cfg = SETTINGS.sources.rtj || {};
 const args = process.argv.slice(2);
@@ -39,12 +41,14 @@ for (let i = 0; i < PAGES; i++) {
 if (cursor) log(`rtj: max_pages ${PAGES} x page_size ${SIZE} reached; more positions exist in this window (raise max_pages to take them)`);
 
 const place = l => [l.city, l.country].filter(Boolean).join(', ') + (l.attendance?.length ? ` (${l.attendance.join('/')})` : '');
-let written = 0, skipped = 0;
+let written = 0, skipped = 0; const gated = gateTally();
 for (const it of items) {
   const pos = it.position || {}, emp = it.employer || {};
   if (matchesAny(pos.title, cfg.title_exclude)) { skipped++; continue; }
   const hc = emp.headcount ? `${emp.headcount.min ?? '?'}-${emp.headcount.max && emp.headcount.max < 1e7 ? emp.headcount.max : '+'}` : 'unknown';
   if (cfg.max_headcount && emp.headcount?.min > cfg.max_headcount) { skipped++; continue; }
+  const g = checkGates(fromRtj(it));
+  if (g.decision !== 'pass') { gated.add(g); continue; }
   // visa_sponsorship_availability is often AMBIGUOUS even when the text says "without sponsorship"; the reliable
   // signal is objective_criteria (class LEGAL_AUTHORIZATION), so mandatory criteria go into a block of their own
   // with the legal ones first, and the decoder prompt tells the model to check each one.
@@ -65,9 +69,9 @@ for (const it of items) {
   const job = { company: emp.name || 'Unknown', role: pos.title || 'Unknown role', url: pos.apply_url, source: 'rtj',
     location: [(pos.locations || []).map(place).join(' | '), pos.remote_scope && pos.remote_scope !== 'none' ? `remote: ${pos.remote_scope}` : ''].filter(Boolean).join('; '),
     headcount: hc, salary: pos.salary?.min ? `${pos.salary.min}-${pos.salary.max} ${pos.salary.currency}` : '', posted: pos.metadata?.computed_posted_at,
-    text: pos.raw_job_description ? `${header}\n\n${pos.raw_job_description}` : '' };
+    text: pos.raw_job_description ? `${header}\n\n${pos.raw_job_description}` : '', extra: g.flags.length ? { gate_flags: g.flags.join('; ') } : undefined };
   const r = DRY ? { written: true } : writeJob(job);
   if (r.written) written++; else skipped++;
 }
 if (!DRY) fs.writeFileSync(stateFile, JSON.stringify({ last_before: before.toISOString() }, null, 1));
-log(`rtj: ${items.length} fetched, ${written} new, ${skipped} skipped${DRY ? ' (dry run)' : ''}`);
+log(`rtj: ${items.length} fetched, ${written} new, ${skipped} skipped${gated.total ? `, ${gated}` : ''}${DRY ? ' (dry run)' : ''}`);

@@ -32,6 +32,18 @@
       "title_exclude": ["intern", "junior"], "location_exclude_regex": ""
     }
   },
+  "gates": {
+    "_comment": "Hard rules every source applies before a job is queued. Every key is optional; remove one to turn its check off.",
+    "user": { "citizenships": [], "work_authorization": ["ES"] },
+    "languages": ["en"],
+    "onsite_countries": ["ES"],
+    "remote": { "accept_worldwide": true, "accept_regions": ["Europe", "EU", "EMEA"] },
+    "sponsorship_refusal_phrases": ["without sponsorship", "no visa sponsorship", "must be authorized to work in"],
+    "must_reside_phrases": [],
+    "headcount": { "demote_over": null, "reject_over": null, "demote_unless": ["remote_worldwide", "remote_region", "sponsorship"] },
+    "companies": { "exclude": [], "agencies": [] },
+    "industries": { "exclude": [] }
+  },
   "delivery": { "telegram": { "enabled": false, "token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID" } },
   "pack": { "enabled": true, "pdf": "auto" }
 }
