@@ -9,6 +9,7 @@ import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num } from 
 import { loadJob, parseResult, frontMatter, norm } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
+import { runHook } from '../lib/hooks.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -143,6 +144,8 @@ for (const f of files) {
     const dest = ['gate-reject', 'weak-fit'].includes(v.verdict) ? DIRS.rejected : DIRS.decoded;
     if (!DRY) { fs.writeFileSync(path.join(dest, f), job.text.trimEnd() + '\n' + resultBlock(v), 'utf8'); fs.rmSync(job.path); delete tries[f]; }
     done.push({ file: f, fm: job.fm, v }); log(`${f}: ${v.verdict}`);
+    if (!DRY) runHook('decoded', { file: f, dir: path.basename(dest), company: job.fm.company, role: job.fm.role, url: job.fm.url || null, source: job.fm.source || null,
+      verdict: v.verdict, gate: v.gate || null, confidence: v.confidence || null, apply_priority: v.apply_priority ?? null, action: v.action || null });
   } catch (e) {
     log(`${f}: FAILED ${e.message}`);
     if (DRY) { failed.push({ file: f, error: e.message }); continue; }
@@ -155,7 +158,7 @@ for (const f of files) {
 }
 if (!DRY) fs.writeFileSync(TRIES_FILE, JSON.stringify(tries, null, 1));
 const pk = await buildPicks(DRY ? done : []);
-if (!DRY) recordPicks(pk.picks);
+if (!DRY) { recordPicks(pk.picks); if (pk.picks.length) runHook('picks', { date: today(), picks: pk.picks.map(p => ({ file: p.file, company: p.fm.company, role: p.fm.role, url: p.fm.url || null, verdict: p.v.verdict, apply_priority: p.v.apply_priority ?? null })) }); }
 if (!done.length && !failed.length && !gaveUp.length && !pk.picks.length) { log(`nothing new and no picks${LEFT ? ` (${LEFT} waiting in the inbox)` : ''}`); process.exit(0); }
 const worth = done.filter(d => APPLY_WORTHY.includes(d.v.verdict)), held = done.filter(d => ['long-shot', 'unreadable'].includes(d.v.verdict)), rej = done.filter(d => ['gate-reject', 'weak-fit'].includes(d.v.verdict));
 const L = [...picksText(pk), `${SETTINGS.candidate_name}: ${done.length} decoded ${today()}${DRY ? ' (dry run)' : ''}`, ''];

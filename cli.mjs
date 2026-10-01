@@ -15,6 +15,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
 import { frontMatter, norm } from './lib/queue.mjs';
+import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
@@ -82,7 +83,10 @@ function doctor() {
   const claudeish = m => /^(sonnet|opus|haiku|claude)/i.test(String(m || '')), openaiish = m => /^(gpt|o\d|codex)/i.test(String(m || ''));
   const wrong = [model, pack_model].filter(m => m && (provider === 'codex' ? claudeish(m) : openaiish(m)));
   ok(!wrong.length, `models for ${provider}: ${model} / ${pack_model}`, `${wrong.join(', ')} is not a ${provider} model; set llm.model and llm.pack_model in settings.json`);
-  ok(path.basename(SETTINGS_FILE) === 'settings.json', `settings: ${path.basename(SETTINGS_FILE)}`, 'copy settings.example.json to settings.json and edit it (the onboarding does this)');
+  ok(!!process.env.JOBPILOT_SETTINGS || path.basename(SETTINGS_FILE) === 'settings.json', `settings: ${process.env.JOBPILOT_SETTINGS ? SETTINGS_FILE : path.basename(SETTINGS_FILE)}`, 'copy settings.example.json to settings.json and edit it (the onboarding does this)');
+  const unknownHooks = Object.keys(SETTINGS.hooks || {}).filter(k => k !== 'timeout_sec' && !HOOK_EVENTS.includes(k));
+  const hookCount = HOOK_EVENTS.reduce((n, e) => n + hooksFor(e).length, 0);
+  ok(!unknownHooks.length, `hooks: ${hookCount} configured`, `unknown hook event(s) ignored: ${unknownHooks.join(', ')} (known: ${HOOK_EVENTS.join(', ')})`);
   ok(!PROFILE.isExample, `profile: ${path.basename(PROFILE.dir)}`, 'create profile/ with your own facts (the onboarding does this); the evening run waits until then');
   ok(PROFILE.facts.trim().length > 200, `profile.md: ${PROFILE.facts.trim().length} characters`, 'profile/profile.md is missing or nearly empty; every decode would run without your facts');
   ok(!!PROFILE.cvLibrary, 'CV library (profile/cv-library.json)', 'needed for application packs');
@@ -107,7 +111,10 @@ const codes = {
     // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
     if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
     process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
-    runSources(); node('decoder/decoder.mjs'); if (SETTINGS.pack.enabled) node('pack/pack.mjs'); return 0;
+    const t0 = Date.now(); runHook('before_run', { date: today() });
+    runSources(); const decoder = node('decoder/decoder.mjs'); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
+    runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack });
+    return 0;
   }),
   sources: locked(() => { runSources(); return 0; }),
   decode: locked(() => node('decoder/decoder.mjs', rest)),

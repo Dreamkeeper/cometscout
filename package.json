@@ -13,6 +13,7 @@
     "run": "node cli.mjs run",
     "doctor": "node cli.mjs doctor",
     "decode": "node cli.mjs decode",
-    "pack": "node cli.mjs pack"
+    "pack": "node cli.mjs pack",
+    "test": "node --test"
   }
 }

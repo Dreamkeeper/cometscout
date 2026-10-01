@@ -15,6 +15,7 @@ import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, log, today as runDate }
 import { callJson } from '../lib/llm.mjs';
 import { loadJob, slug } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
+import { runHook } from '../lib/hooks.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -377,6 +378,7 @@ for (const f of targets) {
     packs[f] = { built: today, dir: path.basename(r.dir) };
     fs.writeFileSync(PACKS_FILE, JSON.stringify(packs, null, 2), 'utf8');
     log(`${f}: pack in ${r.dir} (${r.files.length} file(s), ${r.answers.length} answer(s), ${r.flags.length} flag(s))`);
+    runHook('pack_built', { file: f, company: r.fm.company, role: r.fm.role, url: r.fm.url || null, dir: r.dir, files: r.files, flags: r.flags, answers: r.answers.length, cover_letter: r.clNeed });
     if (!NO_TG && telegramOn()) {
       const head = [`📎 Application pack: ${r.fm.company}, ${r.fm.role}`, r.fm.url, '', ...(r.flags.length ? ['Check before sending:', ...r.flags.map(x => `• ${x}`), ''] : [])];
       const ans = r.answers.map(a => `▸ ${a.field}${a.own_words ? ' (your words)' : ''}\n\n${a.answer}`);
