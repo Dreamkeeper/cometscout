@@ -79,3 +79,10 @@ test('parseResult reads the last Decode Result block', () => {
   assert.equal(v.apply_priority, 5);
   assert.equal(v.decoded_on, '2026-09-30');
 });
+
+test('htmlText decodes numeric and common named entities, once', () => {
+  assert.equal(q.htmlText('<p>Caf&eacute; &#233;t&#xE9; &rsquo;quoted&lsquo; a&ndash;b c&mdash;d wait&hellip; x&nbsp;y &#39;s&#39;</p>'),
+    "Caf\u00e9 \u00e9t\u00e9 \u2019quoted\u2018 a\u2013b c\u2014d wait\u2026 x y 's'");
+  assert.equal(q.htmlText('5 &amp;lt; 6 &amp; R&amp;D'), '5 &lt; 6 & R&D', 'one pass: an escaped entity stays escaped');
+  assert.equal(q.htmlText('&bogus; &#0; &#xD800; &Eacute;'), '&bogus; &#0; &#xD800; &Eacute;', 'unknown or invalid entities are kept as written');
+});

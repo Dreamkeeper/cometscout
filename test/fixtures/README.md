@@ -11,6 +11,7 @@ without network access and without anyone's personal data.
 | `hirify/` | Hirify `/api/vacancies` list and detail responses, `/auth/user`; `expected.json` |
 | `linkedin/` | LinkedIn job-alert email (text part) and the public guest job page |
 | `openclaw/` | A `synthesis-queue.json` with page titles in the formats seen from ATSs and job aggregators |
+| `fetch-detail/` | Canned Greenhouse, Ashby, Lever, Workable and Recruitee API responses and job-posting pages (with and without JSON-LD), for `lib/fetch-detail.mjs` |
 | `gmail/` | Application outcome emails with the expected event type |
 | `career-ops/` | career-ops `data/pipeline.md` and `data/scan-history.tsv` |
 

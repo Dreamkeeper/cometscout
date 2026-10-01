@@ -1,0 +1,8 @@
+{
+  "title": "Product Manager - AI",
+  "shortcode": "ABCDEF1234",
+  "location": { "city": "Madrid", "region": "", "country": "Spain", "telecommuting": true },
+  "description": "<p>Northwind is hiring a Product Manager to drive our AI roadmap.</p>",
+  "requirements": "<ul><li>3+ years in product</li></ul>",
+  "benefits": "<p>Equity, remote-first.</p>"
+}

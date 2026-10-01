@@ -36,7 +36,26 @@
       "query": "newer_than:3d -category:promotions -category:social",
       "max_emails": 50, "overlap_hours": 24, "account_index": 0,
       "model": null
+    },
+    "drop_dir": {
+      "enabled": false,
+      "dir": "/home/youruser/jobpilot-drop",
+      "settle_sec": 60,
+      "move_processed_to": "/home/youruser/jobpilot-drop/processed",
+      "max_fetches_per_run": 40
     }
+  },
+  "gates": {
+    "_comment": "Hard rules every source applies before a job is queued. Every key is optional; remove one to turn its check off.",
+    "user": { "citizenships": [], "work_authorization": ["ES"] },
+    "languages": ["en", "es"],
+    "onsite_countries": ["ES"],
+    "remote": { "accept_worldwide": true, "accept_regions": ["Europe*", "EU", "EEA", "EMEA"] },
+    "sponsorship_refusal_phrases": ["without sponsorship", "no visa sponsorship", "must be authorized to work in"],
+    "must_reside_phrases": [],
+    "headcount": { "demote_over": null, "reject_over": null, "demote_unless": ["remote_worldwide", "remote_region", "sponsorship"] },
+    "companies": { "exclude": [], "agencies": [] },
+    "industries": { "exclude": [] }
   },
   "delivery": { "telegram": { "enabled": false, "token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID" } },
   "pack": { "enabled": true, "pdf": "auto" }
