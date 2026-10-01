@@ -60,6 +60,16 @@ Models: decoding uses `llm.model` (a mid-size model is enough), packs use `llm.p
 
 `JOBPILOT_HOME`, `JOBPILOT_DATA` and `JOBPILOT_SETTINGS` point jobpilot at another folder, data directory or settings file (handy for trials and evals).
 
+### Outcomes from Gmail
+
+With `sources.outcomes.enabled`, every run reads recent emails (read-only, the same Gmail access as LinkedIn alerts) and looks for answers to your applications: received, rejection, interview, test task, offer. Job alerts and newsletters are skipped without a model call. Each remaining email is classified by the model (the body decides, not the subject) and matched to an application by company and role. A match adds an event to `data/state/applications.json` and updates the status (rejected, interview, offer); an older email never overrides a status you recorded later. Emails it cannot match are listed in Telegram with a link, so you can record them with `node cli.mjs status <company> <status> --manual`. Each recorded outcome runs the `outcome` hook.
+
+```json
+"outcomes": { "enabled": true, "query": "newer_than:3d -category:promotions -category:social", "max_emails": 50, "overlap_hours": 24, "model": null }
+```
+
+`model: null` uses `llm.model`. Each email is read once (by Gmail id). Try it with `node sources/outcomes.mjs --dry-run`; backfill with `--since YYYY-MM-DD`. Company aliases come from `queue.aliases` (`[["Acme", "Acme Labs"]]`) if you set them.
+
 ### Hooks
 
 Hooks let your own scripts react to the pipeline without changing jobpilot, for example to copy decodes into your notes or update a tracker:
@@ -80,7 +90,7 @@ Events: `before_run`, `job_written`, `decoded`, `picks`, `pack_built`, `outcome`
 
 ## Status
 
-v0.1, first testers. Working: ATS boards, RealtimeJobs and LinkedIn-alerts sources, decode, picks, packs (Claude and Codex), Telegram, installer. Next: guided onboarding polish from tester sessions, Hirify source, outcome tracking from Gmail, evals for your own voice and CV quality.
+v0.1, first testers. Working: ATS boards, RealtimeJobs and LinkedIn-alerts sources, outcomes from Gmail, decode, picks, packs (Claude and Codex), Telegram, installer. Next: guided onboarding polish from tester sessions, Hirify source, evals for your own voice and CV quality.
 
 ## License
 

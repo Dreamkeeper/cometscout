@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // jobpilot command line.
-//   node cli.mjs run                 # the evening run: every enabled source, then decode + picks + digest, then packs
+//   node cli.mjs run                 # the evening run: every enabled source (and outcomes from Gmail), then decode + picks + digest, then packs
 //   node cli.mjs sources|decode|pack|picks
 //   node cli.mjs applied <company> [role words]   # record an application (picks stop showing it)
 //   node cli.mjs status <company> <applied|interview|offer|rejected|skipped|closed> [role words] [--note "..."]
@@ -22,7 +22,8 @@ import { exportData, importData } from './lib/archive.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
-const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs' };
+// outcomes reads application results from Gmail; it runs with the sources, so the decoder already knows what closed
+const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs', outcomes: 'sources/outcomes.mjs' };
 const APPS = STATE('applications.json');
 const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 
@@ -100,12 +101,13 @@ function doctor() {
   ok(!!PROFILE.cvLibrary, 'CV library (profile/cv-library.json)', 'needed for application packs');
   ok(!PROFILE.ruleErrors.length, `fact rules: ${PROFILE.factRules.length} loaded`, `broken rule(s) skipped: ${PROFILE.ruleErrors.join('; ')}`);
   ok(!ENV_PROBLEMS.length, '.env lines', `these lines are not KEY=value and were ignored: ${ENV_PROBLEMS.join(', ')}`);
-  const enabled = Object.keys(SOURCES).filter(k => SETTINGS.sources[k]?.enabled);
+  const enabled = Object.keys(SOURCES).filter(k => k !== 'outcomes' && SETTINGS.sources[k]?.enabled);   // outcomes finds no jobs
   ok(enabled.length > 0, `sources enabled: ${enabled.join(', ') || 'none'}`, 'enable at least one source in settings.json');
   const unknown = Object.keys(SETTINGS.sources).filter(k => !SOURCES[k]);
   ok(!unknown.length, 'source names in settings.json', `unknown source(s) ignored: ${unknown.join(', ')} (known: ${Object.keys(SOURCES).join(', ')})`);
   if (SETTINGS.sources.rtj?.enabled) ok(!!secret(SETTINGS.sources.rtj.token_env || 'RTJ_API_TOKEN'), 'RealtimeJobs token in .env', 'add RTJ_API_TOKEN=... to .env');
-  if (SETTINGS.sources.linkedin_alerts?.enabled) ok(['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'].every(k => secret(k)), 'Gmail read-only access (LinkedIn alerts)', 'add GMAIL_CLIENT_ID/SECRET to .env, then run `node tools/gmail-auth.mjs`');
+  const gmailUsers = [['linkedin_alerts', 'LinkedIn alerts'], ['outcomes', 'outcomes']].filter(([k]) => SETTINGS.sources[k]?.enabled).map(([, n]) => n);
+  if (gmailUsers.length) ok(['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'].every(k => secret(k)), `Gmail read-only access (${gmailUsers.join(', ')})`, 'add GMAIL_CLIENT_ID/SECRET to .env, then run `node tools/gmail-auth.mjs`');
   const tg = SETTINGS.delivery.telegram;
   ok(!tg.enabled || (secret(tg.token_env) && secret(tg.chat_id_env)), `Telegram delivery: ${tg.enabled ? 'on' : 'off (digest is written to data/digests only)'}`, 'add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env');
   const so = ver(process.env.SOFFICE || SETTINGS.pack.soffice || 'soffice');

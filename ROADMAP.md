@@ -21,7 +21,7 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 | Hirify source (saved filters, session cookie) | `docs/tasks/03-hirify-source.md` | ⏳ |
 | Shared `lib/fetch-detail.mjs` (full job text from Greenhouse, Ashby, Lever, Workable, Recruitee, JSON-LD, page; company from search titles) + `drop-dir` source for external producers (e.g. OpenClaw) | `docs/tasks/04-fetch-detail-and-drop-dir.md` | ⏳ |
 | career-ops source (its pipeline and scan history) | `docs/tasks/05-career-ops-source.md` | ⏳ |
-| Outcome tracking from Gmail (rejection, interview, test task, offer, application received → `applications.json` events) | `docs/tasks/06-outcomes.md` | ⏳ |
+| Outcome tracking from Gmail (rejection, interview, test task, offer, application received → `applications.json` events) | `docs/tasks/06-outcomes.md` | 🔨 |
 | Tracker export (job-pipeline-tracker JSON), source scorecard, health ping URL, `locale: ru` labels | later briefs | 💤 |
 | Dedupe across company aliases; decoder fact-rule negation guard; pack XML lint rules from the profile | later briefs | 💤 |
 
