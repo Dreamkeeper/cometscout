@@ -41,12 +41,21 @@ const cfg = SETTINGS.sources.career_ops;
 
 const jsonRes = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => JSON.parse(body), text: async () => body });
 const htmlRes = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => body });
-const ASHBY_NORTHWIND = 'https://api.ashbyhq.com/posting-api/job-board/northwind?includeCompensation=true';
-const LEVER_LUMENFIELD = 'https://api.lever.co/v0/postings/lumenfield/22222222-2222-2222-2222-222222222222?mode=json';
 const NORTHWIND = 'https://jobs.ashbyhq.com/northwind/11111111-1111-1111-1111-111111111111';
-const QUARRY = 'https://boards.example-ats.com/quarry/jobs/2';
 const LUMENFIELD = 'https://jobs.lever.co/lumenfield/22222222-2222-2222-2222-222222222222';
-const RIDGEWAY = 'https://boards.example-ats.com/ridgeway/jobs/3';
+const PLATFORM_PM = 'https://careers.example.net/jobs/platform-pm';
+// API and page URLs fetchDetail calls for the fixture's links
+const FIXTURE_FETCHES = {
+  'https://api.ashbyhq.com/posting-api/job-board/northwind?includeCompensation=true': 'ashby-northwind.json',
+  'https://boards-api.greenhouse.io/v1/boards/harborline/jobs/4000001?content=true': 'greenhouse-harborline.json',
+  'https://api.lever.co/v0/postings/brightline/44444444-4444-4444-4444-444444444444?mode=json': 'lever-brightline.json',
+  'https://api.ashbyhq.com/posting-api/job-board/cobaltworks?includeCompensation=true': 'ashby-cobaltworks.json',
+  'https://api.lever.co/v0/postings/lumenfield/22222222-2222-2222-2222-222222222222?mode=json': 'lever-lumenfield.json',
+  'https://careers.example.com/jobs/bare-link': 'page-plain.html',
+  'https://careers.example.org/jobs/note-only': 'page-plain.html',
+  'https://careers.example.net/jobs/posted-only': 'page-plain.html',
+  [PLATFORM_PM]: 'page-plain.html',
+};
 
 /** fetch from a map of API/page URL -> response; anything else fails the test. Records every call. */
 function fakeFetch(map) {
@@ -55,7 +64,7 @@ function fakeFetch(map) {
   fn.calls = calls;
   return fn;
 }
-const fixtureFetch = () => fakeFetch({ [ASHBY_NORTHWIND]: jsonRes(200, fixture('ashby-northwind.json')), [LEVER_LUMENFIELD]: jsonRes(200, fixture('lever-lumenfield.json')) });
+const fixtureFetch = () => fakeFetch(Object.fromEntries(Object.entries(FIXTURE_FETCHES).map(([u, f]) => [u, () => f.endsWith('.json') ? jsonRes(200, fixture(f)) : htmlRes(200, fixture(f))])));
 const go = (extra = {}) => run({ pageDelayMs: 0, ...extra });
 const inbox = () => fs.readdirSync(DIRS.inbox).filter(f => f.endsWith('.md')).map(f => ({ f, fm: frontMatter(fs.readFileSync(path.join(DIRS.inbox, f), 'utf8')), txt: fs.readFileSync(path.join(DIRS.inbox, f), 'utf8') }));
 const byUrl = url => inbox().find(j => j.fm.url === url);
@@ -79,14 +88,55 @@ const ashbyBoard = (org, id, title, extra = {}) => jsonRes(200, JSON.stringify({
 const uuid = n => `${String(n).padStart(8, '0')}-0000-0000-0000-000000000000`;
 
 // --- parsers ----------------------------------------------------------------------------------------------------
-test('parsePipeline reads the three marks of the fixture', () => {
+test('parsePipeline reads every row shape of the real format (fixture)', () => {
   const { items, odd } = parsePipeline(fixture('pipeline.md'));
   assert.deepEqual(odd, []);
-  assert.equal(items.length, 3);
-  assert.deepEqual([items[0].mark, items[0].url, items[0].company, items[0].role], ['open', NORTHWIND, 'Northwind Devices', 'Senior Product Manager']);
-  assert.deepEqual([items[1].mark, items[1].url], ['skip', QUARRY]);
-  assert.deepEqual([items[2].mark, items[2].url, items[2].company, items[2].role, items[2].number, items[2].score], ['evaluated', LUMENFIELD, 'Lumenfield', 'PM Connected Home', '013', '3.8/5']);
-  assert.match(items[2].rest, /good fit/);
+  const by = Object.fromEntries(items.map(i => [i.url, i]));
+  const nw = by[NORTHWIND];
+  assert.deepEqual([nw.mark, nw.company, nw.role, nw.location, nw.compensation], ['open', 'Northwind Devices', 'Senior Product Manager', 'Madrid, Spain', '70000-90000 EUR']);
+  assert.deepEqual(nw.labels, { posted: '2026-09-27' });
+  const hb = by['https://boards.greenhouse.io/harborline/jobs/4000001'];
+  assert.deepEqual([hb.location, hb.compensation, hb.labels.trust], ['Remote (EU)', '', '60 missing_apply_url,suspicious_domain']);
+  const bl = by['https://jobs.lever.co/brightline/44444444-4444-4444-4444-444444444444'];
+  assert.deepEqual([bl.company, bl.role, bl.location], ['Brightline', 'Product Owner', ''], 'a labeled segment is never read as the location');
+  assert.equal(bl.labels.note, 'curated shortlist');
+  assert.match(bl.labels.rank, /^4\.1\/5/);
+  assert.equal(by['https://careers.example.com/jobs/bare-link'].company, '');
+  assert.deepEqual([by['https://careers.example.org/jobs/note-only'].company, by['https://careers.example.org/jobs/note-only'].labels.note], ['', 'forwarded by a friend']);
+  assert.deepEqual([by['https://careers.example.net/jobs/posted-only'].company, by['https://careers.example.net/jobs/posted-only'].labels.posted], ['', '2026-06-18']);
+  assert.equal(by['https://boards.example-ats.com/quarry/jobs/2'].mark, 'skip');
+  const lf = by[LUMENFIELD];
+  assert.deepEqual([lf.mark, lf.company, lf.role, lf.number, lf.score, lf.location], ['evaluated', 'Lumenfield', 'PM Connected Home', '013', '3.8/5', ''], 'a report-led row has no location cell');
+  assert.equal(by[PLATFORM_PM].score, '8.5/10', 'a score in **bold**');
+  assert.equal(by['https://jobs.lever.co/kestrel/66666666-6666-6666-6666-666666666666'].mark, 'discarded');
+  assert.equal(by['https://boards.greenhouse.io/oldmill/jobs/4000002'].mark, 'expired');
+});
+
+test('parsePipeline: a labeled segment right after the link is never the company', () => {
+  const { items } = parsePipeline('- [ ] https://a.example/1 | note: x\n- [ ] https://a.example/2 | posted: 2026-06-18\n- [ ] https://a.example/3 | trust: 80\n- [ ] https://a.example/4 | rank: 3.0/5 - meh\n');
+  assert.deepEqual(items.map(i => i.company), ['', '', '', '']);
+  assert.deepEqual(items.map(i => i.role), ['', '', '', '']);
+  assert.deepEqual(items.map(i => Object.keys(i.labels)[0]), ['note', 'posted', 'trust', 'rank']);
+});
+
+test('parsePipeline: a "Remote: EMEA" location is not a label; an empty location cell keeps compensation in place', () => {
+  const { items } = parsePipeline('- [ ] https://a.example/1 | Co | PM | Remote: EMEA\n- [ ] https://a.example/2 | Co | PM |  | 100000-120000 USD | note: x\n');
+  assert.deepEqual([items[0].location, items[0].labels], ['Remote: EMEA', {}]);
+  assert.deepEqual([items[1].location, items[1].compensation], ['', '100000-120000 USD']);
+});
+
+test('parsePipeline: skipped and expired [x] rows, any "skipped" first cell, and markdown escapes', () => {
+  const { items } = parsePipeline([
+    '- [x] #-- | https://a.example/1 | skipped (pre-screen mismatch: wrong field)',
+    '- [x] #021 | https://a.example/2 | Skipped (duplicate of #020)',
+    '- [x] ~~https://a.example/3 | Co | PM~~ — posting expired (liveness sweep)',
+    '- [x] ~~https://a.example/4 | Co | PM',
+    '- [x] #022 | https://a.example/5 | Co \\[EU\\] | PM | 4/5 | PDF ✅',
+    '- [ ] https://a.example/6 | Co | PM | note: see ~~old~~ note',
+  ].join('\n'));
+  assert.deepEqual(items.map(i => i.mark), ['discarded', 'discarded', 'expired', 'expired', 'evaluated', 'open']);
+  assert.equal(items[4].company, 'Co [EU]');
+  assert.equal(items[5].company, 'Co', 'a strikethrough inside a note does not expire the row');
 });
 
 test('parsePipeline: other marks, placeholders, a BOM, CRLF and checkbox lines without a link', () => {
@@ -97,21 +147,31 @@ test('parsePipeline: other marks, placeholders, a BOM, CRLF and checkbox lines w
   assert.equal(odd.length, 1);
 });
 
-test('parseScanHistory finds columns by the header, in any order, and works without one', () => {
-  const withHeader = parseScanHistory(fixture('scan-history.tsv'));
-  assert.equal(withHeader.rows.length, 3);
-  assert.deepEqual(withHeader.rows.map(r => r.status), ['added', 'added', 'filtered']);
-  assert.equal(withHeader.rows[0].company, 'Northwind Devices');
+test('parseScanHistory reads the real 12-column file; the last row per link wins', () => {
+  const { rows } = parseScanHistory(fixture('scan-history.tsv'));
+  const by = Object.fromEntries(rows.map(r => [r.url, r]));
+  assert.equal(rows.length, 6, 'one row per link');
+  assert.equal(by['https://boards.greenhouse.io/tidewater/jobs/4000003'].status, 'skipped_expired');
+  const cw = by['https://jobs.ashbyhq.com/cobaltworks/77777777-7777-7777-7777-777777777777'];
+  assert.deepEqual([cw.company, cw.title, cw.status, cw.location, cw.posted_at, cw.trust_score, cw.trust_flags, cw.portal, cw.first_seen],
+    ['Cobalt Works', 'Product Manager, Payments', 'added', 'Barcelona, Spain', '2026-09-28', '70', 'suspicious_domain', 'ashby-api', '2026-09-29']);
+  const back = parseScanHistory('url\tstatus\nhttps://x.example/1\tskipped_age\nhttps://x.example/1\tadded\n');
+  assert.deepEqual(back.rows.map(r => r.status), ['added'], 'a later "added" wins too');
+});
+
+test('parseScanHistory: legacy files without a header, with 7 columns, or with the status column missing', () => {
+  const seven = parseScanHistory('https://y.example/1\t2026-09-01\tlever-api\tPM\tYco\tadded\tMadrid, Spain\n');
+  assert.deepEqual([seven.rows[0].company, seven.rows[0].status, seven.rows[0].location], ['Yco', 'added', 'Madrid, Spain']);
+  const old = parseScanHistory('https://y.example/2\t2026-09-01\tlever-api\tPM\tZco\n');
+  assert.equal(old.rows[0].status, 'added', 'no status column at all reads as added, as career-ops itself does');
   const swapped = parseScanHistory('Status\tCompany\tURL\tTitle\nADDED \tAcme\thttps://x.example/1\tPM\n\tNoStatus\thttps://x.example/2\tPM\nadded\tNo link\t\tPM\n');
   assert.deepEqual(swapped.rows.map(r => [r.url, r.company, r.title, r.status]), [['https://x.example/1', 'Acme', 'PM', 'added'], ['https://x.example/2', 'NoStatus', 'PM', '']]);
   assert.equal(swapped.odd, 1);
-  const bare = parseScanHistory('https://y.example/1\t2026-09-01\tlever-api\tPM\tYco\tadded\n');
-  assert.deepEqual([bare.rows[0].company, bare.rows[0].status], ['Yco', 'added']);
 });
 
-test('collectCandidates: [!] and [x] win over [ ] for the same link; scan rows already in the pipeline are left out', () => {
-  const p = parsePipeline(`- [ ] https://a.example/1 | A | R\n- [x] #2 | https://a.example/1/ | A | R | 4/5\n- [!] https://b.example/2 | B | R — SKIP: x\n- [ ] https://b.example/2#top | B | R\n`);
-  const h = parseScanHistory('url\tstatus\nhttps://a.example/1\tadded\nhttps://c.example/3\tadded\nhttps://c.example/3\tadded\nhttps://d.example/4\tfiltered\n');
+test('collectCandidates: [!], [x], skipped and expired win over [ ] for the same link; scan rows already in the pipeline are left out', () => {
+  const p = parsePipeline(`- [ ] https://a.example/1 | A | R\n- [x] #2 | https://a.example/1/ | A | R | 4/5\n- [!] https://b.example/2 | B | R — SKIP: x\n- [ ] https://b.example/2#top | B | R\n- [x] ~~https://e.example/5 | E | R~~\n- [ ] https://e.example/5 | E | R\n`);
+  const h = parseScanHistory('url\tstatus\nhttps://a.example/1\tadded\nhttps://c.example/3\tadded\nhttps://c.example/3\tadded\nhttps://d.example/4\tskipped_location\nhttps://e.example/5\tadded\n');
   const off = collectCandidates(p, h);
   assert.deepEqual(off.candidates.map(c => c.url), ['https://c.example/3'], 'evaluated off: only the new scan row, once');
   const on = collectCandidates(p, h, { includeEvaluated: true });
@@ -132,37 +192,43 @@ test('fairShare takes one per company in turn, up to max', () => {
   assert.equal(fairShare(list, 100).length, list.length);
 });
 
+test('fairShare tells companies on one ATS host apart by the board in the link', () => {
+  const a1 = { company: '', url: `https://jobs.ashbyhq.com/aco/${uuid(301)}` }, a2 = { company: '', url: `https://jobs.ashbyhq.com/aco/${uuid(302)}` };
+  const b1 = { company: '', url: `https://jobs.ashbyhq.com/bco/${uuid(303)}` }, named = { company: 'Aco', url: `https://jobs.ashbyhq.com/aco/${uuid(304)}` };
+  assert.deepEqual(fairShare([a1, a2, b1], 2), [a1, b1], 'aco and bco are two companies, not one host');
+  assert.deepEqual(fairShare([a1, named, b1], 2), [a1, b1], 'a written company and the same board slug are one company');
+});
+
 // --- the fixture --------------------------------------------------------------------------------------------------
-test('every expectation in expected.json holds, and nothing is written into the career-ops folder', async () => {
-  const expected = JSON.parse(fixture('expected.json'));
-  assert.deepEqual(Object.keys(expected).sort(), ['[!] items', '[x] items', 'status filtered', 'unchecked [ ] items'].sort(), 'a new expectation needs a check here');
+const expected = JSON.parse(fixture('expected.json'));
+/** Every expectation of one block of expected.json. */
+function checkExpected(block) {
+  for (const [url, want] of Object.entries(block.queued)) {
+    const j = byUrl(url);
+    assert.ok(j, `queued: ${url}`);
+    assert.equal(j.fm.source, 'career-ops', url);
+    for (const k of ['company', 'role', 'location', 'salary', 'posted']) if (k in want) assert.equal(j.fm[k], want[k], `${k} of ${url}`);
+    for (const s of want.notes_include || []) assert.ok(String(j.fm.notes).includes(s), `notes of ${url} include "${s}": ${j.fm.notes}`);
+    for (const s of want.source_flags_include || []) assert.ok(String(j.fm.source_flags).includes(s), `source_flags of ${url} include "${s}": ${j.fm.source_flags}`);
+  }
+  for (const url of Object.keys(block.not_queued)) assert.equal(byUrl(url), undefined, `not queued: ${url} (${block.not_queued[url]})`);
+}
+
+test('every expectation in expected.json holds (include_evaluated off), and nothing is written into the career-ops folder', async () => {
   use(fixtureDir);
   const before = snapshot(fixtureDir);
   const fetch = fixtureFetch();
   const r = await go({ fetch });
   assert.equal(r.ran, true);
-
-  // "unchecked [ ] items": candidates to queue
-  const nw = byUrl(NORTHWIND);
-  assert.ok(nw, 'the open pipeline item is queued');
-  assert.equal(nw.fm.company, 'Northwind Devices');
-  assert.equal(nw.fm.role, 'Senior Product Manager');
-  assert.equal(nw.fm.source, 'career-ops');
-  assert.equal(nw.fm.notes, 'career-ops pipeline');
-  assert.match(nw.txt, /companion app/, 'full text from the Ashby API');
-  assert.equal(nw.fm.full_text, undefined);
-  // "[!] items": skip; its scan-history row ("added") is in the pipeline, so it is skipped too
-  assert.equal(byUrl(QUARRY), undefined);
-  // "[x] items": already evaluated by career-ops; not queued while include_evaluated is off
-  assert.equal(byUrl(LUMENFIELD), undefined);
-  // "status filtered": skip
-  assert.equal(byUrl(RIDGEWAY), undefined);
-  assert.deepEqual(fetch.calls, [ASHBY_NORTHWIND], 'nothing else is even fetched');
-  assert.equal(r.written, 1);
+  checkExpected(expected.include_evaluated_off);
+  assert.equal(r.written, Object.keys(expected.include_evaluated_off.queued).length);
+  const fetchedFor = new Set(fetch.calls);
+  for (const url of [LUMENFIELD, PLATFORM_PM]) assert.ok(![...fetchedFor].some(u => u.includes(url.split('/').pop())), `${url} is not even fetched`);
+  assert.match(byUrl(NORTHWIND).txt, /companion app/, 'full text from the Ashby API');
   assert.equal(seenOf(NORTHWIND).outcome, 'written');
   assert.deepEqual(snapshot(fixtureDir), before, 'the career-ops folder is untouched');
 
-  // a second run fetches nothing: the link is remembered
+  // a second run fetches nothing: every link is remembered
   const again = fakeFetch({});
   const r2 = await go({ fetch: again });
   assert.equal(r2.written, 0);
@@ -170,30 +236,23 @@ test('every expectation in expected.json holds, and nothing is written into the 
   assert.deepEqual(snapshot(fixtureDir), before);
 });
 
-test('include_evaluated queues the [x] item with its number and score in notes, still without touching the folder', async () => {
+test('every expectation in expected.json holds with include_evaluated on, still without touching the folder', async () => {
   use(fixtureDir, { include_evaluated: true });
   const before = snapshot(fixtureDir);
   const fetch = fixtureFetch();
   const r = await go({ fetch });
-  assert.equal(r.written, 1);
-  assert.deepEqual(fetch.calls, [LEVER_LUMENFIELD], 'Northwind is not fetched again');
-  const lf = byUrl(LUMENFIELD);
-  assert.equal(lf.fm.company, 'Lumenfield');
-  assert.equal(lf.fm.role, 'PM Connected Home');
-  assert.equal(lf.fm.source, 'career-ops');
-  assert.match(lf.fm.notes, /#013/);
-  assert.match(lf.fm.notes, /3\.8\/5/);
-  assert.equal(lf.fm.location, 'Remote - EU; remote');
-  assert.equal(byUrl(QUARRY), undefined, '[!] stays skipped');
-  assert.equal(byUrl(RIDGEWAY), undefined, 'filtered stays skipped');
+  assert.equal(r.written, Object.keys(expected.include_evaluated_on.queued).length);
+  assert.equal(fetch.calls.length, 2, 'only the two evaluated rows are fetched; the rest are remembered');
+  checkExpected(expected.include_evaluated_on);
+  checkExpected({ queued: expected.include_evaluated_off.queued, not_queued: {} });
   assert.deepEqual(snapshot(fixtureDir), before);
 });
 
 test('an evaluated item already in jobpilot history is not queued twice', async () => {
-  const url = 'https://jobs.lever.co/harborline/33333333-3333-3333-3333-333333333333';
-  writeJob({ company: 'Harborline', role: 'Product Lead', url: 'https://other-board.example/harborline/1', source: 'linkedin', text: 'From another source.' });
-  use(careerOps('co-history', `- [x] #020 | ${url} | Harborline | Product Lead | 4.1/5\n`, null), { include_evaluated: true });
-  const fetch = fakeFetch({ 'https://api.lever.co/v0/postings/harborline/33333333-3333-3333-3333-333333333333?mode=json': jsonRes(200, JSON.stringify({ text: 'Product Lead', descriptionPlain: PAGE_TEXT })) });
+  const url = 'https://jobs.lever.co/saltmarsh/33333333-3333-3333-3333-333333333333';
+  writeJob({ company: 'Saltmarsh', role: 'Product Lead', url: 'https://other-board.example/saltmarsh/1', source: 'linkedin', text: 'From another source.' });
+  use(careerOps('co-history', `- [x] #020 | ${url} | Saltmarsh | Product Lead | 4.1/5\n`, null), { include_evaluated: true });
+  const fetch = fakeFetch({ 'https://api.lever.co/v0/postings/saltmarsh/33333333-3333-3333-3333-333333333333?mode=json': jsonRes(200, JSON.stringify({ text: 'Product Lead', descriptionPlain: PAGE_TEXT })) });
   const r = await go({ fetch });
   assert.equal(r.written, 0);
   assert.equal(byUrl(url), undefined);
@@ -381,6 +440,123 @@ test('a broken max_per_run falls back to 30 instead of turning the limit off', a
   assert.equal(r.held, 2);
 });
 
+// --- location, compensation, labels ------------------------------------------------------------------------------
+test('the location from the pipeline and from scan history reaches the gates before any fetch', async () => {
+  const pipe = `https://jobs.ashbyhq.com/onsiteco/${uuid(400)}`, scan = `https://jobs.ashbyhq.com/scanonsite/${uuid(401)}`;
+  use(careerOps('co-loc-gate', `- [ ] ${pipe} | Onsiteco | Product Manager Onsite | On-site, Berlin, Germany\n`,
+    `url\tfirst_seen\tportal\ttitle\tcompany\tstatus\tlocation\n${scan}\t2026-09-30\tashby-api\tProduct Manager Scan\tScanonsite\tadded\tOn-site, Munich, Germany\n`));
+  SETTINGS.gates = { onsite_countries: ['ES'] };
+  try {
+    const fetch = fakeFetch({});
+    await go({ fetch });
+    assert.deepEqual(fetch.calls, [], 'rejected on the location alone, no fetch');
+    assert.deepEqual([seenOf(pipe).outcome, seenOf(pipe).gate], ['gated', 'geo']);
+    assert.deepEqual([seenOf(scan).outcome, seenOf(scan).gate], ['gated', 'geo']);
+  } finally { delete SETTINGS.gates; }
+});
+
+test('location and compensation reach the job on both paths: fetched (page without a location) and given up', async () => {
+  const fetched = 'https://careers.example.com/jobs/loc-fetched', flaky = 'https://careers.example.com/jobs/loc-flaky';
+  use(careerOps('co-loc-write', `- [ ] ${fetched} | Locco | PM Fetched | Valencia, Spain | 60000-70000 EUR\n- [ ] ${flaky} | Locco | PM Flaky | Remote (EU) |  | posted: 2026-09-01\n`, null));
+  const fetch = fakeFetch({ [fetched]: htmlRes(200, page('PM Fetched')), [flaky]: htmlRes(403, '') });
+  await go({ fetch });
+  const f = byUrl(fetched);
+  assert.deepEqual([f.fm.location, f.fm.salary], ['Valencia, Spain', '60000-70000 EUR']);
+  const g = byUrl(flaky);
+  assert.equal(g.fm.full_text, 'missing');
+  assert.deepEqual([g.fm.location, g.fm.salary, g.fm.posted], ['Remote (EU)', undefined, '2026-09-01']);
+});
+
+// --- applications.json ----------------------------------------------------------------------------------------------
+test('a candidate already in applications.json (same link, or same company and role) is skipped as applied-elsewhere', async () => {
+  const byFile = `https://jobs.ashbyhq.com/appco/${uuid(500)}`, byField = `https://jobs.ashbyhq.com/appco/${uuid(501)}?utm_source=x`, byRole = `https://jobs.ashbyhq.com/appco/${uuid(502)}`;
+  const afterFetch = 'https://careers.example.com/jobs/app-after-fetch', fresh = `https://jobs.ashbyhq.com/appco/${uuid(503)}`;
+  fs.writeFileSync(path.join(DIRS.decoded, '2026-09-01--appco--pm-file.md'), `---\ncompany: "Appco"\nrole: "PM File"\nurl: "${byFile}"\nfound: 2026-09-01\n---\n\n# Appco - PM File\n\ntext\n`);
+  fs.writeFileSync(STATE('applications.json'), JSON.stringify({
+    '2026-09-01--appco--pm-file.md': { company: 'Appco', role: 'PM File', status: 'applied', events: [] },
+    'manual:appco|pm field': { company: 'Appco', role: 'PM Field', url: `https://jobs.ashbyhq.com/appco/${uuid(501)}`, status: 'interview', events: [] },
+    'manual:appco|senior pm': { company: 'APPCO', role: 'Senior PM!', status: 'applied', events: [] },
+    'manual:hintco|platform pm': { company: 'Hintapp', role: 'Platform PM App', status: 'applied', events: [] },
+  }));
+  try {
+    use(careerOps('co-applied', [`- [ ] ${byFile} | Appco | PM File Renamed`, `- [ ] ${byField} | Appco | PM Field`, `- [ ] ${byRole} | Appco | Senior PM`,
+      `- [ ] ${afterFetch}`, `- [ ] ${fresh} | Appco | PM Fresh`].join('\n') + '\n', null));
+    const fetch = fakeFetch({
+      'https://api.ashbyhq.com/posting-api/job-board/appco?includeCompensation=true': ashbyBoard('appco', uuid(503), 'PM Fresh'),
+      [afterFetch]: htmlRes(200, page('Careers', { '@type': 'JobPosting', title: 'Platform PM App', description: PAGE_TEXT, hiringOrganization: { name: 'Hintapp' } })),
+    });
+    const r = await go({ fetch });
+    for (const url of [byFile, byField, byRole, afterFetch]) assert.equal(seenOf(url).outcome, 'applied-elsewhere', url);
+    assert.equal(fetch.calls.filter(u => u.includes('appco')).length, 1, 'only the fresh one is fetched; the first three are known before any fetch');
+    assert.equal(r.written, 1);
+    assert.ok(byUrl(fresh));
+  } finally { fs.rmSync(STATE('applications.json'), { force: true }); }
+});
+
+test('a broken applications.json stops the run before anything is marked', async () => {
+  const url = `https://jobs.ashbyhq.com/brokenapps/${uuid(504)}`;
+  use(careerOps('co-broken-apps', `- [ ] ${url} | Brokenapps | PM\n`, null));
+  fs.writeFileSync(STATE('applications.json'), '{ not json');
+  try {
+    const r = await go({ fetchDetail: async () => { throw new Error('must not fetch'); } });
+    assert.equal(r.ran, false);
+    assert.equal(seenOf(url), undefined);
+  } finally { fs.rmSync(STATE('applications.json'), { force: true }); }
+});
+
+// --- gate rejects are re-checked without a fetch ------------------------------------------------------------------
+test('a link gated before the fetch is freed by a settings change on the next run; one gated after the fetch is not refetched', async () => {
+  const before = `https://jobs.ashbyhq.com/regateco/${uuid(600)}`, after = `https://jobs.ashbyhq.com/regatelate/${uuid(601)}`;
+  use(careerOps('co-regate', `- [ ] ${before} | Regateco | Product Manager Regate\n- [ ] ${after} | Regatelate | Product Manager Late\n`, null));
+  const fetch = fakeFetch({
+    'https://api.ashbyhq.com/posting-api/job-board/regateco?includeCompensation=true': ashbyBoard('regateco', uuid(600), 'Product Manager Regate'),
+    'https://api.ashbyhq.com/posting-api/job-board/regatelate?includeCompensation=true': ashbyBoard('regatelate', uuid(601), 'Product Manager Late', { location: 'Berlin, Germany', workplace: 'OnSite' }),
+  });
+  SETTINGS.gates = { companies: { exclude: ['Regateco'] }, onsite_countries: ['ES'] };
+  try {
+    await go({ fetch });
+    assert.deepEqual([seenOf(before).outcome, seenOf(before).gate], ['gated', 'company']);
+    assert.deepEqual([seenOf(after).outcome, seenOf(after).gate], ['gated', 'geo']);
+    assert.equal(fetch.calls.length, 1);
+    await go({ fetch });
+    assert.equal(fetch.calls.length, 1, 'still gated: no fetch for either');
+    SETTINGS.gates = { onsite_countries: ['ES'] };   // the company is no longer excluded
+    const r = await go({ fetch });
+    assert.equal(r.written, 1);
+    assert.ok(byUrl(before), 'freed without anyone touching the state file');
+    assert.equal(fetch.calls.length, 2, 'the link gated after its fetch is not fetched again');
+    assert.equal(seenOf(after).outcome, 'gated');
+  } finally { delete SETTINGS.gates; }
+});
+
+test('"queued as Unknown" counts only jobs actually written', async () => {
+  const url = 'https://careers.example.com/jobs/unknown-dup';
+  writeJob({ company: 'Someone', role: 'Something', url, source: 'linkedin', text: 'From another source.' });
+  use(careerOps('co-unknown-dup', `- [ ] ${url}\n`, null));
+  const r = await go({ fetch: fakeFetch({ [url]: htmlRes(200, page('Plain Page Role')) }) });
+  assert.equal(r.written, 0);
+  assert.equal(r.unknown, 0);
+  assert.equal(seenOf(url).outcome, 'duplicate');
+});
+
+// --- file names -------------------------------------------------------------------------------------------------------
+test('pipeline_file and scan_history_file point at other files, relative to path or absolute', async () => {
+  const dir = careerOps('co-files', null, null);
+  fs.mkdirSync(path.join(dir, 'inbox'));
+  const pipeUrl = `https://jobs.ashbyhq.com/fileco/${uuid(700)}`, scanUrl = `https://jobs.ashbyhq.com/filescan/${uuid(701)}`;
+  fs.writeFileSync(path.join(dir, 'inbox', 'pipe.md'), `- [ ] ${pipeUrl} | Fileco | PM Files\n`);
+  const absHistory = path.join(tmp, 'elsewhere-history.tsv');
+  fs.writeFileSync(absHistory, `url\tstatus\ttitle\tcompany\n${scanUrl}\tadded\tPM Scan Files\tFilescan\n`);
+  use(dir, { pipeline_file: 'inbox/pipe.md', scan_history_file: absHistory });
+  try {
+    assert.equal(checkSetup(cfg).good, true, 'doctor reads the same file');
+    const r = await go({ fetchDetail: async url => ({ via: 'ashby', title: '', location: '', text: `${PAGE_TEXT} ${url}` }) });
+    assert.equal(r.written, 2);
+    assert.ok(byUrl(pipeUrl) && byUrl(scanUrl));
+    assert.match(checkSetup({ path: dir }).fix, /no data\/pipeline\.md/, 'the default name is still data/pipeline.md');
+  } finally { delete cfg.pipeline_file; delete cfg.scan_history_file; }
+});
+
 // --- runs that do nothing -----------------------------------------------------------------------------------------------
 test('--dry-run fetches but writes nothing: no job, no state', async () => {
   const url = `https://jobs.ashbyhq.com/dryco/${uuid(11)}`;
@@ -430,6 +606,18 @@ test('a link that left career-ops is forgotten after 120 days; one still listed 
   assert.ok(after[urlKey(listed)]);
   assert.equal(after['https://gone.example/job'], undefined);
   assert.ok(after['https://recent.example/job']);
+});
+
+test('--dry-run leaves a broken state file as it is and starts from an empty state in memory', async () => {
+  fs.writeFileSync(STATE('career-ops.json'), '{ broken for dry run');
+  const asideBefore = fs.readdirSync(DIRS.state).filter(f => f.startsWith('career-ops.json.broken-')).length;
+  const url = `https://jobs.ashbyhq.com/drybroken/${uuid(800)}`;
+  use(careerOps('co-dry-broken', `- [ ] ${url} | Drybroken | PM\n`, null));
+  const r = await go({ dryRun: true, fetchDetail: async () => ({ via: 'ashby', title: 'PM', location: '', text: PAGE_TEXT }) });
+  assert.equal(r.written, 1);
+  assert.equal(fs.readFileSync(STATE('career-ops.json'), 'utf8'), '{ broken for dry run', 'not renamed, not rewritten');
+  assert.equal(fs.readdirSync(DIRS.state).filter(f => f.startsWith('career-ops.json.broken-')).length, asideBefore);
+  assert.ok(r.report.some(l => /dry run.*empty state/i.test(l)), r.report.join('\n'));
 });
 
 test('a broken state file is kept aside, not silently replaced', async () => {

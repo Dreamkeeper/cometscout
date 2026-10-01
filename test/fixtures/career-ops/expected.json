@@ -1,6 +1,35 @@
 {
- "unchecked [ ] items": "candidates to queue",
- "[!] items": "skip (already evaluated)",
- "[x] items": "already evaluated by career-ops; queue only if not in jobpilot history (optional)",
- "status filtered": "skip"
+  "_comment": "What jobpilot must do with pipeline.md and scan-history.tsv in this folder. Shapes follow career-ops modes/pipeline.md ('Format of pipeline.md') and scan.mjs (formatPipelineOffer, formatScanHistoryRow); every value is invented. Checked by test/career-ops.test.mjs. 'queued' lists front matter values (notes_include and source_flags_include are substrings); 'not_queued' gives the reason.",
+  "include_evaluated_off": {
+    "queued": {
+      "https://jobs.ashbyhq.com/northwind/11111111-1111-1111-1111-111111111111": { "company": "Northwind Devices", "role": "Senior Product Manager", "location": "Madrid, Spain; Hybrid", "salary": "70000-90000 EUR", "posted": "2026-09-27", "notes_include": ["career-ops pipeline", "posted: 2026-09-27"] },
+      "https://boards.greenhouse.io/harborline/jobs/4000001": { "company": "Harborline", "role": "Product Lead", "location": "Remote (EU)", "posted": "2026-09-25", "notes_include": ["trust: 60 missing_apply_url,suspicious_domain"], "source_flags_include": ["career-ops trust score 60", "missing_apply_url"] },
+      "https://jobs.lever.co/brightline/44444444-4444-4444-4444-444444444444": { "company": "Brightline", "role": "Product Owner", "notes_include": ["note: curated shortlist", "rank: 4.1/5"] },
+      "https://careers.example.com/jobs/bare-link": { "company": "Unknown", "role": "Product Manager | Careers", "source_flags_include": ["company unknown"] },
+      "https://careers.example.org/jobs/note-only": { "company": "Unknown", "notes_include": ["note: forwarded by a friend"], "source_flags_include": ["company unknown"] },
+      "https://careers.example.net/jobs/posted-only": { "company": "Unknown", "posted": "2026-06-18", "source_flags_include": ["company unknown"] },
+      "https://jobs.ashbyhq.com/cobaltworks/77777777-7777-7777-7777-777777777777": { "company": "Cobalt Works", "role": "Product Manager, Payments", "location": "Barcelona, Spain; Hybrid", "posted": "2026-09-28", "notes_include": ["career-ops scan history (ashby-api, first seen 2026-09-29)"], "source_flags_include": ["career-ops trust score 70", "suspicious_domain"] }
+    },
+    "not_queued": {
+      "https://boards.example-ats.com/quarry/jobs/2": "[!]: career-ops could not read it; its 'added' scan row is in the pipeline",
+      "https://jobs.lever.co/lumenfield/22222222-2222-2222-2222-222222222222": "[x] evaluated, include_evaluated is off",
+      "https://careers.example.net/jobs/platform-pm": "[x] evaluated, include_evaluated is off",
+      "https://jobs.lever.co/kestrel/66666666-6666-6666-6666-666666666666": "[x] #-- skipped by the career-ops pre-screen",
+      "https://boards.greenhouse.io/oldmill/jobs/4000002": "[x] ~~struck through~~: posting expired",
+      "https://boards.example-ats.com/ridgeway/jobs/3": "scan status skipped_location",
+      "https://boards.greenhouse.io/tidewater/jobs/4000003": "scan rows added then skipped_expired: the last row wins",
+      "https://jobs.lever.co/quillon/99999999-9999-9999-9999-999999999999": "scan status skipped_no_apply_control"
+    }
+  },
+  "include_evaluated_on": {
+    "queued": {
+      "https://jobs.lever.co/lumenfield/22222222-2222-2222-2222-222222222222": { "company": "Lumenfield", "role": "PM Connected Home", "notes_include": ["career-ops evaluated #013", "score 3.8/5"] },
+      "https://careers.example.net/jobs/platform-pm": { "company": "Ridgeway Labs", "role": "Platform PM", "notes_include": ["career-ops evaluated #014", "score 8.5/10"] }
+    },
+    "not_queued": {
+      "https://jobs.lever.co/kestrel/66666666-6666-6666-6666-666666666666": "pre-screen skips stay skipped",
+      "https://boards.greenhouse.io/oldmill/jobs/4000002": "expired stays skipped",
+      "https://boards.example-ats.com/quarry/jobs/2": "[!] stays skipped"
+    }
+  }
 }

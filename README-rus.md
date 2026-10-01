@@ -151,6 +151,8 @@ node sources/linkedin-alerts.mjs --dry-run --max-fetch 3
 
 Источник RealtimeJobs включается так же: токен `RTJ_API_TOKEN=...` в `.env` и `"rtj": { "enabled": true }` в настройках.
 
+Если у вас уже работает [career-ops](https://github.com/career-ops-hq/career-ops), jobpilot может забирать его находки: впишите путь к папке career-ops в `sources.career_ops.path` и включите источник. jobpilot только читает `data/pipeline.md` и `data/scan-history.tsv` и ничего не пишет в папку career-ops. Подробности в разделе «career-ops» файла `README.md`.
+
 ## 8. Каждый день
 
 - Вечером в Telegram приходят до двух лучших вакансий дня, к каждой пакет: резюме в PDF, сопроводительное письмо, если форма его просит, и черновики ответов.

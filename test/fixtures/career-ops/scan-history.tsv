@@ -1,4 +1,8 @@
-url	first_seen	portal	title	company	status
-https://jobs.ashbyhq.com/northwind/11111111-1111-1111-1111-111111111111	2026-09-28	ashby-api	Senior Product Manager	Northwind Devices	added
-https://boards.example-ats.com/quarry/jobs/2	2026-09-20	greenhouse-api	Product Owner	Quarry Systems	added
-https://boards.example-ats.com/ridgeway/jobs/3	2026-09-29	greenhouse-api	Sales Representative	Ridgeway Labs	filtered
+url	first_seen	portal	title	company	status	location	fingerprint	posted_at	trust_score	trust_flags	normalized_company
+https://jobs.ashbyhq.com/northwind/11111111-1111-1111-1111-111111111111	2026-09-28	ashby-api	Senior Product Manager	Northwind Devices	added	Madrid, Spain	0f1e2d3c4b5a6978	2026-09-27			northwind devices
+https://boards.example-ats.com/quarry/jobs/2	2026-09-20	greenhouse-api	Product Owner	Quarry Systems	added	Lisbon, Portugal					quarry systems
+https://boards.example-ats.com/ridgeway/jobs/3	2026-09-29	greenhouse-api	Sales Representative	Ridgeway Labs	skipped_location	Singapore					ridgeway labs
+https://jobs.ashbyhq.com/cobaltworks/77777777-7777-7777-7777-777777777777	2026-09-29	ashby-api	Product Manager, Payments	Cobalt Works	added	Barcelona, Spain	1a2b3c4d5e6f7081	2026-09-28	70	suspicious_domain	cobalt works
+https://boards.greenhouse.io/tidewater/jobs/4000003	2026-09-20	greenhouse-api	Growth PM	Tidewater	added	Valencia, Spain					tidewater
+https://boards.greenhouse.io/tidewater/jobs/4000003	2026-09-28	greenhouse-api	Growth PM	Tidewater	skipped_expired	Valencia, Spain					tidewater
+https://jobs.lever.co/quillon/99999999-9999-9999-9999-999999999999	2026-09-30	lever-api	Product Manager	Quillon	skipped_no_apply_control						quillon
