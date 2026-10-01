@@ -52,7 +52,7 @@ node cli.mjs reset --yes                  # clear data/ (e.g. after trying the e
 | File | What | Committed? |
 |---|---|---|
 | `settings.json` | model provider (`claude` or `codex`) and models, sources and their filters, picks, Telegram | no |
-| `.env` | tokens: `RTJ_API_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GMAIL_*` (written by `tools/gmail-auth.mjs`) | no |
+| `.env` | tokens: `RTJ_API_TOKEN`, `HIRIFY_COOKIE`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GMAIL_*` (written by `tools/gmail-auth.mjs`) | no |
 | `profile/` | `profile.md`, `cv-library.json`, `fact-rules.json`, `voice.md`, `cover-letter-template.md` | no |
 | `data/` | the queue, digests, packs, state | no |
 
@@ -138,6 +138,32 @@ jobpilot checks `dir` on every run (`node cli.mjs sources` or the evening run) a
 
 1. **A job file in jobpilot's own format**: front matter (`company`, `role`, `url`, `source`, `location`, ...) followed by the job text, the same shape jobpilot itself writes to `data/inbox`. It is queued with the normal dedupe rules, then moved to `processed/`. A file missing `company` or `role` is moved to `failed/` with a `.reason.txt` beside it rather than queued half-wrong.
 2. **A `*.queue.json` file**: `{ "candidates": [{ "title": "...", "url": "...", "company": "optional", "location": "optional", "source_key": "optional" }] }`, the shape a search-style tool naturally produces (a page title and a link). For each candidate, jobpilot fetches the full job text itself (from the ATS API when the link is a known Greenhouse, Ashby, Lever, Workable or Recruitee posting, otherwise the page), works out the company from whichever of `company`, the page title, the fetch, or the link's board slug is the most specific, and skips search-result pages and jobs it cannot identify. Jobs are queued with `source: "drop:<source_key or file name>"`. Closed postings and links that redirect to a listing page or the home page are skipped too. The queue file is only moved to `processed/` once every candidate in it has a final answer. A page that could not be fetched (a rate limit, a server error, a network hiccup) keeps the file in place and is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job that stays unreadable is still queued without text when its company and role are known (open the link to read it), and reported as unreadable otherwise, so no file waits forever. A company only guessed from the title's punctuation ("Co - Title") does not count as known there. A queue file that is not valid JSON goes to `failed/`. jobpilot fetches pages slowly (1.5 seconds apart), at most `max_fetches_per_run` pages per run (default 40; calls to a known ATS API do not count), only over http or https, and never from this machine or a private network. Jobs past that limit stay in their file and are fetched on the next run. Files saved with a UTF-8 byte order mark (common with Windows tools) are read normally.
+
+### Hirify
+
+[Hirify](https://hirify.me) collects remote and relocation jobs with structured fields: work format, the countries a remote job accepts or excludes, office locations, language requirements. jobpilot reads your saved filters through Hirify's API with your own logged-in session, so you need a Hirify account.
+
+```json
+"hirify": {
+  "enabled": true,
+  "cookie_env": "HIRIFY_COOKIE",
+  "filters": [{ "name": "product remote", "query": "search=product%20manager&work_format=remote" }],
+  "max_pages_per_filter": 3, "max_age_days": 14, "delay_ms": 1500,
+  "title_exclude": ["intern", "junior"]
+}
+```
+
+`query` is the part of the address after `?` when a saved filter is open on hirify.me (pasting the whole address works too). Each filter is read for up to `max_pages_per_filter` pages; jobs older than `max_age_days` (by the date they were posted or reopened) are skipped, and requests are spaced `delay_ms` apart.
+
+**The session cookie.** Log in to hirify.me in your browser, open the developer tools (F12), go to the Network tab, reload the page, click any request to `api.hirify.me` and copy the whole value of its `Cookie` request header. Put it in `.env` yourself, on one line, in quotes:
+
+```
+HIRIFY_COOKIE="paste the value here"
+```
+
+Never paste it into a chat. The cookie expires (when you log out, or after some weeks). When Hirify refreshes it, jobpilot keeps the new values in `data/state/hirify-cookies.json` (readable only by you) and uses them next time. When the session stops working (Hirify answers 401 or 403, sees no logged-in user, or hides every company on the first page), the source prints "refresh HIRIFY_COOKIE", sends a Telegram alert if delivery is on, and exits with code 3; `node cli.mjs run` and `node cli.mjs sources` then finish with exit code 3 as well, so the failure shows. Copy a fresh cookie into `.env` and run again. `node cli.mjs doctor` checks that the variable is set.
+
+Each new vacancy gets one detail call. Scams (marked by Hirify) and archived vacancies are skipped. A company Hirify still hides with a working session is queued as "Confidential (Hirify)" with a flag. The gates apply to the rest: the posting language and `language_requirements` (language gate), office locations (geo), allowed locations (remote regions; country names count, so "Spain" is accepted when you may work in Spain), excluded locations (a job that excludes a country you can work in is rejected), tags and a "(Domain)" at the end of the title (industries). Remote with no allowed locations counts as worldwide. A field that is missing or written in a form jobpilot does not know is flagged, never a reason to reject. The vacancy ids jobpilot has handled are kept in `data/state/hirify.json` for 120 days; a vacancy that could not be read, or was demoted, is tried again on the next run. Try it with `node sources/hirify.mjs --dry-run` (writes nothing).
 
 ### Tests
 
