@@ -124,8 +124,8 @@
    "allowed_regions": [],
    "required_citizenships": [],
    "forbidden_citizenships": [
-    "RU",
-    "BY"
+    "XX",
+    "XZ"
    ],
    "visa_sponsorship": [],
    "visa_sponsorship_availability": "NOT_MENTIONED",
@@ -166,7 +166,7 @@
    ],
    "stage": "Series A"
   },
-  "_expect": "reject legal: forbidden citizenship RU (for a user with RU citizenship)"
+  "_expect": "reject legal: forbidden citizenship XX (for a user with XX citizenship)"
  },
  {
   "position": {
@@ -425,10 +425,10 @@
  },
  {
   "position": {
-   "title": "Менеджер продукта (IoT)",
-   "raw_job_description": "Название: Менеджер продукта (IoT)\nУдалённо, из любой страны. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. ",
+   "title": "Gerente de producto (IoT)",
+   "raw_job_description": "Título: Gerente de producto (IoT)\nRemoto, desde cualquier país. Desarrollar un producto de hogar conectado, trabajar con ingeniería y con clientes. Remoto, desde cualquier país. Desarrollar un producto de hogar conectado, trabajar con ingeniería y con clientes. Remoto, desde cualquier país. Desarrollar un producto de hogar conectado, trabajar con ingeniería y con clientes. Remoto, desde cualquier país. Desarrollar un producto de hogar conectado, trabajar con ingeniería y con clientes. Remoto, desde cualquier país. Desarrollar un producto de hogar conectado, trabajar con ingeniería y con clientes. Remoto, desde cualquier país. Desarrollar un producto de hogar conectado, trabajar con ingeniería y con clientes. ",
    "detected_role": "Product Manager",
-   "apply_url": "https://boards.example-ats.com/kvadratsoft/jobs/1006",
+   "apply_url": "https://boards.example-ats.com/cuadradosoft/jobs/1006",
    "metadata": {
     "computed_closed_at": null,
     "computed_posted_at": "2026-09-30T10:00:00.000Z",
@@ -437,7 +437,7 @@
     "created_at": "2026-09-30T10:05:00.000Z"
    },
    "languages": [
-    "ru"
+    "es"
    ],
    "position_type": "IC",
    "seniority": "SENIOR",
@@ -473,7 +473,7 @@
    "questions": []
   },
   "employer": {
-   "name": "Kvadrat Soft",
+   "name": "Cuadrado Soft",
    "tagline": "Connected devices",
    "website": "example.com",
    "industries": [
@@ -504,7 +504,7 @@
    ],
    "stage": "Series A"
   },
-  "_expect": "pass: Russian-language remote posting (languages ru)"
+  "_expect": "pass: Spanish-language remote posting (languages es)"
  },
  {
   "position": {

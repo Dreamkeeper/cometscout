@@ -17,10 +17,10 @@ fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC'
 const { checkGates, fromRtj, fromText, countriesIn, attendanceIn, describeGates, gateTally, settle, recordDemote } = await import('../lib/gates.mjs');
 const ROOT = path.join(HERE, '..');
 
-// The sample user from the brief: citizenship RU, may work in ES, on-site in ES/DE/NL/FR, English and Russian.
+// A fictional sample user: citizenship XX, may work in ES, on-site in ES/DE/NL/FR, English and Spanish.
 const GATES = {
-  user: { citizenships: ['RU'], work_authorization: ['ES'] },
-  languages: ['en', 'ru'],
+  user: { citizenships: ['XX'], work_authorization: ['ES'] },
+  languages: ['en', 'es'],
   onsite_countries: ['ES', 'DE', 'NL', 'FR'],
   remote: { accept_worldwide: true, accept_regions: ['Europe', 'EU', 'EMEA'] },
   sponsorship_refusal_phrases: ['without sponsorship', 'no visa sponsorship', 'must be authorized to work in'],
@@ -50,9 +50,9 @@ test('every _expect in the RTJ fixture holds with the sample gates', () => {
 test('no gates settings: everything passes, nothing flagged', () => {
   const items = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'rtj', 'positions.json'), 'utf8'));
   for (const it of items) assert.deepEqual(checkGates(fromRtj(it), undefined), { decision: 'pass', gate: null, reason: '', flags: [] });
-  assert.equal(checkGates(job({ forbidden_citizenships: ['RU'] }), null).decision, 'pass');
+  assert.equal(checkGates(job({ forbidden_citizenships: ['XX'] }), null).decision, 'pass');
   assert.equal(checkGates(job({}), {}).decision, 'pass');
-  assert.equal(checkGates(job({ forbidden_citizenships: ['RU'] })).decision, 'pass', 'default comes from settings, which has no gates here');
+  assert.equal(checkGates(job({ forbidden_citizenships: ['XX'] })).decision, 'pass', 'default comes from settings, which has no gates here');
 });
 
 test('missing fields never reject', () => {
@@ -83,19 +83,19 @@ test('industry gate: industries, company or title', () => {
 test('language gate: posting language and required levels', () => {
   assert.equal(checkGates(job({ languages: ['de'] }), GATES).gate, 'language');
   assert.equal(checkGates(job({ languages: ['de', 'en'] }), GATES).decision, 'pass');
-  assert.equal(checkGates(job({ languages: ['RU'] }), GATES).decision, 'pass', 'case-insensitive');
+  assert.equal(checkGates(job({ languages: ['ES'] }), GATES).decision, 'pass', 'case-insensitive');
   assert.equal(checkGates(job({ required_languages: [{ lang: 'de', level: 'c1' }] }), GATES).gate, 'language');
   assert.equal(checkGates(job({ required_languages: [{ lang: 'de', level: 'Fluent' }] }), GATES).gate, 'language');
-  const low = checkGates(job({ required_languages: [{ lang: 'es', level: 'b1' }] }), GATES);
-  assert.equal(low.decision, 'pass'); assert.match(low.flags[0], /es b1/);
-  assert.equal(checkGates(job({ required_languages: [{ lang: 'ru', level: 'native' }] }), GATES).decision, 'pass');
+  const low = checkGates(job({ required_languages: [{ lang: 'it', level: 'b1' }] }), GATES);
+  assert.equal(low.decision, 'pass'); assert.match(low.flags[0], /it b1/);
+  assert.equal(checkGates(job({ required_languages: [{ lang: 'es', level: 'native' }] }), GATES).decision, 'pass');
   assert.equal(checkGates(job({ languages: ['de'] }), { user: GATES.user }).decision, 'pass', 'no languages set, no check');
 });
 
 test('legal gate: citizenship, work authorization, sponsorship', () => {
-  assert.equal(checkGates(job({ forbidden_citizenships: ['by', 'ru'] }), GATES).gate, 'legal');
+  assert.equal(checkGates(job({ forbidden_citizenships: ['xz', 'xx'] }), GATES).gate, 'legal');
   assert.equal(checkGates(job({ required_citizenships: ['US'] }), GATES).gate, 'legal');
-  assert.equal(checkGates(job({ required_citizenships: ['RU', 'KZ'] }), GATES).decision, 'pass');
+  assert.equal(checkGates(job({ required_citizenships: ['XX', 'ZZ'] }), GATES).decision, 'pass');
   const onsiteUS = { attendance: ['office'], countries: ['US'] };
   assert.equal(checkGates(job({ ...onsiteUS, mandatory: [{ class: 'LEGAL_AUTHORIZATION', text: 'Authorized to work in the US' }] }), GATES).gate, 'legal');
   assert.equal(checkGates(job({ ...onsiteUS, sponsorship: 'NOT_AVAILABLE' }), GATES).gate, 'legal');
@@ -147,9 +147,9 @@ test('headcount gate: reject_over, keywords, demote and its exceptions', () => {
 });
 
 test('first reject wins and flags accumulate', () => {
-  const r = checkGates(job({ company: 'Acme', forbidden_citizenships: ['RU'] }), { ...GATES, companies: { exclude: ['acme'] } });
+  const r = checkGates(job({ company: 'Acme', forbidden_citizenships: ['XX'] }), { ...GATES, companies: { exclude: ['acme'] } });
   assert.equal(r.gate, 'company');
-  const p = checkGates(job({ attendance: ['remote'], remote_scope: 'geo_restricted', allowed_regions: ['Europe'], required_languages: [{ lang: 'es', level: 'a2' }], sponsorship: 'NOT_AVAILABLE' }), GATES);
+  const p = checkGates(job({ attendance: ['remote'], remote_scope: 'geo_restricted', allowed_regions: ['Europe'], required_languages: [{ lang: 'it', level: 'a2' }], sponsorship: 'NOT_AVAILABLE' }), GATES);
   assert.equal(p.decision, 'pass'); assert.equal(p.flags.length, 3);
 });
 
@@ -239,7 +239,7 @@ test('demoted jobs are recorded once in data/state/demoted.jsonl and not marked 
   assert.deepEqual(Object.keys(lines[0]), ['date', 'source', 'company', 'role', 'url', 'gate', 'reason']);
   assert.match(lines[0].date, /^\d{4}-\d{2}-\d{2}$/);
   assert.deepEqual({ ...lines[0], date: 'x' }, { date: 'x', ...meta, gate: 'headcount', reason: g.reason });
-  assert.deepEqual(settle(checkGates(job({ forbidden_citizenships: ['RU'] }), GATES), meta), { queue: false, markSeen: true }, 'a reject is final');
+  assert.deepEqual(settle(checkGates(job({ forbidden_citizenships: ['XX'] }), GATES), meta), { queue: false, markSeen: true }, 'a reject is final');
   assert.deepEqual(settle(checkGates(base, GATES), meta), { queue: true, markSeen: true });
   assert.equal(recordDemote({ source: 'rtj', company: 'Other Co', role: 'PM' }, g), true, 'no url: keyed by company and role');
   assert.equal(recordDemote({ source: 'rtj', company: 'Other Co', role: 'PM' }, g), false);
@@ -252,7 +252,7 @@ test('language codes with region tags compare by primary subtag', () => {
   assert.equal(checkGates(job({ languages: ['de-AT'] }), GATES).gate, 'language');
   assert.equal(checkGates(job({ required_languages: [{ lang: 'en-GB', level: 'c2' }] }), GATES).decision, 'pass');
   assert.equal(checkGates(job({ required_languages: [{ lang: 'de-CH', level: 'c1' }] }), GATES).gate, 'language');
-  assert.equal(checkGates(job({ languages: ['en'] }), { ...GATES, languages: ['en-GB', 'ru-RU'] }).decision, 'pass', 'user codes with tags');
+  assert.equal(checkGates(job({ languages: ['en'] }), { ...GATES, languages: ['en-GB', 'es-ES'] }).decision, 'pass', 'user codes with tags');
 });
 
 test('legal flag whenever the job is not on-site only in a country the user may work in', () => {
@@ -325,6 +325,98 @@ test('tally keeps jobs gated on an earlier run apart', () => {
   assert.equal(String(t), 'gated 1 (geo 1), 2 still gated from earlier runs'); assert.equal(t.total, 3);
   const only = gateTally(); only.add({ decision: 'reject', gate: 'legal' }, true);
   assert.equal(String(only), '1 still gated from earlier runs');
+});
+
+// Second review round. Same sample GATES; every case below fails on the code before it.
+test('country names: deprecated ICU codes never win, "the" is dropped, common aliases and native names', () => {
+  assert.deepEqual(countriesIn('Russia'), ['RU']);
+  assert.deepEqual(countriesIn('Berlin, Germany'), ['DE']);
+  assert.deepEqual(countriesIn('Serbia'), ['RS']);
+  assert.deepEqual(countriesIn('Vietnam'), ['VN']);
+  const cases = { 'the Netherlands': 'NL', 'The Netherlands': 'NL', 'Holland': 'NL', 'Nederland': 'NL', 'España': 'ES', 'Espana': 'ES',
+    'Deutschland': 'DE', 'France': 'FR', 'Italia': 'IT', 'Polska': 'PL', 'Portugal': 'PT', 'Schweiz': 'CH', 'Suisse': 'CH', 'Österreich': 'AT',
+    'U.K.': 'GB', 'Great Britain': 'GB', 'United States of America': 'US', 'U.S.': 'US', 'U.S.A.': 'US', 'the US': 'US',
+    'Czech Republic': 'CZ', 'Czechia': 'CZ', 'Turkey': 'TR', 'Türkiye': 'TR', 'Turkiye': 'TR', 'South Korea': 'KR', 'Korea': 'KR' };
+  for (const [name, code] of Object.entries(cases)) assert.deepEqual(countriesIn(`Remote - ${name}`), [code], name);
+  assert.deepEqual(countriesIn('Madrid, España; Amsterdam, the Netherlands'), ['ES', 'NL']);
+  assert.deepEqual(countriesIn('Santa Fe, New Mexico'), [], 'still exact segments only');
+  // and the gates read them: a region or an office written that way is a country the user accepts
+  assert.equal(checkGates(remoteJob(['España']), GATES).decision, 'pass');
+  assert.equal(checkGates(fromText({ location: 'Amsterdam, the Netherlands; On-site' }), GATES).decision, 'pass');
+  assert.equal(checkGates(fromText({ location: 'Russia; On-site' }), { ...GATES, onsite_countries: ['RU'] }).decision, 'pass');
+});
+
+test('on-site fallback: a location in an accepted country with no attendance counts, flagged', () => {
+  const rtj = locations => fromRtj({ position: { title: 'PM', languages: ['en'], remote_scope: 'geo_restricted', allowed_regions: ['United States'], locations }, employer: { name: 'Example Co' } });
+  for (const attendance of [undefined, [], null]) {
+    const r = checkGates(rtj([{ country: 'US', attendance: ['remote'] }, { country: 'DE', attendance }]), GATES);
+    assert.equal(r.decision, 'pass', `${JSON.stringify(attendance)}: ${r.reason}`);
+    assert.ok(r.flags.includes('remote: limited to United States; on-site option in DE, attendance unknown'), r.flags.join(' | '));
+  }
+  const es = checkGates(rtj([{ country: 'ES' }]), { ...GATES, onsite_countries: [] });
+  assert.ok(es.flags.some(f => /on-site option in ES, attendance unknown$/.test(f)), 'work authorization country counts too');
+  // explicitly remote-only still does not count; a known office wins over an unknown one
+  assert.equal(checkGates(rtj([{ country: 'DE', attendance: ['remote'] }]), GATES).gate, 'geo-remote');
+  assert.equal(checkGates(rtj([{ country: 'PL' }]), GATES).gate, 'geo-remote', 'not an accepted country');
+  const both = checkGates(rtj([{ country: 'DE' }, { country: 'NL', attendance: ['office'] }]), GATES);
+  assert.ok(both.flags.some(f => /on-site option in NL$/.test(f)), both.flags.join(' | '));
+  // text sources: a location string with no attendance word next to a remote one
+  const t = fromText({ location: ['Remote, United States', 'Berlin, Germany'] });
+  const tr = checkGates({ ...t, remote_scope: 'geo_restricted', allowed_regions: ['United States'] }, GATES);
+  assert.equal(tr.decision, 'pass', tr.reason); assert.match(tr.flags.join(), /on-site option in DE, attendance unknown/);
+  // accept_worldwide: false is the same fallback
+  const ww = { ...GATES, remote: { ...GATES.remote, accept_worldwide: false } };
+  const w = checkGates(job({ attendance: ['remote'], remote_scope: 'worldwide', countries: ['US', 'ES'], locations: [{ country: 'US', attendance: ['remote'] }, { country: 'ES', attendance: [] }] }), ww);
+  assert.equal(w.decision, 'pass', w.reason); assert.ok(w.flags.some(f => /on-site option in ES, attendance unknown/.test(f)), w.flags.join(' | '));
+});
+
+test('region text with an exclusion: always a flag, never a reject by itself', () => {
+  const FLAG = 'remote: region text has an exclusion, check it';
+  for (const region of ['Worldwide except United States', 'Anywhere, excluding US', 'Americas (excl. Brazil)', 'Outside the EU', 'Any country not in Asia',
+    'Весь мир, кроме США', 'Любая страна, за исключением США', 'Worldwide, EXCEPT: US']) {
+    const r = checkGates(remoteJob([region]), GATES);
+    assert.equal(r.decision, 'pass', `${region}: ${r.reason}`); assert.ok(r.flags.includes(FLAG), `${region}: ${r.flags.join(' | ')}`);
+  }
+  // an accepted region with an exclusion passes as before, flagged
+  const eu = checkGates(remoteJob(['Europe except Spain']), GATES);
+  assert.equal(eu.decision, 'pass'); assert.ok(eu.flags.includes(FLAG));
+  // a country named in an exclusion is not read as an accepted region: it passes flagged, but does not save a demote
+  const big = { headcount: { min: 2000 } };
+  assert.equal(checkGates(remoteJob(['Spain'], big), GATES).decision, 'pass', 'an accepted region saves the demote');
+  const exc = checkGates(remoteJob(['Worldwide, except ES'], big), GATES);
+  assert.equal(exc.decision, 'demote', exc.reason); assert.ok(exc.flags.includes(FLAG));
+  // other rejects still apply, and words that only contain an exclusion word do not count
+  const reside = checkGates(remoteJob(['Worldwide except US'], { text: 'Candidates must reside in the US.' }), { ...GATES, must_reside_phrases: ['must reside in the US'] });
+  assert.equal(reside.gate, 'geo-remote'); assert.ok(reside.flags.includes(FLAG));
+  for (const region of ['United States', 'Exceptional Territories', 'Outsiders Land']) {
+    const r = checkGates(remoteJob([region]), GATES);
+    assert.equal(r.gate, 'geo-remote', region); assert.ok(!r.flags.includes(FLAG), region);
+  }
+});
+
+test('sponsorship compares case-insensitively; language names and 3-letter codes map to ISO 639-1', () => {
+  const de = { attendance: ['office'], countries: ['DE'], text: 'You must be authorized to work in Germany.' };
+  for (const sponsorship of ['available', 'Available', ' AVAILABLE ']) assert.equal(checkGates(job({ ...de, sponsorship }), GATES).decision, 'pass', sponsorship);
+  assert.equal(checkGates(job({ attendance: ['office'], countries: ['US'], sponsorship: 'not_available' }), GATES).gate, 'legal');
+  assert.equal(checkGates(job({ headcount: { min: 2000 }, sponsorship: 'available' }), GATES).decision, 'pass', 'demote_unless sponsorship');
+  for (const l of ['English', 'eng', 'SPANISH', 'spa']) assert.equal(checkGates(job({ languages: [l] }), GATES).decision, 'pass', l);
+  for (const l of ['German', 'deu', 'ger', 'french', 'fra', 'fre', 'russian', 'rus']) assert.equal(checkGates(job({ languages: [l] }), GATES).gate, 'language', l);
+  assert.equal(checkGates(job({ required_languages: [{ lang: 'German', level: 'C1' }] }), GATES).gate, 'language');
+  assert.equal(checkGates(job({ required_languages: [{ lang: 'Spanish', level: 'C1' }] }), GATES).decision, 'pass');
+  assert.equal(checkGates(job({ languages: ['es'] }), { ...GATES, languages: ['English', 'Spanish'] }).decision, 'pass', 'user settings written as names');
+});
+
+test('sample user is fictional: its citizenship, and every forbidden one in the tests and the RTJ fixture, is an ISO user-assigned code', () => {
+  const fictional = c => /^(AA|Q[M-Z]|X[A-Z]|ZZ)$/.test(String(c).toUpperCase());
+  assert.ok(GATES.user.citizenships.every(fictional), GATES.user.citizenships.join());
+  const items = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'rtj', 'positions.json'), 'utf8'));
+  for (const it of items) {
+    for (const c of it.position.forbidden_citizenships) assert.ok(fictional(c), `${it.position.title}: ${c}`);
+    for (const m of String(it._expect).matchAll(/citizenship ([A-Z]{2})\b/g)) assert.ok(fictional(m[1]), it._expect);
+  }
+  const src = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
+  for (const m of src.matchAll(/forbidden_citizenships: \[([^\]]*)\]/g))
+    for (const c of m[1].match(/[a-z]{2}/gi) || []) assert.ok(fictional(c), m[0]);
 });
 
 // Sources end to end, with fetch mocked (no network) and their own data folder.
