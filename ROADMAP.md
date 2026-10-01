@@ -16,7 +16,7 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 
 | Piece | Brief | Status |
 |---|---|---|
-| Shared gates module: languages, work authorization and citizenship, on-site countries, remote scope, sponsorship refusals, company-size bands, company exclude / agencies / suppress after rejection, industries; used by every source | `docs/tasks/01-gates.md` | ⏳ |
+| Shared gates module: languages, work authorization and citizenship, on-site countries, remote scope, sponsorship refusals, company-size bands, company exclude / agencies / suppress after rejection, industries; used by every source. Suppress after rejection is left for after task 06 (outcomes), which records the rejections it needs | `docs/tasks/01-gates.md` | ⏳ |
 | hh.ru alert emails source (Gmail + public vacancy page) | `docs/tasks/02-hh-source.md` | ⏳ |
 | Hirify source (saved filters, session cookie) | `docs/tasks/03-hirify-source.md` | ⏳ |
 | Shared `lib/fetch-detail.mjs` (full job text from Greenhouse, Ashby, Lever, Workable, Recruitee, JSON-LD, page; company from search titles) + `drop-dir` source for external producers (e.g. OpenClaw) | `docs/tasks/04-fetch-detail-and-drop-dir.md` | ⏳ |

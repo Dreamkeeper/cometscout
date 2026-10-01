@@ -3,12 +3,13 @@
 // subscription settings decide which roles come back, so this file only adds light client-side filters.
 // settings.sources.rtj = { enabled: true, token_env: "RTJ_API_TOKEN", hours: 24, overlap_hours: 6,
 //                          page_size: 100, max_pages: 3, title_exclude: [], max_headcount: null }
-// settings.gates (lib/gates.mjs) applies on top: rejects and demotes are not queued and are counted per gate in the log.
+// settings.gates (lib/gates.mjs) applies on top: rejects and demotes are not queued and are counted per gate in the log;
+// demotes are also appended to data/state/demoted.jsonl.
 // Usage: node sources/rtj.mjs [--dry-run] [--hours 72]
 import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, secret, log, num } from '../lib/config.mjs';
 import { writeJob, matchesAny } from '../lib/queue.mjs';
-import { checkGates, fromRtj, gateTally } from '../lib/gates.mjs';
+import { checkGates, fromRtj, gateTally, settle } from '../lib/gates.mjs';
 
 const cfg = SETTINGS.sources.rtj || {};
 const args = process.argv.slice(2);
@@ -48,7 +49,7 @@ for (const it of items) {
   const hc = emp.headcount ? `${emp.headcount.min ?? '?'}-${emp.headcount.max && emp.headcount.max < 1e7 ? emp.headcount.max : '+'}` : 'unknown';
   if (cfg.max_headcount && emp.headcount?.min > cfg.max_headcount) { skipped++; continue; }
   const g = checkGates(fromRtj(it));
-  if (g.decision !== 'pass') { gated.add(g); continue; }
+  if (!settle(g, { source: 'rtj', company: emp.name, role: pos.title, url: pos.apply_url }, { dry: DRY }).queue) { gated.add(g); continue; }
   // visa_sponsorship_availability is often AMBIGUOUS even when the text says "without sponsorship"; the reliable
   // signal is objective_criteria (class LEGAL_AUTHORIZATION), so mandatory criteria go into a block of their own
   // with the legal ones first, and the decoder prompt tells the model to check each one.
