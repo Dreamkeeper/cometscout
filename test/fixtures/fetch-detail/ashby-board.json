@@ -1,0 +1,15 @@
+{
+  "organizationName": "Acme Robotics",
+  "jobs": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "title": "Staff Firmware Engineer",
+      "jobUrl": "https://jobs.ashbyhq.com/acme-robotics/11111111-1111-1111-1111-111111111111",
+      "location": "Berlin",
+      "workplaceType": "Hybrid",
+      "isRemote": false,
+      "publishedAt": "2026-09-05T00:00:00Z",
+      "descriptionPlain": "Acme Robotics is hiring a staff firmware engineer for its Berlin office."
+    }
+  ]
+}

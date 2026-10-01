@@ -30,6 +30,13 @@
       "first_run_hours": 48, "overlap_hours": 24,
       "max_fetch": 40, "delay_ms": 3000,
       "title_exclude": ["intern", "junior"], "location_exclude_regex": ""
+    },
+    "drop_dir": {
+      "enabled": false,
+      "dir": "/home/youruser/jobpilot-drop",
+      "settle_sec": 60,
+      "move_processed_to": "/home/youruser/jobpilot-drop/processed",
+      "max_fetches_per_run": 40
     }
   },
   "gates": {
