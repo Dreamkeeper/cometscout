@@ -19,6 +19,7 @@ import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS
 import { frontMatter, norm } from './lib/queue.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { exportData, importData } from './lib/archive.mjs';
+import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
@@ -107,6 +108,8 @@ function doctor() {
   if (SETTINGS.sources.rtj?.enabled) ok(!!secret(SETTINGS.sources.rtj.token_env || 'RTJ_API_TOKEN'), 'RealtimeJobs token in .env', 'add RTJ_API_TOKEN=... to .env');
   if (SETTINGS.sources.linkedin_alerts?.enabled) ok(['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'].every(k => secret(k)), 'Gmail read-only access (LinkedIn alerts)', 'add GMAIL_CLIENT_ID/SECRET to .env, then run `node tools/gmail-auth.mjs`');
   if (SETTINGS.sources.drop_dir?.enabled) { const d = SETTINGS.sources.drop_dir.dir; ok(!!d && fs.existsSync(d), `drop-dir folder: ${d || 'not set'}`, d ? `create ${d} or fix sources.drop_dir.dir in settings.json` : 'set sources.drop_dir.dir in settings.json'); }
+  const gates = describeGates(SETTINGS.gates);
+  ok(!gates.unknown.length, `gates: ${gates.active.join(', ') || 'none (settings.gates not set)'}`, `unknown key(s) under gates ignored: ${gates.unknown.join(', ')} (known: ${GATE_KEYS.join(', ')})`);
   const tg = SETTINGS.delivery.telegram;
   ok(!tg.enabled || (secret(tg.token_env) && secret(tg.chat_id_env)), `Telegram delivery: ${tg.enabled ? 'on' : 'off (digest is written to data/digests only)'}`, 'add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env');
   const so = ver(process.env.SOFFICE || SETTINGS.pack.soffice || 'soffice');
