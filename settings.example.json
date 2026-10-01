@@ -34,7 +34,7 @@
     "outcomes": {
       "enabled": false,
       "query": "newer_than:3d -category:promotions -category:social",
-      "max_emails": 50, "overlap_hours": 24,
+      "max_emails": 50, "overlap_hours": 24, "account_index": 0,
       "model": null
     }
   },

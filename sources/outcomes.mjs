@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // Source: application outcomes from Gmail (read-only). Finds emails that answer an application (received, rejection,
 // interview, test task, offer), classifies each with the model, and records it in data/state/applications.json
-// as an event (and a status change). Emails it cannot match to an application are listed in Telegram so the user
-// can record them by hand. Runs as part of `cli.mjs run`, before the decoder, so closed roles stop being picked.
+// as an event (and a status change). Every run writes a report (recorded outcomes and the ones it could not match,
+// each with a link to the email) to data/digests/outcomes-YYYY-MM-DD.md and, when Telegram is on, sends it there too.
+// Runs as part of `cli.mjs run`, before the decoder, so closed roles stop being picked.
 // settings.sources.outcomes = {
 //   enabled: true,
-//   query: "newer_than:3d -category:promotions -category:social",   // Gmail search; "after:" the last run is added
-//   max_emails: 50, overlap_hours: 24,
+//   query: "newer_than:3d -category:promotions -category:social",   // Gmail search; "after:" the last run replaces newer_than:
+//   max_emails: 50,                                                   // emails sent to the model per run; the rest wait for the next run
+//   overlap_hours: 24,
+//   account_index: 0,                                                 // the N in mail.google.com/mail/u/N/ for the links
 //   model: null                                                       // null = llm.model
 // }
 // Alias families for matching come from settings.queue.aliases if present: [["Acme", "Acme Labs"], ...]
@@ -30,38 +33,46 @@ export const SCHEMA = {
   properties: {
     type: { type: 'string', enum: TYPES },
     company: { type: 'string' }, role: { type: 'string' },
-    event_date: { type: 'string', description: 'YYYY-MM-DD' },
+    event_date: { type: 'string', description: 'YYYY-MM-DD of the event the email sets (an interview day, a deadline), or empty' },
     evidence: { type: 'string', maxLength: 200 },
     round: { type: 'integer', minimum: 1 },
   },
 };
 const STATUS_FOR = { rejection: 'rejected', offer: 'offer', interview: 'interview', test_task: 'interview' };
 const RANK = { applied: 0, skipped: 0, closed: 0, interview: 1, rejected: 2, offer: 2 };
-const settings = () => ({ query: 'newer_than:3d -category:promotions -category:social', max_emails: 50, overlap_hours: 24, model: null, ...(SETTINGS.sources.outcomes || {}) });
+const settings = () => ({ query: 'newer_than:3d -category:promotions -category:social', max_emails: 50, overlap_hours: 24, account_index: 0, model: null, ...(SETTINGS.sources.outcomes || {}) });
 
 // ---------- 1. reading emails ----------
 const header = (msg, name) => String((msg.payload?.headers || []).find(h => String(h.name).toLowerCase() === name)?.value || '');
 const dayOf = ms => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: SETTINGS.timezone || 'UTC' }).format(new Date(ms)); } catch { return new Date(ms).toISOString().slice(0, 10); } };
-/** A Gmail message as { id, from, subject, date, text }. */
+/** A Gmail message as { id, thread_id, from, subject, date (day), date_header (as received), ms (internalDate), text }. */
 export async function toEmail(msg, messageText) {
   const ms = Number(msg.internalDate) || Date.parse(header(msg, 'date')) || Date.now();
-  return { id: msg.id, from: header(msg, 'from'), subject: header(msg, 'subject'), date: dayOf(ms), text: messageText(msg.payload) };
+  return { id: msg.id, thread_id: msg.threadId || null, from: header(msg, 'from'), subject: header(msg, 'subject'), date: dayOf(ms), date_header: header(msg, 'date'), ms, text: messageText(msg.payload) };
 }
-/** The Gmail search for this run: the configured query, limited to emails since the last run (minus overlap) or --since. */
+/** The Gmail search for this run: the configured query, limited to emails since the last run (minus overlap) or --since.
+ *  newer_than: is dropped whenever after: is added, so a gap longer than newer_than loses nothing. */
 export function searchQuery(cfg, lastRun, since) {
-  if (since) return `${String(cfg.query).replace(/\bnewer_than:\S+/g, '').trim()} after:${since.replace(/-/g, '/')}`.trim();
+  const base = () => String(cfg.query).replace(/\bnewer_than:\S+/g, '').replace(/\s+/g, ' ').trim();
+  if (since) return `${base()} after:${since.replace(/-/g, '/')}`.trim();
   if (!lastRun) return cfg.query;
   const after = Math.floor((Date.parse(lastRun) - num(cfg.overlap_hours, 24, 0) * 3.6e6) / 1000);
-  return Number.isFinite(after) ? `${cfg.query} after:${after}` : cfg.query;
+  return Number.isFinite(after) ? `${base()} after:${after}`.trim() : cfg.query;
 }
 
 // ---------- 2. cheap pre-filter ----------
-const ALERT_SENDER = /jobalerts-noreply@linkedin\.com|jobs-listings@linkedin\.com|@hh\.ru\b|@headhunter\.ru\b|newsletter|digest@|alerts?@/i;
-const ALERT_SUBJECT = /jobs? you might like|job alert|new jobs? (for you|matching)|jobs? for you|recommended jobs|newsletter|weekly digest|подборка вакансий|новые вакансии|вакансии по (вашей )?подписке|рекомендуем(ые)? ваканси/i;
+// Senders that only ever send job alerts. Job boards such as hh.ru also send employer invitations and rejections,
+// so their senders are not listed here: their subscription mail is caught by the subject.
+const ALERT_ONLY_SENDER = /jobalerts-noreply@linkedin\.com|jobs-listings@linkedin\.com/i;
+const ALERT_SUBJECT = /jobs? you might like|job alert|new jobs? (for you|matching)|jobs? for you|recommended jobs|newsletter|weekly digest|подборка вакансий|новые вакансии|вакансии по (вашей )?подписке|вакансии для вас|подходящие вакансии|рекомендуем(ые)? ваканси/i;
+// A bulk-looking sender alone proves nothing (an ATS can send outcomes from alerts@); with a listing-style subject it is an alert.
+const BULK_SENDER = /newsletter|digest@|alerts?@/i;
+const LISTING_SUBJECT = /\b\d+\+? (new )?(\w+ )*?(jobs|vacancies|roles|openings)\b|\bjobs (in|near|at)\b|\d+ (новых )?ваканси[йи]|дайджест|рассылк/i;
 const OUTCOME_WORDS = /\b(applications?|applied|applying|interviews?|offers?|position|role|candidates?|candidacy|hiring|recruit\w*|interviewing|case( study)?|assessment|assignment|home ?task|take-home|next steps?)\b|отклик|резюме|собеседован|интервью|оффер|предложени|ваканси|позици|кандидат|тестов\w* задани/i;
 /** null when the email should be classified, else the reason it is skipped. */
 export function prefilter(email) {
-  if (ALERT_SENDER.test(email.from) || ALERT_SUBJECT.test(email.subject)) return 'job alert or newsletter';
+  if (ALERT_ONLY_SENDER.test(email.from) || ALERT_SUBJECT.test(email.subject)) return 'job alert or newsletter';
+  if (BULK_SENDER.test(email.from) && LISTING_SUBJECT.test(email.subject)) return 'job alert or newsletter';
   if (!OUTCOME_WORDS.test(`${email.subject}\n${email.text}`)) return 'no application words';
   return null;
 }
@@ -77,10 +88,10 @@ async function modelClassify(input) {
   const { value } = await callJson({ prompt: input, schema: SCHEMA, model: settings().model || SETTINGS.llm.model });
   return value;
 }
-function clean(v, email) {
+function clean(v) {
   const type = TYPES.includes(v?.type) ? v.type : 'none';
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(v?.event_date || '') ? v.event_date : email.date;
-  return { type, company: cut(v?.company, 120), role: cut(v?.role, 160), event_date: date, evidence: cut(v?.evidence, 200), ...(Number.isInteger(v?.round) && v.round > 0 ? { round: v.round } : {}) };
+  const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(v?.event_date || '') ? v.event_date : '';
+  return { type, company: cut(v?.company, 120), role: cut(v?.role, 160), event_date: eventDate, evidence: cut(v?.evidence, 200), ...(Number.isInteger(v?.round) && v.round > 0 ? { round: v.round } : {}) };
 }
 
 // ---------- 4. match to an application ----------
@@ -89,15 +100,17 @@ function aliasFamilies() {
   const fams = Array.isArray(a) ? a.filter(Array.isArray) : Object.entries(a).map(([k, v]) => [k, ...[].concat(v)]);
   return fams.map(f => new Set(f.map(norm).filter(Boolean)));
 }
-/** Same company: equal after normalising, in one alias family, or one name is the other plus extra words ("Ridgeway" / "Ridgeway Labs"). */
-export function sameCompany(a, b, families = aliasFamilies()) {
-  const x = norm(a), y = norm(b); if (!x || !y) return false;
-  if (x === y || families.some(f => f.has(x) && f.has(y))) return true;
+/** 'exact' when equal after normalising or in one alias family, 'prefix' when one name is the other plus extra words
+ *  ("Ridgeway" / "Ridgeway Labs"), else null. */
+export function companyMatch(a, b, families = aliasFamilies()) {
+  const x = norm(a), y = norm(b); if (!x || !y) return null;
+  if (x === y || families.some(f => f.has(x) && f.has(y))) return 'exact';
   const [short, long] = x.length < y.length ? [x, y] : [y, x];
-  return long.startsWith(`${short} `);
+  return long.startsWith(`${short} `) ? 'prefix' : null;
 }
+export const sameCompany = (a, b, families) => !!companyMatch(a, b, families);
 const words = s => new Set(norm(s).split(' ').filter(w => w.length > 1));
-const overlap = (a, b) => { const x = words(a); let n = 0; for (const w of words(b)) if (x.has(w)) n++; return n; };
+export const overlap = (a, b) => { const x = words(a); let n = 0; for (const w of words(b)) if (x.has(w)) n++; return n; };
 /** Applications plus decoded files that are not recorded yet: [{ key, company, role, status?, updated?, recorded }]. */
 export function candidates(apps) {
   const list = Object.entries(apps).map(([key, a]) => ({ key, company: a.company, role: a.role, status: a.status, updated: a.updated, recorded: true }));
@@ -108,91 +121,172 @@ export function candidates(apps) {
   }
   return list;
 }
-/** Best application for an outcome, or { reason } when there is none or two fit equally well. */
+const isApplication = c => c.recorded && c.status !== 'skipped';
+// Among equal role overlap: an open application, then a rejected or closed one, then a decoded file or a skipped role.
+const tier = c => (!isApplication(c) ? 0 : c.status === 'rejected' || c.status === 'closed' ? 1 : 2);
+/**
+ * Best application for an outcome: { hit, overlap, single }, or { reason } when there is none or two fit equally well.
+ * Role overlap decides first. When both the email and the application name a role, they must share a word; the one
+ * exception is a company with exactly one application (single: true). A prefix company match needs a shared role word.
+ */
 export function match(outcome, list) {
   const fams = aliasFamilies();
-  const hits = list.filter(c => sameCompany(c.company, outcome.company, fams));
+  const hits = list.map(c => ({ c, kind: companyMatch(c.company, outcome.company, fams), ov: overlap(c.role, outcome.role) })).filter(h => h.kind);
   if (!hits.length) return { reason: outcome.company ? 'no application at this company' : 'company not named' };
-  const applied = c => (c.recorded && c.status !== 'skipped' ? 1 : 0);
-  const score = c => [applied(c), overlap(c.role, outcome.role), String(c.updated || c.key.slice(0, 10))];
+  const named = words(outcome.role).size > 0;
+  const fit = hits.filter(h => h.ov >= 1 || (h.kind === 'exact' && !(named && words(h.c.role).size)));
+  const apps = hits.filter(h => h.kind === 'exact' && isApplication(h.c));
+  const single = apps.length === 1;
+  if (!fit.length) {
+    if (single) return { hit: apps[0].c, overlap: apps[0].ov, single };
+    return { reason: hits.some(h => h.kind === 'exact') ? 'no application for this role at this company' : 'no application at this company' };
+  }
+  const score = h => [h.ov, tier(h.c), String(h.c.updated || h.c.key.slice(0, 10))];
   const cmp = (p, q) => { const a = score(p), b = score(q); return b[0] - a[0] || b[1] - a[1] || (a[2] < b[2] ? 1 : a[2] > b[2] ? -1 : 0); };
-  hits.sort(cmp);
-  if (hits.length > 1) { const a = score(hits[0]), b = score(hits[1]); if (a[0] === b[0] && a[1] === b[1]) return { reason: 'several roles at this company fit; add role words by hand' }; }
-  return { hit: hits[0] };
+  fit.sort(cmp);
+  if (fit.length > 1) { const a = score(fit[0]), b = score(fit[1]); if (a[0] === b[0] && a[1] === b[1]) return { reason: 'several roles at this company fit; add role words by hand' }; }
+  return { hit: fit[0].c, overlap: fit[0].ov, single };
 }
 
 // ---------- 5. update ----------
-/** Append the event and set the status unless the application already has a later status. Returns what changed. */
-export function applyOutcome(apps, hit, o, email) {
+/** When the current status was set, in ms, if a Gmail email set it and nothing was recorded by hand that day; else null. */
+function statusTime(prev) {
+  const at = Date.parse(prev.updated_at || '');
+  if (!Number.isFinite(at) || dayOf(at) !== prev.updated) return null;
+  if ((prev.events || []).some(e => e.source !== 'gmail' && String(e.date || '') >= prev.updated)) return null;   // a hand record that day: order unknown
+  return at;
+}
+/**
+ * Append the event and set the status unless the application already has a later status. Returns what changed, or
+ * { blocked: reason } (and changes nothing) when the email would reopen a rejected application and `reopen` is false.
+ */
+export function applyOutcome(apps, hit, o, email, { reopen = false } = {}) {
   const prev = apps[hit.key] || { company: hit.company, role: hit.role || '' };
-  const event = { date: email.date, type: o.type, ...(o.round ? { round: o.round } : {}), note: o.evidence, source: 'gmail', gmail_id: email.id };
-  const next = { ...prev, events: [...(prev.events || []), event] };
+  const event = { date: email.date, type: o.type, ...(o.round ? { round: o.round } : {}), ...(o.event_date ? { event_date: o.event_date } : {}), note: o.evidence, source: 'gmail', gmail_id: email.id };
   let status = STATUS_FOR[o.type] || (prev.status ? null : 'applied');        // application_received only adds an event
   const old = prev.status, when = prev.updated || '';
-  // An older email never overrides a status recorded later; on the same day only a stronger status wins.
-  if (status && old && (when > email.date || (when === email.date && RANK[status] < (RANK[old] ?? 0)))) status = null;
-  if (status) { next.status = status; next.updated = email.date > when ? email.date : when || email.date; }
+  if (status && old) {
+    // An older email never overrides a status recorded later. Times are compared when an email set the status;
+    // a status recorded by hand only has a day, and on that day only a stronger status wins.
+    const t = statusTime(prev), ms = Number(email.ms);
+    const older = t != null && Number.isFinite(ms) ? ms < t : when > email.date;
+    const same = t != null && Number.isFinite(ms) ? ms === t : when === email.date;
+    if (older || (same && RANK[status] < (RANK[old] ?? 0))) status = null;
+  }
+  const reopened = !!status && old === 'rejected' && status !== 'rejected';
+  if (reopened && !reopen) return { blocked: 'a later email reopens a rejected application but does not name its role' };
+  const events = [...(prev.events || []), event];
+  if (reopened) events.push({ date: email.date, type: 'reopened', note: `rejected -> ${status}`, source: 'gmail', gmail_id: email.id });
+  const next = { ...prev, events };
+  if (status) {
+    next.status = status; next.updated = email.date > when ? email.date : when || email.date;
+    if (Number.isFinite(Number(email.ms))) next.updated_at = new Date(Number(email.ms)).toISOString(); else delete next.updated_at;
+  }
   apps[hit.key] = next;
-  return { key: hit.key, company: next.company, role: next.role, type: o.type, from: old || null, status: next.status, changed: !!status && status !== old, event };
+  return { key: hit.key, company: next.company, role: next.role, type: o.type, from: old || null, status: next.status, changed: !!status && status !== old, reopened, event };
 }
 
 // ---------- the run ----------
-const gmailLink = id => `https://mail.google.com/mail/u/0/#all/${id}`;
+const gmailLink = (id, account = 0) => `https://mail.google.com/mail/u/${account}/#all/${id}`;
+const kind = t => t.replace('_', ' ');
 export function report(matched, unmatched) {
   if (!matched.length && !unmatched.length) return '';
   const lines = [`Outcomes from email: ${matched.length} recorded, ${unmatched.length} to record by hand`];
-  for (const m of matched) lines.push(`- ${m.company}: ${m.role || '(role not given)'}: ${m.type.replace('_', ' ')}${m.changed ? ` (now ${m.status})` : ''}${m.event.note ? `. "${m.event.note}"` : ''}`);
+  for (const m of matched) {
+    const now = [m.changed ? `now ${m.status}` : '', m.reopened ? 'reopened, was rejected' : ''].filter(Boolean).join('; ');
+    lines.push(`- ${m.company}: ${m.role || '(role not given)'}: ${kind(m.type)}${now ? ` (${now})` : ''}${m.event.note ? `. "${m.event.note}"` : ''}${m.link ? ` ${m.link}` : ''}`);
+  }
   if (unmatched.length) {
     lines.push('', 'Unmatched (record with node cli.mjs status <company> <status> --manual):');
-    for (const u of unmatched) lines.push(`- ${u.company || 'unknown company'}: ${u.type.replace('_', ' ')}: "${u.subject}" ${u.link}`);
+    for (const u of unmatched) lines.push(`- ${u.company || 'unknown company'}: ${kind(u.type)}: "${u.subject}" ${u.link}`);
   }
   return lines.join('\n');
 }
+/** applications.json: missing -> {}; broken JSON stops the run, so nothing is overwritten and no email is marked seen. */
+function readApps(file) {
+  if (!fs.existsSync(file)) return {};
+  try { return JSON.parse(read(file)); } catch (e) { throw new Error(`${file} is not valid JSON (${e.message}); fix it and run again`); }
+}
+const gmailIds = apps => new Set(Object.values(apps).flatMap(a => (a.events || []).map(e => e.gmail_id).filter(Boolean)));
+/** What the outcome hook receives (README, Hooks). */
+const hookPayload = (r, email, o) => ({
+  key: r.key, company: r.company, role: r.role, type: r.type, status: r.status, previous_status: r.from, reopened: r.reopened, ...r.event,
+  thread_id: email.thread_id, email_date: email.date_header, from: email.from, subject: email.subject, evidence: o.evidence,
+});
 
 /**
  * One run. Everything outside is injected so tests need no network and no model:
- * gmail { list(q, max), get(id) }, classify(input, email) -> schema value, send(text), messageText(payload).
+ * gmail { list(q, max) -> [{ id }] newest first, get(id) }, classify(input, email) -> schema value, send(text), messageText(payload).
  */
 export async function runOutcomes({ gmail, classify = modelClassify, send = null, messageText, dryRun = false, since = null, now = new Date() } = {}) {
   const cfg = settings();
+  const cap = num(cfg.max_emails, 50, 1, 500), account = Math.floor(num(cfg.account_index, 0, 0, 99));
   const stateFile = STATE('outcomes.json'), appsFile = STATE('applications.json');
   const state = readJson(stateFile, { last_run: null, seen: {} }); state.seen ||= {};
-  const apps = readJson(appsFile, {});
-  const known = new Set(Object.values(apps).flatMap(a => (a.events || []).map(e => e.gmail_id).filter(Boolean)));
+  const apps = readApps(appsFile);
+  const known = gmailIds(apps);
   const q = searchQuery(cfg, state.last_run, since);
-  const list = await gmail.list(q, num(cfg.max_emails, 50, 1, 500));
+  // Every id in the window, oldest first: the cap then leaves only newer emails, which the next run's window still covers.
+  const ids = [...await gmail.list(q, Infinity)].reverse();
   const prompt = read(PROMPT_FILE);
-  const matched = [], unmatched = [], skipped = {}; const skip = why => (skipped[why] = (skipped[why] || 0) + 1);
-  let failed = 0;
-  for (const { id } of list) {
+  const ops = [], unmatched = [], skipped = {}; const skip = why => (skipped[why] = (skipped[why] || 0) + 1);
+  let failed = 0, classified = 0, capped = false, oldest = Infinity;
+  const unmatchedEntry = (email, o, reason) => ({ id: email.id, company: o.company, role: o.role, type: o.type, subject: cut(email.subject, 120), date: email.date, reason, link: gmailLink(email.id, account) });
+  for (const { id } of ids) {
     if (state.seen[id] || known.has(id)) { skip('seen before'); continue; }
+    if (classified >= cap) { capped = true; break; }
     let email;
     try { email = await toEmail(await gmail.get(id), messageText); } catch (e) { log(`outcomes: could not read email ${id}: ${e.message}`); failed++; continue; }
+    oldest = Math.min(oldest, email.ms);
     const why = prefilter(email);
     if (why) { skip(why); if (!dryRun) state.seen[id] = email.date; continue; }
+    classified++;
     let o;
-    try { o = clean(await classify(buildInput(email, prompt), email), email); } catch (e) { log(`outcomes: could not classify "${cut(email.subject, 60)}": ${e.message}`); failed++; continue; }   // not marked seen: retried next run
+    try { o = clean(await classify(buildInput(email, prompt), email)); } catch (e) { log(`outcomes: could not classify "${cut(email.subject, 60)}": ${e.message}`); failed++; continue; }   // not marked seen: retried next run
     if (dryRun) log(`outcomes: ${o.type}  ${o.company || '?'}: ${o.role || '?'}  "${cut(email.subject, 80)}"${o.evidence ? `  evidence: "${o.evidence}"` : ''}`);
     if (o.type === 'none') { skip('not an outcome'); if (!dryRun) state.seen[id] = email.date; continue; }
     const m = match(o, candidates(apps));
-    if (m.hit) {
-      const r = applyOutcome(apps, m.hit, o, email); known.add(id); matched.push(r);
-      if (!dryRun) runHook('outcome', { key: r.key, company: r.company, role: r.role, type: r.type, status: r.status, previous_status: r.from, ...r.event });
-    } else unmatched.push({ id, company: o.company, role: o.role, type: o.type, subject: cut(email.subject, 120), date: email.date, reason: m.reason, link: gmailLink(id) });
+    // D1: a later email reopens a rejected application only when it names the same role or the company has one application
+    const reopen = !!m.hit && (m.overlap >= 1 || m.single);
+    const r = m.hit ? applyOutcome(apps, m.hit, o, email, { reopen }) : null;
+    if (r && !r.blocked) { known.add(id); ops.push({ hit: m.hit, o, email, reopen, r: { ...r, link: gmailLink(id, account) } }); }
+    else unmatched.push(unmatchedEntry(email, o, r ? r.blocked : m.reason));
     if (!dryRun) state.seen[id] = email.date;
   }
-  const text = report(matched, unmatched);
+  if (capped) log(`outcomes: max_emails (${cap}) reached; the next run continues from ${new Date(oldest).toISOString()}`);
+  let matched = ops.map(op => op.r);
   if (!dryRun) {
-    // seen ids older than 120 days are dropped; the search window is days, so they never come back
-    const cutoff = new Date(now.getTime() - 120 * 864e5).toISOString().slice(0, 10);
+    if (ops.length) {
+      // applications.json may have changed while the model ran (cli.mjs applied/status): re-read it and apply again
+      const fresh = readApps(appsFile), freshKnown = gmailIds(fresh), done = [];
+      matched = [];
+      for (const op of ops) {
+        if (freshKnown.has(op.email.id)) continue;
+        const r = applyOutcome(fresh, op.hit, op.o, op.email, { reopen: op.reopen });
+        if (r.blocked) unmatched.push(unmatchedEntry(op.email, op.o, r.blocked));
+        else { matched.push({ ...r, link: op.r.link }); done.push({ r, op }); }
+      }
+      fs.writeFileSync(appsFile, JSON.stringify(fresh, null, 1));
+      for (const { r, op } of done) runHook('outcome', hookPayload(r, op.email, op.o));
+    }
+    // seen ids older than 120 days (and older than this run's window) are dropped; the search never reaches them again
+    const windowStart = since || (state.last_run ? dayOf(Date.parse(state.last_run) - num(cfg.overlap_hours, 24, 0) * 3.6e6) : '');
+    let cutoff = new Date(now.getTime() - 120 * 864e5).toISOString().slice(0, 10);
+    if (windowStart && windowStart < cutoff) cutoff = windowStart;
     for (const [k, d] of Object.entries(state.seen)) if (d < cutoff) delete state.seen[k];
-    if (!failed) state.last_run = now.toISOString();      // a failed email keeps the search window open for the retry
-    if (matched.length) fs.writeFileSync(appsFile, JSON.stringify(apps, null, 1));
+    // a failed email keeps the search window open for the retry; a capped run continues from the oldest email it read
+    if (!failed) state.last_run = capped ? new Date(oldest).toISOString() : now.toISOString();
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 1));
-    if (text && send) { try { await send(text); } catch (e) { log(`outcomes: telegram failed: ${e.message}`); } }
   }
-  log(`outcomes: ${list.length} email(s), ${matched.length} recorded, ${unmatched.length} unmatched, ${failed} failed${dryRun ? ' (dry run, nothing written)' : ''}; skipped ${JSON.stringify(skipped)}`);
-  return { query: q, matched, unmatched, skipped, failed, text, apps };
+  const text = report(matched, unmatched);
+  let reportFile = null;
+  if (!dryRun && text) {
+    reportFile = path.join(DIRS.digests, `outcomes-${process.env.JOBPILOT_RUN_DATE || dayOf(now.getTime())}.md`);
+    fs.existsSync(reportFile) ? fs.appendFileSync(reportFile, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(reportFile, `${text}\n`, 'utf8');
+    if (send) { try { await send(text); } catch (e) { log(`outcomes: telegram failed (the report is in ${reportFile}): ${e.message}`); } }
+  }
+  log(`outcomes: ${ids.length} email(s), ${matched.length} recorded, ${unmatched.length} unmatched, ${failed} failed${capped ? ', capped' : ''}${dryRun ? ' (dry run, nothing written)' : ''}; skipped ${JSON.stringify(skipped)}`);
+  return { query: q, matched, unmatched, skipped, failed, capped, text, reportFile, apps };
 }
 
 // ---------- command line ----------
