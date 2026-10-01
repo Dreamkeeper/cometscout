@@ -1,0 +1,44 @@
+[
+ {
+  "from": "Northwind Devices <no-reply@ashbyhq.example>",
+  "subject": "Thanks for applying to Northwind Devices",
+  "body": "Hi Alex, thanks for applying for Senior Product Manager. We will review your application and get back to you.",
+  "expect": "application_received"
+ },
+ {
+  "from": "Lumenfield Talent <talent@lumenfield.example>",
+  "subject": "Your application for Product Owner",
+  "body": "Hi Alex, thank you for your interest. After careful review we have decided not to move forward with your application at this time.",
+  "expect": "rejection"
+ },
+ {
+  "from": "Ridgeway Labs <jobs@ridgeway.example>",
+  "subject": "Your application as Product Manager at Ridgeway Labs has been received!",
+  "body": "Dear Alex, we regret to inform you that we will not proceed with your application; the role requires prior payments experience.",
+  "expect": "rejection (subject says received, body says rejected)"
+ },
+ {
+  "from": "Quarry Systems <recruiting@quarry.example>",
+  "subject": "Interview invitation - Product Owner",
+  "body": "Hi Alex, we would like to invite you to a 30 minute call with our hiring manager. Please pick a slot.",
+  "expect": "interview"
+ },
+ {
+  "from": "Brightline Mobility <hr@brightline.example>",
+  "subject": "Next step: case study",
+  "body": "Please complete the attached product case within 5 days.",
+  "expect": "test_task"
+ },
+ {
+  "from": "Kvadrat Soft <hr@kvadrat.example>",
+  "subject": "Offer letter",
+  "body": "We are happy to offer you the position of Product Manager. Please find the offer attached.",
+  "expect": "offer"
+ },
+ {
+  "from": "Newsletter <news@jobsite.example>",
+  "subject": "10 product manager jobs you might like",
+  "body": "Here are new jobs for you.",
+  "expect": "none (job alert, not an outcome)"
+ }
+]

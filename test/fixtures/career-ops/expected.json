@@ -1,0 +1,6 @@
+{
+ "unchecked [ ] items": "candidates to queue",
+ "[!] items": "skip (already evaluated)",
+ "[x] items": "already evaluated by career-ops; queue only if not in jobpilot history (optional)",
+ "status filtered": "skip"
+}

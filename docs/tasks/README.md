@@ -1,0 +1,18 @@
+# Task briefs
+
+Self-contained pieces of work, written so a coding agent with only this repository (for example a cloud session) can finish them. Each brief says what to build, the behaviour to reproduce, the settings, the fixtures to test against and when it is done.
+
+How to work on one:
+1. Read `DEVELOPMENT.md` and the brief. Work on a branch named `task/<number>-<short-name>`.
+2. Build it with tests against `test/fixtures/` (no network, no model calls in tests: inject `fetch` or the model call).
+3. `npm test` passes; `node cli.mjs doctor` still runs on the example profile.
+4. Open a pull request whose description lists what was built, what was not, and any open questions.
+
+| # | Brief | Depends on |
+|---|---|---|
+| 01 | `01-gates.md` shared gates module | none |
+| 02 | `02-hh-source.md` hh.ru alerts source | 01 (can stub the gates call) |
+| 03 | `03-hirify-source.md` Hirify source | 01 (can stub) |
+| 04 | `04-fetch-detail-and-drop-dir.md` full-text fetcher + external producer intake | none |
+| 05 | `05-career-ops-source.md` career-ops source | 04 |
+| 06 | `06-outcomes.md` outcome tracking from Gmail | none |

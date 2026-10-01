@@ -1,0 +1,595 @@
+[
+ {
+  "position": {
+   "title": "Senior Product Manager, Smart Thermostats",
+   "raw_job_description": "Title: Senior Product Manager, Smart Thermostats\nWe build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. ",
+   "detected_role": "Product Manager",
+   "apply_url": "https://boards.example-ats.com/northwinddevices/jobs/1001",
+   "metadata": {
+    "computed_closed_at": null,
+    "computed_posted_at": "2026-09-30T10:00:00.000Z",
+    "last_reopened_at": null,
+    "updated_at": "2026-09-30T10:05:00.000Z",
+    "created_at": "2026-09-30T10:05:00.000Z"
+   },
+   "languages": [
+    "en"
+   ],
+   "position_type": "IC",
+   "seniority": "SENIOR",
+   "salary": null,
+   "employment_type": "FT",
+   "persona": "Product manager for connected hardware",
+   "objective_criteria": [
+    {
+     "criteria": "Has 5+ years of product management experience.",
+     "is_mandatory": true,
+     "class": "EXPERIENCE_ROLE"
+    }
+   ],
+   "locations": [
+    {
+     "city": "Barcelona",
+     "country": "ES",
+     "state": "Catalonia",
+     "attendance": [
+      "remote"
+     ]
+    }
+   ],
+   "remote_scope": "worldwide",
+   "allowed_regions": [],
+   "required_citizenships": [],
+   "forbidden_citizenships": [],
+   "visa_sponsorship": [],
+   "visa_sponsorship_availability": "NOT_MENTIONED",
+   "relocation_support": [],
+   "relocation_support_availability": "NOT_MENTIONED",
+   "timezone_requirements": null,
+   "questions": []
+  },
+  "employer": {
+   "name": "Northwind Devices",
+   "tagline": "Connected devices",
+   "website": "example.com",
+   "industries": [
+    "IoT"
+   ],
+   "markets": [
+    "b2c"
+   ],
+   "known_visa_sponsorship_destinations": [],
+   "known_relocation_destinations": [],
+   "contacts": [],
+   "headcount": {
+    "min": 21,
+    "max": 100
+   },
+   "layoffs": [],
+   "socials": {},
+   "offices": [
+    {
+     "city": "Lisbon",
+     "country": "PT",
+     "state": null,
+     "isHq": true
+    }
+   ],
+   "spoken_languages": [
+    "en"
+   ],
+   "stage": "Series A"
+  },
+  "_expect": "pass: remote worldwide, English"
+ },
+ {
+  "position": {
+   "title": "Product Owner, Fleet Platform",
+   "raw_job_description": "Title: Product Owner, Fleet Platform\nWe build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. ",
+   "detected_role": "Product Manager",
+   "apply_url": "https://boards.example-ats.com/quarrysystems/jobs/1002",
+   "metadata": {
+    "computed_closed_at": null,
+    "computed_posted_at": "2026-09-30T10:00:00.000Z",
+    "last_reopened_at": null,
+    "updated_at": "2026-09-30T10:05:00.000Z",
+    "created_at": "2026-09-30T10:05:00.000Z"
+   },
+   "languages": [
+    "en"
+   ],
+   "position_type": "IC",
+   "seniority": "SENIOR",
+   "salary": null,
+   "employment_type": "FT",
+   "persona": "Product manager for connected hardware",
+   "objective_criteria": [
+    {
+     "criteria": "Has 5+ years of product management experience.",
+     "is_mandatory": true,
+     "class": "EXPERIENCE_ROLE"
+    }
+   ],
+   "locations": [
+    {
+     "city": "Barcelona",
+     "country": "ES",
+     "state": "Catalonia",
+     "attendance": [
+      "remote"
+     ]
+    }
+   ],
+   "remote_scope": "worldwide",
+   "allowed_regions": [],
+   "required_citizenships": [],
+   "forbidden_citizenships": [
+    "RU",
+    "BY"
+   ],
+   "visa_sponsorship": [],
+   "visa_sponsorship_availability": "NOT_MENTIONED",
+   "relocation_support": [],
+   "relocation_support_availability": "NOT_MENTIONED",
+   "timezone_requirements": null,
+   "questions": []
+  },
+  "employer": {
+   "name": "Quarry Systems",
+   "tagline": "Connected devices",
+   "website": "example.com",
+   "industries": [
+    "IoT"
+   ],
+   "markets": [
+    "b2c"
+   ],
+   "known_visa_sponsorship_destinations": [],
+   "known_relocation_destinations": [],
+   "contacts": [],
+   "headcount": {
+    "min": 21,
+    "max": 100
+   },
+   "layoffs": [],
+   "socials": {},
+   "offices": [
+    {
+     "city": "Lisbon",
+     "country": "PT",
+     "state": null,
+     "isHq": true
+    }
+   ],
+   "spoken_languages": [
+    "en"
+   ],
+   "stage": "Series A"
+  },
+  "_expect": "reject legal: forbidden citizenship RU (for a user with RU citizenship)"
+ },
+ {
+  "position": {
+   "title": "Product Manager, Payments Hardware",
+   "raw_job_description": "Title: Product Manager, Payments Hardware\nWe build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. ",
+   "detected_role": "Product Manager",
+   "apply_url": "https://boards.example-ats.com/ridgewaylabs/jobs/1003",
+   "metadata": {
+    "computed_closed_at": null,
+    "computed_posted_at": "2026-09-30T10:00:00.000Z",
+    "last_reopened_at": null,
+    "updated_at": "2026-09-30T10:05:00.000Z",
+    "created_at": "2026-09-30T10:05:00.000Z"
+   },
+   "languages": [
+    "en"
+   ],
+   "position_type": "IC",
+   "seniority": "SENIOR",
+   "salary": null,
+   "employment_type": "FT",
+   "persona": "Product manager for connected hardware",
+   "objective_criteria": [
+    {
+     "criteria": "Is authorized to work in the United States without requiring visa sponsorship.",
+     "is_mandatory": true,
+     "class": "LEGAL_AUTHORIZATION"
+    },
+    {
+     "criteria": "Has 4+ years of product management experience.",
+     "is_mandatory": true,
+     "class": "EXPERIENCE_ROLE"
+    }
+   ],
+   "locations": [
+    {
+     "city": "Austin",
+     "country": "US",
+     "state": "TX",
+     "attendance": [
+      "office"
+     ]
+    }
+   ],
+   "remote_scope": "none",
+   "allowed_regions": [],
+   "required_citizenships": [],
+   "forbidden_citizenships": [],
+   "visa_sponsorship": [],
+   "visa_sponsorship_availability": "NOT_AVAILABLE",
+   "relocation_support": [],
+   "relocation_support_availability": "NOT_MENTIONED",
+   "timezone_requirements": null,
+   "questions": []
+  },
+  "employer": {
+   "name": "Ridgeway Labs",
+   "tagline": "Connected devices",
+   "website": "example.com",
+   "industries": [
+    "IoT"
+   ],
+   "markets": [
+    "b2c"
+   ],
+   "known_visa_sponsorship_destinations": [],
+   "known_relocation_destinations": [],
+   "contacts": [],
+   "headcount": {
+    "min": 21,
+    "max": 100
+   },
+   "layoffs": [],
+   "socials": {},
+   "offices": [
+    {
+     "city": "Lisbon",
+     "country": "PT",
+     "state": null,
+     "isHq": true
+    }
+   ],
+   "spoken_languages": [
+    "en"
+   ],
+   "stage": "Series A"
+  },
+  "_expect": "reject legal: on-site US, work authorization required, no sponsorship"
+ },
+ {
+  "position": {
+   "title": "Produktmanager Energiespeicher",
+   "raw_job_description": "Title: Produktmanager Energiespeicher\nWe build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. ",
+   "detected_role": "Product Manager",
+   "apply_url": "https://boards.example-ats.com/felsbergenergie/jobs/1004",
+   "metadata": {
+    "computed_closed_at": null,
+    "computed_posted_at": "2026-09-30T10:00:00.000Z",
+    "last_reopened_at": null,
+    "updated_at": "2026-09-30T10:05:00.000Z",
+    "created_at": "2026-09-30T10:05:00.000Z"
+   },
+   "languages": [
+    "de"
+   ],
+   "position_type": "IC",
+   "seniority": "SENIOR",
+   "salary": null,
+   "employment_type": "FT",
+   "persona": "Product manager for connected hardware",
+   "objective_criteria": [
+    {
+     "criteria": "Has 5+ years of product management experience.",
+     "is_mandatory": true,
+     "class": "EXPERIENCE_ROLE"
+    }
+   ],
+   "locations": [
+    {
+     "city": "Munich",
+     "country": "DE",
+     "state": "Bavaria",
+     "attendance": [
+      "office"
+     ]
+    }
+   ],
+   "remote_scope": "none",
+   "allowed_regions": [],
+   "required_citizenships": [],
+   "forbidden_citizenships": [],
+   "visa_sponsorship": [],
+   "visa_sponsorship_availability": "NOT_MENTIONED",
+   "relocation_support": [],
+   "relocation_support_availability": "NOT_MENTIONED",
+   "timezone_requirements": null,
+   "questions": []
+  },
+  "employer": {
+   "name": "Felsberg Energie",
+   "tagline": "Connected devices",
+   "website": "example.com",
+   "industries": [
+    "IoT"
+   ],
+   "markets": [
+    "b2c"
+   ],
+   "known_visa_sponsorship_destinations": [],
+   "known_relocation_destinations": [],
+   "contacts": [],
+   "headcount": {
+    "min": 21,
+    "max": 100
+   },
+   "layoffs": [],
+   "socials": {},
+   "offices": [
+    {
+     "city": "Lisbon",
+     "country": "PT",
+     "state": null,
+     "isHq": true
+    }
+   ],
+   "spoken_languages": [
+    "en"
+   ],
+   "stage": "Series A"
+  },
+  "_expect": "reject language: German required"
+ },
+ {
+  "position": {
+   "title": "Principal Product Manager, Smart Home",
+   "raw_job_description": "Title: Principal Product Manager, Smart Home\nWe build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. ",
+   "detected_role": "Product Manager",
+   "apply_url": "https://boards.example-ats.com/megacorphome/jobs/1005",
+   "metadata": {
+    "computed_closed_at": null,
+    "computed_posted_at": "2026-09-30T10:00:00.000Z",
+    "last_reopened_at": null,
+    "updated_at": "2026-09-30T10:05:00.000Z",
+    "created_at": "2026-09-30T10:05:00.000Z"
+   },
+   "languages": [
+    "en"
+   ],
+   "position_type": "IC",
+   "seniority": "SENIOR",
+   "salary": null,
+   "employment_type": "FT",
+   "persona": "Product manager for connected hardware",
+   "objective_criteria": [
+    {
+     "criteria": "Has 5+ years of product management experience.",
+     "is_mandatory": true,
+     "class": "EXPERIENCE_ROLE"
+    }
+   ],
+   "locations": [
+    {
+     "city": "Barcelona",
+     "country": "ES",
+     "state": "Catalonia",
+     "attendance": [
+      "remote"
+     ]
+    }
+   ],
+   "remote_scope": "worldwide",
+   "allowed_regions": [],
+   "required_citizenships": [],
+   "forbidden_citizenships": [],
+   "visa_sponsorship": [],
+   "visa_sponsorship_availability": "NOT_MENTIONED",
+   "relocation_support": [],
+   "relocation_support_availability": "NOT_MENTIONED",
+   "timezone_requirements": null,
+   "questions": []
+  },
+  "employer": {
+   "name": "Megacorp Home",
+   "tagline": "Connected devices",
+   "website": "example.com",
+   "industries": [
+    "Consumer Electronics",
+    "Smart Home"
+   ],
+   "markets": [
+    "b2c"
+   ],
+   "known_visa_sponsorship_destinations": [],
+   "known_relocation_destinations": [],
+   "contacts": [],
+   "headcount": {
+    "min": 10001,
+    "max": 50000
+   },
+   "layoffs": [],
+   "socials": {},
+   "offices": [
+    {
+     "city": "Lisbon",
+     "country": "PT",
+     "state": null,
+     "isHq": true
+    }
+   ],
+   "spoken_languages": [
+    "en"
+   ],
+   "stage": "Series A"
+  },
+  "_expect": "band 4 (over 500 people + smart-home keywords): reject or demote per settings"
+ },
+ {
+  "position": {
+   "title": "Менеджер продукта (IoT)",
+   "raw_job_description": "Название: Менеджер продукта (IoT)\nУдалённо, из любой страны. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. Развивать продукт умного дома, работать с разработкой и клиентами. ",
+   "detected_role": "Product Manager",
+   "apply_url": "https://boards.example-ats.com/kvadratsoft/jobs/1006",
+   "metadata": {
+    "computed_closed_at": null,
+    "computed_posted_at": "2026-09-30T10:00:00.000Z",
+    "last_reopened_at": null,
+    "updated_at": "2026-09-30T10:05:00.000Z",
+    "created_at": "2026-09-30T10:05:00.000Z"
+   },
+   "languages": [
+    "ru"
+   ],
+   "position_type": "IC",
+   "seniority": "SENIOR",
+   "salary": null,
+   "employment_type": "FT",
+   "persona": "Product manager for connected hardware",
+   "objective_criteria": [
+    {
+     "criteria": "Has 5+ years of product management experience.",
+     "is_mandatory": true,
+     "class": "EXPERIENCE_ROLE"
+    }
+   ],
+   "locations": [
+    {
+     "city": "Barcelona",
+     "country": "ES",
+     "state": "Catalonia",
+     "attendance": [
+      "remote"
+     ]
+    }
+   ],
+   "remote_scope": "worldwide",
+   "allowed_regions": [],
+   "required_citizenships": [],
+   "forbidden_citizenships": [],
+   "visa_sponsorship": [],
+   "visa_sponsorship_availability": "NOT_MENTIONED",
+   "relocation_support": [],
+   "relocation_support_availability": "NOT_MENTIONED",
+   "timezone_requirements": null,
+   "questions": []
+  },
+  "employer": {
+   "name": "Kvadrat Soft",
+   "tagline": "Connected devices",
+   "website": "example.com",
+   "industries": [
+    "IoT"
+   ],
+   "markets": [
+    "b2c"
+   ],
+   "known_visa_sponsorship_destinations": [],
+   "known_relocation_destinations": [],
+   "contacts": [],
+   "headcount": {
+    "min": 21,
+    "max": 100
+   },
+   "layoffs": [],
+   "socials": {},
+   "offices": [
+    {
+     "city": "Lisbon",
+     "country": "PT",
+     "state": null,
+     "isHq": true
+    }
+   ],
+   "spoken_languages": [
+    "en"
+   ],
+   "stage": "Series A"
+  },
+  "_expect": "pass: Russian-language remote posting (languages ru)"
+ },
+ {
+  "position": {
+   "title": "Product Manager, EU Mobility",
+   "raw_job_description": "Title: Product Manager, EU Mobility\nWe build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. ",
+   "detected_role": "Product Manager",
+   "apply_url": "https://boards.example-ats.com/brightlinemobility/jobs/1007",
+   "metadata": {
+    "computed_closed_at": null,
+    "computed_posted_at": "2026-09-30T10:00:00.000Z",
+    "last_reopened_at": null,
+    "updated_at": "2026-09-30T10:05:00.000Z",
+    "created_at": "2026-09-30T10:05:00.000Z"
+   },
+   "languages": [
+    "en"
+   ],
+   "position_type": "IC",
+   "seniority": "SENIOR",
+   "salary": null,
+   "employment_type": "FT",
+   "persona": "Product manager for connected hardware",
+   "objective_criteria": [
+    {
+     "criteria": "Has 5+ years of product management experience.",
+     "is_mandatory": true,
+     "class": "EXPERIENCE_ROLE"
+    }
+   ],
+   "locations": [
+    {
+     "city": "Amsterdam",
+     "country": "NL",
+     "state": "North Holland",
+     "attendance": [
+      "office",
+      "remote"
+     ]
+    }
+   ],
+   "remote_scope": "geo_restricted",
+   "allowed_regions": [
+    "Europe"
+   ],
+   "required_citizenships": [],
+   "forbidden_citizenships": [],
+   "visa_sponsorship": [],
+   "visa_sponsorship_availability": "NOT_MENTIONED",
+   "relocation_support": [],
+   "relocation_support_availability": "NOT_MENTIONED",
+   "timezone_requirements": null,
+   "questions": []
+  },
+  "employer": {
+   "name": "Brightline Mobility",
+   "tagline": "Connected devices",
+   "website": "example.com",
+   "industries": [
+    "IoT"
+   ],
+   "markets": [
+    "b2c"
+   ],
+   "known_visa_sponsorship_destinations": [],
+   "known_relocation_destinations": [],
+   "contacts": [],
+   "headcount": {
+    "min": 21,
+    "max": 100
+   },
+   "layoffs": [],
+   "socials": {},
+   "offices": [
+    {
+     "city": "Lisbon",
+     "country": "PT",
+     "state": null,
+     "isHq": true
+    }
+   ],
+   "spoken_languages": [
+    "en"
+   ],
+   "stage": "Series A"
+  },
+  "_expect": "pass with flag: geo_restricted to Europe, on-site office in Amsterdam (NL)"
+ }
+]

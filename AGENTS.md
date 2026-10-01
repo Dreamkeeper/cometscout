@@ -1,5 +1,7 @@
 # jobpilot: instructions for the coding agent (Claude Code or Codex)
 
+> **Changing jobpilot's code** (a feature, a fix, a task from `docs/tasks/`)? Follow `DEVELOPMENT.md` and `ROADMAP.md` instead; the steps below are for setting jobpilot up for a user.
+
 You are helping a job seeker set up and run jobpilot on their own server. The user has a Claude or ChatGPT subscription; jobpilot calls that CLI for every model step. Everything personal lives in `profile/`, `settings.json` and `.env`, which are never committed.
 
 ## When the user says "set me up" (onboarding)

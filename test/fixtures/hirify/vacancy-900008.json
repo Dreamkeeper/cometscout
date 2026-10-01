@@ -1,0 +1,43 @@
+{
+ "data": {
+  "id": 900008,
+  "slug": "vacancy-8",
+  "title": "Product Manager",
+  "original_title": "Product Manager",
+  "company_title": "Brightline Mobility",
+  "company_type": "product_company",
+  "work_format": [
+   "hybrid"
+  ],
+  "remote_type": null,
+  "allowed_locations": [],
+  "excluded_locations": [],
+  "office_locations": [
+   "netherlands"
+  ],
+  "vacancy_language": "en",
+  "english_level": "b2",
+  "language_requirements": [],
+  "salary": {
+   "from": 4000,
+   "to": 6000,
+   "currency": "EUR"
+  },
+  "visa_sponsorship": null,
+  "tags": [
+   {
+    "name": "IoT"
+   }
+  ],
+  "tldr": "Own a connected product end to end.",
+  "text": "<p>We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. </p>",
+  "clear_text": "We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. We build connected devices for homes and small businesses. You will own the roadmap for one product line, work with firmware, hardware and app engineers, talk to customers every week and decide what ships. ",
+  "apply_url": "https://apply.example-ats.com/8",
+  "is_archived": false,
+  "is_scam": false,
+  "is_potential_scam": false,
+  "created_at": "2026-09-29T08:00:00Z",
+  "updated_at": "2026-09-29T08:00:00Z",
+  "reopened_at": null
+ }
+}

@@ -1,0 +1,7 @@
+{
+ "123456701": "write: remote, abroad signal (Кипр / Европа)",
+ "123456702": "reject geo-remote: text requires being in Russia ('находиться на территории РФ')",
+ "123456703": "unavailable: archived",
+ "123456704": "reject geo: on-site in Moscow (outside the user's on-site countries)",
+ "_note": "Only https://hh.ru/vacancy/<id> may be fetched; links with key= are login links and must never be followed or stored."
+}

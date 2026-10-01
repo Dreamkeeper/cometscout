@@ -1,0 +1,10 @@
+{
+ "900001": "write: remote global, no country restriction",
+ "900002": "reject industry: domain suffix (Fintech) if fintech is excluded",
+ "900003": "reject language: German C1",
+ "900004": "reject geo-remote: user's country explicitly excluded",
+ "900005": "flag: company masked (session not taking effect if every company on page 1 is masked)",
+ "900006": "reject scam",
+ "900007": "unavailable: archived",
+ "900008": "write: hybrid in an accepted country"
+}

@@ -1,0 +1,64 @@
+{
+ "candidates": [
+  {
+   "title": "Job Application for Product Manager at Northwind Devices",
+   "url": "https://job-boards.greenhouse.io/northwind/jobs/7000001",
+   "collector": "ats",
+   "_expect": "company Northwind Devices"
+  },
+  {
+   "title": "Product Manager at Lumenfield in Barcelona or Remote | JobFluent",
+   "url": "https://www.jobfluent.com/jobs/product-manager-barcelona-aaaaaa",
+   "collector": "search",
+   "_expect": "company Lumenfield, location Barcelona or Remote"
+  },
+  {
+   "title": "Product Manager jobs for startups in Barcelona - JobFluent",
+   "url": "https://www.jobfluent.com/jobs-barcelona/product-manager",
+   "collector": "search",
+   "_expect": "reject listing-page"
+  },
+  {
+   "title": "Product Manager ofertas de empleo en España | Recruitco",
+   "url": "https://www.recruitco.example/jobs/product-manager",
+   "collector": "search",
+   "_expect": "reject listing-page (title)"
+  },
+  {
+   "title": "Ridgeway Labs hiring Product Manager - Cloud • Remote (Work from Home) | Himalayas",
+   "url": "https://himalayas.app/companies/ridgeway/jobs/pm-cloud",
+   "collector": "search",
+   "_expect": "company Ridgeway Labs, title Product Manager - Cloud"
+  },
+  {
+   "title": "[Hiring] Lead Product Manager, AI @Quarry Systems",
+   "url": "https://remotive.com/remote-jobs/product/lead-pm-ai-1",
+   "collector": "search",
+   "_expect": "company Quarry Systems"
+  },
+  {
+   "title": "Staff Product Manager at Brightline | Y Combinator's Work at a Startup",
+   "url": "https://www.workatastartup.com/jobs/1",
+   "collector": "search",
+   "_expect": "company Brightline"
+  },
+  {
+   "title": "Kvadrat Soft: Product Owner",
+   "url": "https://weworkremotely.com/remote-jobs/kvadrat-product-owner",
+   "collector": "search",
+   "_expect": "company Kvadrat Soft"
+  },
+  {
+   "title": "Lumenfield - Sr. AI Product Manager",
+   "url": "https://jobs.lever.co/lumenfield/00000000-0000-0000-0000-000000000001",
+   "collector": "search",
+   "_expect": "company Lumenfield (title or Lever slug)"
+  },
+  {
+   "title": "Product Manager - AI - Northwind",
+   "url": "https://apply.workable.com/northwind/j/ABCDEF1234",
+   "collector": "search",
+   "_expect": "company Northwind, title Product Manager - AI"
+  }
+ ]
+}
