@@ -21,6 +21,28 @@ const MIN_TEXT = 300;
 const SCHEMA = JSON.parse(read(path.join(HERE, 'verdict.schema.json')));
 // Replacement functions, not strings: "$$" or "$&" inside the profile must reach the model unchanged.
 const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', () => SETTINGS.candidate_name).replace('{{PROFILE}}', () => PROFILE.facts || '(no profile yet: run onboarding)');
+// decoder.context_files: extra files from the profile folder (or absolute paths) added after the profile, e.g. notes on
+// targeting or a CV analysis kept up to date by a hook. "dir/*.md" takes every .md file in that folder. Total size is
+// capped by decoder.context_max_chars (default 40000); the profile itself stays the authority.
+export function contextBlock() {
+  const max = num(SETTINGS.decoder?.context_max_chars, 40000, 1000);
+  const files = [];
+  for (const entry of SETTINGS.decoder?.context_files || []) {
+    const abs = path.isAbsolute(entry) ? entry : path.join(PROFILE.dir, entry);
+    if (/\*\.md$/.test(abs)) { const dir = path.dirname(abs); if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir).filter(x => x.endsWith('.md')).sort()) files.push(path.join(dir, f)); }
+    else if (fs.existsSync(abs)) files.push(abs);
+    else log(`decoder: context file not found: ${entry}`);
+  }
+  let out = '', used = 0;
+  for (const f of files) {
+    const t = read(f).trim(); if (!t) continue;
+    const room = max - used; if (room < 200) { log(`decoder: context_max_chars reached, skipped ${path.basename(f)} and later files`); break; }
+    const part = `### ${path.basename(f, '.md')}\n${t.length > room ? t.slice(0, room) + '\n[... truncated]' : t}\n\n`;
+    out += part; used += part.length;
+  }
+  return out ? `\n\n## Further context from the candidate's own files (may lag the profile above; the profile wins)\n\n${out.trim()}` : '';
+}
+const CONTEXT = contextBlock();
 export const APPLY_WORTHY = ['strong-fit', 'investable-stretch'];
 const label = v => ({ 'strong-fit': 'Strong fit', 'investable-stretch': 'Investable stretch', 'long-shot': 'Long shot', 'weak-fit': 'Weak fit', 'gate-reject': 'Gate', unreadable: 'No job text' }[v] || v);
 
@@ -31,7 +53,10 @@ export const apps = () => readJson(APPS_FILE, {});
 // newest first, fill the remaining lines. A long history must never drop "they already rejected me".
 function history(company) {
   const c = norm(company); const recorded = [], decodes = [];
-  for (const a of Object.values(apps())) if (norm(a.company) === c) recorded.push({ d: a.updated || '', line: `- ${a.updated}: ${a.role}: ${a.status}${a.note ? ` (${a.note})` : ''} [recorded by the candidate]` });
+  for (const a of Object.values(apps())) if (norm(a.company) === c) {
+    const ev = (a.events || []).slice(-3).map(e => `${e.date || '?'} ${e.type || ''}${e.note ? ` (${String(e.note).slice(0, 120)})` : ''}`).join('; ');
+    recorded.push({ d: a.updated || '', line: `- ${a.updated}: ${a.role}: ${a.status}${a.note ? ` (${a.note})` : ''}${ev ? ` [events: ${ev}]` : ''} [recorded by the candidate]` });
+  }
   for (const dir of ['decoded', 'rejected']) for (const f of fs.readdirSync(DIRS[dir])) {
     if (!f.endsWith('.md')) continue; const t = read(path.join(DIRS[dir], f)); const fm = frontMatter(t);
     if (norm(fm.company) === c) { const v = parseResult(t); const d = v.decoded_on || f.slice(0, 10); decodes.push({ d, line: `- ${d}: decoded "${fm.role}": ${v.verdict}` }); }
@@ -52,7 +77,7 @@ async function decodeOne(file) {
   if (job.fm.full_text === 'missing' || job.body.replace(/^#.*$/m, '').trim().length < MIN_TEXT) {
     return { verdict: 'unreadable', confidence: 'low', rationale: 'No readable job text; open the link and judge by hand.', fit_signals: [], gaps: [], action: 'Open the link and decide manually.' };
   }
-  const input = `${PROMPT}\n\n## History with ${job.fm.company}\n${history(job.fm.company)}\n\n## Job file\n\n${job.text.slice(0, 16000)}\n`;
+  const input = `${PROMPT}${CONTEXT}\n\n## History with ${job.fm.company}\n${history(job.fm.company)}\n\n## Job file\n\n${job.text.slice(0, 16000)}\n`;
   const { value } = await callJson({ prompt: input, schema: SCHEMA, model: SETTINGS.llm.model });
   if (!value.verdict) throw new Error('no verdict');
   value.fact_flags = factFlags(value);

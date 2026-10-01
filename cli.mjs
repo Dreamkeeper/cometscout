@@ -9,6 +9,8 @@
 //   node cli.mjs doctor              # check the setup, one line per item
 //   node cli.mjs timer [HH:MM]       # (re)install the daily timer from settings.json (run_time, timezone)
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
+//   node cli.mjs export [--out file.tar.gz|folder] [--with-profile] [--with-settings]   # .env is never exported
+//   node cli.mjs import --from <file.tar.gz|folder> [--dry-run] [--force] [--with-profile] [--with-settings]
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,6 +18,7 @@ import { spawnSync } from 'node:child_process';
 import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
 import { frontMatter, norm } from './lib/queue.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
+import { exportData, importData } from './lib/archive.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
@@ -56,7 +59,10 @@ function setStatus(company, status, words, note, manual) {
     return 1;
   }
   const key = hits[0]?.file || `manual:${norm(company)}|${norm(words)}`;
-  apps[key] = { company: hits[0]?.company || company, role: hits[0]?.role || words || '', status, updated: today(), ...(note ? { note } : {}) };
+  // events[] keeps the history (imported outcomes, every status change); the top-level status is the latest
+  const prev = apps[key] || {};
+  apps[key] = { ...prev, company: hits[0]?.company || prev.company || company, role: hits[0]?.role || prev.role || words || '', status, updated: today(), ...(note ? { note } : {}),
+    events: [...(prev.events || []), { date: today(), type: status, ...(note ? { note } : {}), source: 'cli' }] };
   fs.writeFileSync(APPS, JSON.stringify(apps, null, 1)); console.log(`${apps[key].company}: ${apps[key].role || '(role not given)'} -> ${status}${hits.length ? '' : ' (manual record)'}`); return 0;
 }
 
@@ -86,6 +92,8 @@ function doctor() {
   ok(!!process.env.JOBPILOT_SETTINGS || path.basename(SETTINGS_FILE) === 'settings.json', `settings: ${process.env.JOBPILOT_SETTINGS ? SETTINGS_FILE : path.basename(SETTINGS_FILE)}`, 'copy settings.example.json to settings.json and edit it (the onboarding does this)');
   const unknownHooks = Object.keys(SETTINGS.hooks || {}).filter(k => k !== 'timeout_sec' && !HOOK_EVENTS.includes(k));
   const hookCount = HOOK_EVENTS.reduce((n, e) => n + hooksFor(e).length, 0);
+  const ctx = (SETTINGS.decoder?.context_files || []).filter(e => !/\*\.md$/.test(e) && !fs.existsSync(path.isAbsolute(e) ? e : path.join(PROFILE.dir, e)));
+  ok(!ctx.length, `decoder context files: ${(SETTINGS.decoder?.context_files || []).length}`, `not found: ${ctx.join(', ')}`);
   ok(!unknownHooks.length, `hooks: ${hookCount} configured`, `unknown hook event(s) ignored: ${unknownHooks.join(', ')} (known: ${HOOK_EVENTS.join(', ')})`);
   ok(!PROFILE.isExample, `profile: ${path.basename(PROFILE.dir)}`, 'create profile/ with your own facts (the onboarding does this); the evening run waits until then');
   ok(PROFILE.facts.trim().length > 200, `profile.md: ${PROFILE.facts.trim().length} characters`, 'profile/profile.md is missing or nearly empty; every decode would run without your facts');
@@ -126,13 +134,28 @@ const codes = {
     const i = r0.indexOf('--note'); const note = i >= 0 ? r0.slice(i + 1).join(' ') : ''; const r = i >= 0 ? r0.slice(0, i) : r0;
     return setStatus(r[0], r[1], r.slice(2).join(' '), note, m);
   },
-  list: () => { for (const a of Object.values(readJson(APPS, {}))) console.log(`${a.updated || '?'}  ${String(a.status || '?').padEnd(9)} ${a.company}: ${a.role}`); return 0; },
+  list: () => { for (const a of Object.values(readJson(APPS, {}))) console.log(`${a.updated || '?'}  ${String(a.status || '?').padEnd(9)} ${a.company}: ${a.role}${a.events?.length ? `  (${a.events.length} event(s), last ${a.events[a.events.length - 1].date || '?'})` : ''}`); return 0; },
   doctor: () => { doctor(); return 0; },
   timer: () => timer(rest[0]),
   reset: locked(() => {
     if (!rest.includes('--yes')) { console.log(`This deletes everything in ${DATA} (queue, decodes, picks, packs, seen lists, applications). Run again with --yes to confirm.`); return 1; }
     for (const d of Object.values(DIRS)) for (const f of fs.readdirSync(d)) if (f !== 'run.lock') fs.rmSync(path.join(d, f), { recursive: true, force: true });
     console.log(`Cleared ${DATA}.`); return 0;
+  }),
+  export: locked(() => {
+    const i = rest.indexOf('--out'); const out = i >= 0 ? rest[i + 1] : `jobpilot-export-${today()}.tar.gz`;
+    const r = exportData({ out, withProfile: rest.includes('--with-profile'), withSettings: rest.includes('--with-settings') });
+    console.log(`Exported ${r.files} file(s) to ${r.out}: ${Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join(', ')}`); return 0;
+  }),
+  import: locked(() => {
+    const i = rest.indexOf('--from'); if (i < 0 || !rest[i + 1]) { console.log('Usage: node cli.mjs import --from <folder|file.tar.gz> [--dry-run] [--force] [--with-profile] [--with-settings]'); return 1; }
+    try {
+      const r = importData({ from: rest[i + 1], dryRun: rest.includes('--dry-run'), force: rest.includes('--force'), withProfile: rest.includes('--with-profile'), withSettings: rest.includes('--with-settings') });
+      const p = r.plan;
+      console.log(`${r.dryRun ? 'Dry run: would import' : 'Imported'} from ${r.manifest.source || 'unknown source'} (exported ${r.manifest.exported_at}): ${p.add.length} new, ${p.same.length} already identical, ${p.conflict.length} conflict(s)${p.skipped.length ? `, ${p.skipped.length} profile/settings file(s) left out (add --with-profile / --with-settings)` : ''}.`);
+      if (p.conflict.length) console.log(`Conflicts${r.dryRun ? '' : ' (overwritten)'}:\n${p.conflict.slice(0, 30).map(x => `  ${x}`).join('\n')}${p.conflict.length > 30 ? `\n  ... and ${p.conflict.length - 30} more` : ''}`);
+      return 0;
+    } catch (e) { console.log(`Import stopped: ${e.message}`); if (e.plan?.conflict?.length) console.log(e.plan.conflict.slice(0, 30).map(x => `  ${x}`).join('\n')); return 1; }
   }),
 };
 if (!codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(cmd ? 1 : 0); }
