@@ -6,15 +6,25 @@
 // query is the query string of a saved filter on the site (the part after "?" in the address bar; a whole address
 // works too). The cookie lives only in .env; cookies the server refreshes (set-cookie) are kept in
 // data/state/hirify-cookies.json (mode 600) and used on the next run, until the .env value changes.
-// Session check first: /auth/user must return a user, and page 1 of the first filter must not hide every company
-// (5 or more items, all masked). Otherwise, or on a 401/403 (or a redirect) at any point, the source prints
+// Requests carry a normal browser User-Agent with Origin and Referer set to hirify.me, as the site itself sends;
+// without them the edge can answer 403, which would look like an expired session.
+// Session check first: /auth/user must return a user as JSON, and page 1 of the first filter must not hide every
+// company (5 or more items, all masked as "***", "•••" or "%...%"). Otherwise, or on a 401/403/419 (or a redirect)
+// at any point, or an HTML page (a login page) instead of JSON on /auth/user, the source prints
 // "refresh HIRIFY_COOKIE", sends a Telegram alert when delivery is on, and exits 3, which cli.mjs reports as a
 // failed run. It never returns zero jobs quietly.
-// Per vacancy (one detail call each): scams (is_scam, is_potential_scam) are counted under gate "scam", archived
-// ones as unavailable; a company that stays masked with a working session is queued as "Confidential (Hirify)" with
-// a flag. settings.gates (lib/gates.mjs) applies to the rest; demotes go to data/state/demoted.jsonl.
-// State data/state/hirify.json: { seen: { id: { first_seen, status } }, demoted: { id: first_seen } }. Demoted and
-// unreadable vacancies are not marked seen; entries older than 120 days are pruned.
+// A 429 stops the run at once (exit 4): state is kept and the vacancy in hand is not marked seen. A Retry-After of
+// up to 2 minutes is waited out and the request tried once more; a longer one is kept in the state file
+// (blocked_until), and runs before that time make no request and exit 4.
+// Per vacancy: scams (is_scam, is_potential_scam) are counted under gate "scam", archived ones as unavailable, both
+// straight from the list when it says so (no detail call), else from the detail call. A company that stays masked
+// with a working session is queued as "Confidential (Hirify)" with a flag; a masked apply_url is replaced by the
+// Hirify link, with a flag. settings.gates (lib/gates.mjs) applies to the rest; demotes go to
+// data/state/demoted.jsonl. Remote with no allowed locations, with only worldwide words (anywhere, worldwide,
+// global, everywhere), or with remote_type "global" is worldwide; snake_case names ("united_kingdom") are read as
+// words.
+// State data/state/hirify.json: { seen: { id: { first_seen, status } }, demoted: { id: first_seen }, blocked_until? }.
+// Demoted and unreadable vacancies are not marked seen; entries older than 120 days are pruned.
 // Usage: node sources/hirify.mjs [--dry-run] [--no-telegram]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +37,10 @@ import { checkGates, countriesIn, gateTally, settle } from '../lib/gates.mjs';
 export const API = 'https://api.hirify.me';
 export const SITE = 'https://hirify.me';
 export const EXIT_SESSION = 3;            // the user must act (expired or missing session); cli.mjs reports the run as failed
+export const EXIT_RATE_LIMITED = 4;       // Hirify answered 429; nothing lost, the next run tries again
+export const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+const RETRY_WAIT_MAX_MS = 120e3;          // a Retry-After up to this long is waited out once; a longer one stops the run
+const SESSION_STATUS = new Set([401, 403, 419]);
 export const CONFIDENTIAL = 'Confidential (Hirify)';
 const PRUNE_DAYS = 120;
 const defaultSleep = ms => new Promise(r => setTimeout(r, ms));
@@ -34,8 +48,11 @@ const defaultSleep = ms => new Promise(r => setTimeout(r, ms));
 // ---------- small readers: every field may be missing or written oddly, so none of them throws ----------
 const str = v => (v == null ? '' : typeof v === 'object' ? String(v.name ?? v.title ?? v.value ?? v.country ?? '') : String(v)).trim();
 const list = v => (Array.isArray(v) ? v : v == null || v === '' ? [] : [v]).map(str).filter(Boolean);
-/** Hirify hides the company when the session is not a paid one: only "*", "•" (and spaces) or nothing. */
-export const isMasked = name => /^[\s*•]*$/.test(String(name ?? ''));
+/** A field Hirify hides: only "*", "•" (and spaces) or nothing, or a placeholder wrapped in percent signs ("%...%"). */
+export const isMasked = name => { const s = String(name ?? '').trim(); return /^[*•\s]*$/.test(s) || /^%.*%$/.test(s); };
+const WORLDWIDE = /^(anywhere|worldwide|global|everywhere)$/i;
+/** A location as words: "united_kingdom" -> "united kingdom". */
+const places = v => list(v).map(x => x.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
 
 // Language names (English and Russian, from the runtime's ICU data) -> ISO 639-1, so "German" and "Немецкий" both
 // read as "de". A name that cannot be read is flagged, never passed to the gates as a requirement.
@@ -81,14 +98,16 @@ export function fromHirify(v) {
   const formats = list(v?.work_format);
   const attendance = [...new Set(formats.map(f => ATTENDANCE[f.toLowerCase()]).filter(Boolean))];
   for (const f of formats) if (!ATTENDANCE[f.toLowerCase()]) notes.push(`work format "${f}" not recognised`);
-  const offices = list(v?.office_locations), countries = [];
+  const offices = places(v?.office_locations), countries = [];
   for (const o of offices) { const c = countryCodes(o); if (c.length) countries.push(...c); else notes.push(`office location "${o}" not recognised`); }
-  const allowed = list(v?.allowed_locations), excluded = [];
-  for (const x of list(v?.excluded_locations)) {
+  const allowed = places(v?.allowed_locations), excluded = [];
+  for (const x of places(v?.excluded_locations)) {
     const c = countryCodes(x);
     if (c.length) excluded.push(...c); else { excluded.push(x); notes.push(`remote: excludes "${x}", check it`); }
   }
   const isRemote = attendance.includes('remote');
+  // only worldwide words, or remote_type "global": worldwide, not a region limit named "anywhere"
+  const worldwide = isRemote && (!allowed.length || allowed.every(a => WORLDWIDE.test(a)) || str(v?.remote_type).toLowerCase() === 'global');
   const posting = langCode(v?.vacancy_language);
   if (str(v?.vacancy_language) && !posting) notes.push(`posting language "${str(v.vacancy_language)}" not recognised`);
   const req = readRequirements(v?.language_requirements); notes.push(...req.notes);
@@ -102,15 +121,19 @@ export function fromHirify(v) {
     text: str(v?.clear_text) || htmlText(v?.text), languages: posting ? [posting] : [], required_languages: req.out,
     attendance, countries: uniq(countries),
     locations: uniq(countries).map(country => ({ country, attendance: attendance.filter(a => a !== 'remote') })),
-    remote_scope: isRemote ? (allowed.length ? 'geo_restricted' : 'worldwide') : null,
-    allowed_regions: allowed, excluded_countries: uniq(excluded),
+    remote_scope: isRemote ? (worldwide ? 'worldwide' : 'geo_restricted') : null,
+    allowed_regions: worldwide ? [] : allowed, excluded_countries: uniq(excluded),
     required_citizenships: [], forbidden_citizenships: [], sponsorship, mandatory: [], headcount: null,
     industries: uniq([...list((Array.isArray(v?.tags) ? v.tags : []).map(t => (t && typeof t === 'object' ? t.name : t))), ...(domain ? [domain.trim()] : [])]),
     notes,
   };
 }
 
-const hirifyUrl = v => `${SITE}/jobs/${v.id}${str(v.slug) ? `-${str(v.slug)}` : ''}`;
+/** The vacancy page. Real slugs already start with the id ("1191142-technical-product-manager"); add it only when not. */
+function hirifyUrl(v) {
+  const id = str(v.id), slug = str(v.slug);
+  return `${SITE}/jobs/${!slug ? id : slug === id || slug.startsWith(`${id}-`) ? slug : `${id}-${slug}`}`;
+}
 function salaryOf(s) {
   if (!s || typeof s !== 'object') return '';
   const from = num(s.from, null, 0), to = num(s.to, null, 0), cur = str(s.currency);
@@ -127,11 +150,11 @@ function postedAt(v) {
 function locationOf(v, job) {
   const parts = [];
   if (job.attendance.includes('remote')) {
-    const excluded = list(v.excluded_locations);
+    const excluded = places(v.excluded_locations);
     parts.push(`Remote: ${job.allowed_regions.length ? job.allowed_regions.join(', ') : 'worldwide'}${excluded.length ? ` (except ${excluded.join(', ')})` : ''}`);
   }
   const onsite = job.attendance.filter(a => a !== 'remote');
-  if (onsite.length || list(v.office_locations).length) parts.push(`${onsite.length ? onsite.join('/') : 'office'}: ${list(v.office_locations).join(', ') || 'location not given'}`);
+  if (onsite.length || places(v.office_locations).length) parts.push(`${onsite.length ? onsite.join('/') : 'office'}: ${places(v.office_locations).join(', ') || 'location not given'}`);
   return parts.join('; ');
 }
 /** Structured fields above the text, so the decoder sees what Hirify knows. */
@@ -141,9 +164,9 @@ function header(v, job) {
   return [
     `Hirify: ${hirifyUrl(v)}`,
     `Work format: ${list(v.work_format).join(', ') || 'unknown'}${str(v.remote_type) ? ` (remote type: ${str(v.remote_type)})` : ''}`,
-    job.attendance.includes('remote') ? `Remote from: ${job.allowed_regions.join(', ') || 'anywhere (no list given)'}` : '',
-    list(v.excluded_locations).length ? `Excluded locations: ${list(v.excluded_locations).join(', ')}` : '',
-    list(v.office_locations).length ? `Office locations: ${list(v.office_locations).join(', ')}` : '',
+    job.attendance.includes('remote') ? `Remote from: ${job.allowed_regions.join(', ') || `anywhere${places(v.allowed_locations).length ? ` (Hirify: ${places(v.allowed_locations).join(', ')})` : ''}`}` : '',
+    places(v.excluded_locations).length ? `Excluded locations: ${places(v.excluded_locations).join(', ')}` : '',
+    places(v.office_locations).length ? `Office locations: ${places(v.office_locations).join(', ')}` : '',
     `Posting language: ${str(v.vacancy_language) || 'unknown'}; English level: ${str(v.english_level) || 'not given'}`,
     reqs.length ? `Language requirements: ${reqs.join(', ')}` : '',
     `Visa sponsorship: ${yesNo[job.sponsorship] || 'not given'}`,
@@ -206,7 +229,16 @@ export function pageQuery(query, page) {
 }
 
 class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; this.session = status === 401 || status === 403 || (status >= 300 && status < 400); }
+  constructor(status, message, session = SESSION_STATUS.has(status) || (status >= 300 && status < 400)) { super(message); this.status = status; this.session = session; }
+}
+class RateLimited extends Error {
+  constructor(until) { super('HTTP 429'); this.rate = true; this.until = until; }
+}
+/** Retry-After in seconds or as an HTTP date -> milliseconds from now, or null. */
+function retryAfterMs(h, now) {
+  const v = String(h ?? '').trim(); if (!v) return null;
+  if (/^\d+$/.test(v)) return Number(v) * 1000;
+  const t = Date.parse(v); return Number.isFinite(t) ? Math.max(0, t - now.getTime()) : null;
 }
 
 /**
@@ -243,26 +275,42 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
   const DELAY = num(cfg.delay_ms, 1500, 0), MAX_PAGES = num(cfg.max_pages_per_filter, 3, 1), MAX_AGE = num(cfg.max_age_days, 14, 0);
   let last = 0;
   const cookieHeader = () => { const m = parseCookieHeader(envCookie); for (const [k, v] of Object.entries(jar)) m.set(k, v); return [...m].map(([k, v]) => `${k}=${v}`).join('; '); };
-  async function call(p) {
+  // auth: the session check, where an HTML page or a body that is not JSON means a login page, not a broken API
+  async function call(p, { auth = false, retried = false } = {}) {
     if (last && DELAY > 0) { const wait = last + DELAY - Date.now(); if (wait > 0) await sleep(wait); }
     last = Date.now();
-    const res = await fetchFn(`${API}${p}`, { headers: { Cookie: cookieHeader(), Accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(60000) });
+    const res = await fetchFn(`${API}${p}`, { redirect: 'manual', signal: AbortSignal.timeout(60000),
+      headers: { Cookie: cookieHeader(), Accept: 'application/json', 'User-Agent': BROWSER_UA, Origin: SITE, Referer: `${SITE}/` } });
     for (const sc of setCookies(res)) {
       const [pair, ...attrs] = sc.split(';'); const i = pair.indexOf('='); if (i <= 0) continue;
       const k = pair.slice(0, i).trim(), v = pair.slice(i + 1).trim();
       const gone = !v || attrs.some(a => /^\s*max-age\s*=\s*(-\d+|0)\s*$/i.test(a) || (/^\s*expires\s*=/i.test(a) && Date.parse(a.split('=').slice(1).join('=')) < now.getTime()));
       if (gone ? k in jar : jar[k] !== v) { if (gone) delete jar[k]; else jar[k] = v; jarChanged = true; }
     }
-    const status = res.status ?? 0;
-    if (status < 200 || status >= 300) throw new HttpError(status, `HTTP ${status} for ${p.split('?')[0]}`);
+    const status = res.status ?? 0, where = p.split('?')[0];
+    if (status === 429) {
+      const ms = retryAfterMs(res.headers?.get?.('retry-after'), now);
+      if (ms != null && ms <= RETRY_WAIT_MAX_MS && !retried) { await sleep(ms); return call(p, { auth, retried: true }); }
+      throw new RateLimited(ms != null ? new Date(now.getTime() + ms) : null);
+    }
+    if (status < 200 || status >= 300) throw new HttpError(status, `HTTP ${status} for ${where}`);
+    const html = /text\/html/i.test(res.headers?.get?.('content-type') || '');
     const t = await res.text();
-    try { return JSON.parse(t); } catch { throw new HttpError(status, `not JSON from ${p.split('?')[0]}`); }
+    if (auth && html) throw new HttpError(status, `an HTML page instead of JSON from ${where}`, true);
+    try { return JSON.parse(t); } catch { throw new HttpError(status, `a reply that is not JSON from ${where}`, auth); }
   }
 
   const state = loadState(stateFile, say);
   const cutoff = new Date(now.getTime() - PRUNE_DAYS * 864e5).toISOString().slice(0, 10);
   for (const [k, e] of Object.entries(state.seen)) if (!(String(e?.first_seen || '') >= cutoff)) delete state.seen[k];
   for (const [k, d] of Object.entries(state.demoted)) if (!(String(d || '') >= cutoff)) delete state.demoted[k];
+  if (state.blocked_until) {
+    if (Date.parse(state.blocked_until) > now.getTime()) {
+      say(`hirify: Hirify asked to wait until ${state.blocked_until} (HTTP 429); not calling it before then`);
+      return result(EXIT_RATE_LIMITED);
+    }
+    delete state.blocked_until;
+  }
   const mark = (id, status) => { if (!dryRun) state.seen[id] = { first_seen: state.seen[id]?.first_seen || today(), status }; };
   const save = () => {
     if (dryRun) return;
@@ -273,10 +321,17 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
   const gated = gateTally(), failed = [], done = new Set();
   const n = { listed: 0, written: 0, duplicate: 0, seen: 0, excluded: 0, old: 0, scam: 0, unavailable: 0, pagesOk: 0, pagesFailed: 0 };
 
+  // scam or archived: final, and the list often says so already, which saves the detail call
+  const closed = (v, id) => {
+    if (v.is_scam || v.is_potential_scam) { n.scam++; gated.add({ decision: 'reject', gate: 'scam' }); mark(id, 'scam'); return true; }
+    if (v.is_archived) { n.unavailable++; mark(id, 'unavailable'); return true; }
+    return false;
+  };
   async function vacancy(item, filterName) {
-    const id = str(item?.id); if (!id) { failed.push(`a vacancy without an id in "${filterName}"`); return; }
+    const id = str(item?.id); if (!id) { failed.push(redact(`a vacancy without an id in "${filterName}"`)); return; }
     if (state.seen[id] || done.has(id)) { n.seen++; return; }
     done.add(id);
+    if (closed(item, id)) return;
     if (matchesAny(str(item.title), cfg.title_exclude)) { n.excluded++; return; }
     const listedAt = postedAt(item);
     if (listedAt && (now - listedAt) / 864e5 > MAX_AGE) { n.old++; return; }
@@ -285,12 +340,13 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
       const d = await call(`/api/vacancies/${encodeURIComponent(id)}`);
       const detail = d && typeof d.data === 'object' && d.data && !Array.isArray(d.data) ? d.data : d;
       v = { ...item, ...(detail && typeof detail === 'object' ? detail : {}), id: item.id };
-    } catch (e) { if (e.session) throw e; failed.push(`${id} (${e.message})`); return; }   // not marked seen: retried next run
-    if (v.is_scam || v.is_potential_scam) { n.scam++; gated.add({ decision: 'reject', gate: 'scam' }); mark(id, 'scam'); return; }
-    if (v.is_archived) { n.unavailable++; mark(id, 'unavailable'); return; }
+    } catch (e) { if (e.session || e.rate) throw e; failed.push(redact(`${id} (${e.message})`)); return; }   // not marked seen: retried next run
+    if (closed(v, id)) return;
     const job = fromHirify(v), masked = isMasked(v.company_title);
     const company = masked ? CONFIDENTIAL : str(v.company_title), role = str(v.title) || 'Unknown role';
-    const url = str(v.apply_url) || hirifyUrl(v);
+    // no apply_url is common (apply on Hirify); a masked one ("%apply_url%", "***") is flagged
+    const apply = str(v.apply_url), applyMasked = apply !== '' && isMasked(apply);
+    const url = apply && !applyMasked ? apply : hirifyUrl(v);
     const g = check(job, gates);
     const repeat = !!state.demoted[id];
     if (!settle(g, { source: 'hirify', company, role, url }, { dry: dryRun }).queue) {
@@ -300,7 +356,7 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
       return;
     }
     const posted = postedAt(v);
-    const flags = [...(masked ? ['company: hidden by Hirify'] : []), ...job.notes, ...(posted ? [] : ['posting date unknown']), ...g.flags];
+    const flags = [...(masked ? ['company: hidden by Hirify'] : []), ...(applyMasked ? ['apply link: hidden by Hirify, the Hirify page is used'] : []), ...job.notes, ...(posted ? [] : ['posting date unknown']), ...g.flags];
     const visa = { AVAILABLE: 'yes', NOT_AVAILABLE: 'no' }[job.sponsorship];
     const r = dryRun ? { written: true } : writeJob({ company, role, url, source: 'hirify', location: locationOf(v, job), salary: salaryOf(v.salary),
       posted: posted ? posted.toISOString().slice(0, 10) : '', text: [header(v, job), job.text].filter(Boolean).join('\n\n'),
@@ -313,14 +369,14 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
 
   let checked = false;
   try {
-    const user = await call('/auth/user');
+    const user = await call('/auth/user', { auth: true });
     if (!user || typeof user !== 'object' || !(user.id || user.data)) return needsUser('Hirify does not see a logged-in user (the session has expired)');
     for (const f of filters) {
       const name = str(f.name) || str(f.query).slice(0, 40);
       for (let page = 1; page <= MAX_PAGES; page++) {
         let res;
         try { res = await call(`/api/vacancies?${pageQuery(f.query, page)}`); }
-        catch (e) { if (e.session) throw e; n.pagesFailed++; say(`hirify: filter "${name}" page ${page} could not be read (${e.message})`); break; }
+        catch (e) { if (e.session || e.rate) throw e; n.pagesFailed++; say(`hirify: filter "${name}" page ${page} could not be read (${e.message})`); break; }
         n.pagesOk++;
         const items = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
         if (!checked) {
@@ -330,7 +386,7 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
         }
         n.listed += items.length;
         for (const it of items) {
-          try { await vacancy(it, name); } catch (e) { if (e.session) throw e; failed.push(`${str(it?.id) || '?'} (${e.message})`); }
+          try { await vacancy(it, name); } catch (e) { if (e.session || e.rate) throw e; failed.push(redact(`${str(it?.id) || '?'} (${e.message})`)); }
           save();
         }
         const lastPage = num(res?.meta?.last_page, null, 1);
@@ -339,7 +395,12 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
       }
     }
   } catch (e) {
-    if (e.session) return needsUser(`Hirify answered ${e.message.replace(/ for .*/, '')}, so the session has expired`);
+    if (e.session) return needsUser(`Hirify answered ${e.message.replace(/ (for|from) \/.*/, '')}, so the session has expired`);
+    if (e.rate) {
+      if (e.until && !dryRun) state.blocked_until = e.until.toISOString();
+      say(`hirify: Hirify is limiting requests (HTTP 429); stopped, state kept, the vacancy in hand not marked seen${e.until ? `; it asked to wait until ${e.until.toISOString()}` : ''}. The next run tries again.`);
+      return result(EXIT_RATE_LIMITED, { ...n, failed });
+    }
     say(`hirify: stopped (${e.message})`);
     return result(1, { ...n });
   } finally {

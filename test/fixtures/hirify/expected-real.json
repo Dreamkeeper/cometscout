@@ -1,0 +1,10 @@
+{
+ "920001": "write: remote_type global with allowed_locations anywhere is worldwide",
+ "920002": "write: remote in europe, accepted by remote.accept_regions",
+ "920003": "write: remote in european_union (snake_case), accepted by remote.accept_regions",
+ "920004": "reject geo-remote: remote only in united_kingdom",
+ "920005": "write: remote in czech_republic or spain, and spain is a country the user may work in",
+ "920006": "flag: company masked and apply link masked (%...% form), queued with the Hirify link",
+ "920007": "unavailable: archived, known from the list without a detail call",
+ "920008": "write: slug equal to the id, detail returned without a data wrapper, czech_republic excluded"
+}

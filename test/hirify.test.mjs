@@ -21,7 +21,7 @@ process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
 process.env.JOBPILOT_RUN_DATE = '2026-10-01';
 fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
 
-const { run, fromHirify, isMasked, pageQuery, parseCookieHeader, CONFIDENTIAL, EXIT_SESSION } = await import('../sources/hirify.mjs');
+const { run, fromHirify, isMasked, pageQuery, parseCookieHeader, CONFIDENTIAL, EXIT_SESSION, EXIT_RATE_LIMITED } = await import('../sources/hirify.mjs');
 const { DIRS, STATE } = await import('../lib/config.mjs');
 const { frontMatter } = await import('../lib/queue.mjs');
 const { DEMOTED_FILE } = await import('../lib/gates.mjs');
@@ -61,7 +61,7 @@ function server({ list, pages, details = {}, on = {}, lastPage } = {}) {
   const byId = new Map(allPages.flat().map(v => [String(v.id), v]));
   const fetch = async (url, opts = {}) => {
     const u = new URL(url);
-    calls.push({ path: u.pathname, query: u.search, cookie: opts.headers?.Cookie });
+    calls.push({ path: u.pathname, query: u.search, cookie: opts.headers?.Cookie, headers: opts.headers || {} });
     if (on[u.pathname]) return on[u.pathname](u, opts);
     if (u.pathname === '/auth/user') return json(200, fixture('auth-user.json'));
     if (u.pathname === '/api/vacancies') {
@@ -75,15 +75,15 @@ function server({ list, pages, details = {}, on = {}, lastPage } = {}) {
   };
   return { fetch, calls };
 }
-/** The fixture folder as an API. */
-function fixtureServer(on = {}) {
+/** The fixture folder as an API; listFile is the page 1 list. */
+function fixtureServer(on = {}, listFile = 'vacancies-page-1.json') {
   const calls = [];
   const fetch = async (url, opts = {}) => {
     const u = new URL(url);
-    calls.push({ path: u.pathname, query: u.search, cookie: opts.headers?.Cookie });
+    calls.push({ path: u.pathname, query: u.search, cookie: opts.headers?.Cookie, headers: opts.headers || {} });
     if (on[u.pathname]) return on[u.pathname](u, opts);
     if (u.pathname === '/auth/user') return json(200, fixture('auth-user.json'));
-    if (u.pathname === '/api/vacancies') return json(200, u.searchParams.get('page') === '1' ? fixture('vacancies-page-1.json') : { data: [] });
+    if (u.pathname === '/api/vacancies') return json(200, u.searchParams.get('page') === '1' ? fixture(listFile) : { data: [] });
     const m = u.pathname.match(/^\/api\/vacancies\/(\d+)$/);
     if (m && fs.existsSync(path.join(FIX, `vacancy-${m[1]}.json`))) return json(200, fixture(`vacancy-${m[1]}.json`));
     return json(404, {});
@@ -119,27 +119,31 @@ function noSecretsAnywhere() {
   for (const line of printed) for (const s of SECRETS) assert.ok(!line.includes(s), `printed a session value: ${line}`);
 }
 
-test('every expectation in test/fixtures/hirify/expected.json holds', async () => {
+/** Run the fixture folder with one list file and check every line of an expectation file. */
+async function checkExpected(expectedFile, listFile) {
   fresh();
   const sent = [];
-  const { fetch } = fixtureServer();
+  const { fetch, calls } = fixtureServer({}, listFile);
   const r = await go({ fetch, send: async t => sent.push(t) });
-  assert.equal(r.code, 0);
+  assert.equal(r.code, 0, printed.slice(-3).join('\n'));
   assert.equal(sent.length, 0, 'no alert on a working session');
   const seen = state().seen;
-  const expected = fixture('expected.json');
-  for (const [id, what] of Object.entries(expected)) {
-    const v = fixture(`vacancy-${id}.json`).data;
-    const job = byUrl(v.apply_url);
+  for (const [id, what] of Object.entries(fixture(expectedFile))) {
+    const listed = fixture(listFile).data.find(x => String(x.id) === id);
+    const file = path.join(FIX, `vacancy-${id}.json`);
+    const v = fs.existsSync(file) ? (d => d.data || d)(fixture(`vacancy-${id}.json`)) : listed;
+    const job = byUrl(v.apply_url) || inbox().find(j => j.hirify_url && j.hirify_url.startsWith(`https://hirify.me/jobs/${id}`));
     let m;
     if (/^write\b/.test(what)) {
       assert.ok(job, `${id} written (${what})`);
       assert.equal(job.company, v.company_title);
       assert.equal(seen[id].status, 'written');
-    } else if (/^flag: company masked/.test(what)) {
+    } else if (/^flag:/.test(what)) {
       assert.ok(job, `${id} written with a flag (${what})`);
-      assert.equal(job.company, CONFIDENTIAL);
-      assert.match(job.gate_flags, /company: hidden by Hirify/);
+      assert.equal(seen[id].status, 'written');
+      if (/company masked/.test(what)) { assert.equal(job.company, CONFIDENTIAL); assert.match(job.gate_flags, /company: hidden by Hirify/); }
+      if (/apply link masked/.test(what)) { assert.equal(job.url, job.hirify_url); assert.match(job.gate_flags, /apply link: hidden by Hirify/); }
+      if (!/company masked|apply link masked/.test(what)) assert.fail(`unknown flag expectation: ${id} "${what}"`);
     } else if (/^reject scam/.test(what)) {
       assert.ok(!job, `${id} not written (${what})`);
       assert.equal(seen[id].status, 'scam');
@@ -149,10 +153,17 @@ test('every expectation in test/fixtures/hirify/expected.json holds', async () =
     } else if (/^unavailable/.test(what)) {
       assert.ok(!job, `${id} not written (${what})`);
       assert.equal(seen[id].status, 'unavailable');
-    } else assert.fail(`expected.json has an expectation this test does not know: ${id} "${what}"`);
+      if (/without a detail call/.test(what)) assert.ok(!calls.some(c => c.path === `/api/vacancies/${id}`), `${id}: no detail call`);
+    } else assert.fail(`${expectedFile} has an expectation this test does not know: ${id} "${what}"`);
   }
-  assert.match(printed.join('\n'), /gated 4 \(industry 1, language 1, geo-remote 1, scam 1\)/);
   noSecretsAnywhere();
+  return { r, calls };
+}
+
+test('every expectation in test/fixtures/hirify/expected.json holds', async () => {
+  printed = [];
+  await checkExpected('expected.json', 'vacancies-page-1.json');
+  assert.match(printed.join('\n'), /gated 4 \(industry 1, language 1, geo-remote 1, scam 1\)/);
 });
 
 test('a written job carries the fields the brief asks for', () => {
@@ -180,6 +191,20 @@ test('a second run skips vacancies already handled (no detail calls)', async () 
   assert.equal(r.code, 0);
   assert.equal(calls.filter(c => /^\/api\/vacancies\/\d+$/.test(c.path)).length, 0);
   assert.equal(inbox().length, before);
+});
+
+test('every expectation in test/fixtures/hirify/expected-real.json holds (shapes seen in production)', async () => {
+  await checkExpected('expected-real.json', 'vacancies-real-page-1.json');
+  const anywhere = byUrl('https://apply.example-ats.com/r920001');
+  assert.equal(anywhere.location, 'Remote: worldwide');
+  assert.match(anywhere.txt, /Remote from: anywhere \(Hirify: anywhere\)/);
+});
+
+test('links: the id is not added twice when the slug already starts with it', async () => {
+  const one = byUrl('https://apply.example-ats.com/r920001');
+  assert.equal(one.hirify_url, 'https://hirify.me/jobs/920001-technical-product-manager-synthetic');
+  assert.equal(byUrl('https://apply.example-ats.com/r920008').hirify_url, 'https://hirify.me/jobs/920008');
+  for (const j of inbox()) assert.ok(!/\/jobs\/(\d+)-\1(-|\b)/.test(j.txt), `${j.file} has the id twice in a link`);
 });
 
 test('a page where every company is masked means the session is not working: exit 3, alert, nothing written', async () => {
@@ -226,6 +251,11 @@ for (const [name, on] of [
   ['a redirect to the login page', { '/auth/user': () => new Response(null, { status: 302, headers: { location: 'https://hirify.me/login' } }) }],
   ['/auth/user with no user', { '/auth/user': () => json(200, {}) }],
   ['401 on the list', { '/api/vacancies': () => json(401, {}) }],
+  ['a login page (200, HTML) on /auth/user', { '/auth/user': () => new Response(fs.readFileSync(path.join(FIX, 'auth-user-login-page.html'), 'utf8'), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }) }],
+  ['200 text/html on /auth/user, even if the body parses', { '/auth/user': () => new Response(JSON.stringify(fixture('auth-user.json')), { status: 200, headers: { 'content-type': 'text/html' } }) }],
+  ['200 with a body that is not JSON on /auth/user', { '/auth/user': () => new Response('Session expired', { status: 200 }) }],
+  ['419 on /auth/user', { '/auth/user': () => json(419, { message: 'Page Expired' }) }],
+  ['419 on the list', { '/api/vacancies': () => json(419, {}) }],
 ]) {
   test(`expired session (${name}) exits 3 with a clear message and an alert`, async () => {
     fresh();
@@ -284,7 +314,7 @@ test('a refreshed cookie is saved (mode 600), used next run, and dropped when .e
   let r = await go({ fetch: server({ list: [], on: refresh }).fetch });
   assert.equal(r.code, 0);
   const file = STATE('hirify-cookies.json');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);   // Windows has no POSIX modes
   const saved = fs.readFileSync(file, 'utf8');
   assert.match(saved, /REFRESHED-session-value-789/);
   assert.ok(!saved.includes('SYNTHETIC-session-value-123') && !saved.includes('SYNTHETIC-xsrf-value-456'), 'the .env value itself is not copied there');
@@ -414,7 +444,7 @@ test('fromHirify: languages, countries, regions, industries', () => {
   assert.equal(h.remote_scope, null);
   assert.deepEqual(fromHirify(fixture('vacancy-900002.json').data).industries, ['IoT', 'Fintech']);
   assert.equal(fromHirify(base).remote_scope, 'worldwide');
-  const r = fromHirify({ ...base, allowed_locations: ['Germany, Spain', 'portugal'] });
+  const r = fromHirify({ ...base, remote_type: 'country', allowed_locations: ['Germany, Spain', 'portugal'] });
   assert.equal(r.remote_scope, 'geo_restricted');
   assert.deepEqual(r.allowed_regions, ['Germany, Spain', 'portugal'], 'passed through as they come');
   assert.equal(fromHirify({ ...base, company_title: '•••' }).company, null);
@@ -425,9 +455,9 @@ test('fromHirify: languages, countries, regions, industries', () => {
 
 test('remote regions written as country names reach the gate as they come', async () => {
   fresh();
-  const spain = vac({ allowed_locations: ['Spain'], title: 'Regional PM Spain' });
-  const germanyOnly = vac({ allowed_locations: ['Germany'], title: 'Regional PM Germany' });
-  const europe = vac({ allowed_locations: ['Europe'], title: 'Regional PM Europe' });
+  const spain = vac({ remote_type: 'country', allowed_locations: ['Spain'], title: 'Regional PM Spain' });
+  const germanyOnly = vac({ remote_type: 'country', allowed_locations: ['Germany'], title: 'Regional PM Germany' });
+  const europe = vac({ remote_type: 'region', allowed_locations: ['Europe'], title: 'Regional PM Europe' });
   const r = await go({ fetch: server({ list: [spain, germanyOnly, europe] }).fetch });
   assert.equal(r.code, 0);
   assert.ok(byUrl(spain.apply_url), 'Spain names a country the user may work in');
@@ -480,24 +510,176 @@ test('disabled, or no filters: no requests', async () => {
   assert.equal(s.calls.length, 0);
 });
 
+test('worldwide words, remote_type global and snake_case names', () => {
+  for (const allowed of [['anywhere'], ['Anywhere'], ['worldwide', 'global'], ['everywhere']]) {
+    const j = fromHirify({ ...base, remote_type: 'region', allowed_locations: allowed });
+    assert.equal(j.remote_scope, 'worldwide', allowed.join(','));
+    assert.deepEqual(j.allowed_regions, []);
+  }
+  const g = fromHirify({ ...base, remote_type: 'global', allowed_locations: ['europe'] });
+  assert.equal(g.remote_scope, 'worldwide');
+  assert.deepEqual(g.allowed_regions, []);
+  const mixed = fromHirify({ ...base, remote_type: 'region', allowed_locations: ['anywhere', 'spain'] });
+  assert.equal(mixed.remote_scope, 'geo_restricted', 'a list with a real region in it is not worldwide');
+  const snake = fromHirify({ ...base, remote_type: 'country', allowed_locations: ['united_kingdom', 'european_union'], excluded_locations: ['czech_republic'], office_locations: ['united_kingdom'] });
+  assert.deepEqual(snake.allowed_regions, ['united kingdom', 'european union']);
+  assert.deepEqual(snake.excluded_countries, ['CZ']);
+  assert.deepEqual(snake.countries, ['GB']);
+  assert.deepEqual(snake.notes, []);
+});
+
+test('a page masked with %...% means the session is not working (exit 3)', async () => {
+  fresh();
+  const sent = [];
+  printed = [];
+  const r = await go({ fetch: fixtureServer({}, 'vacancies-masked-percent.json').fetch, send: async t => sent.push(t) });
+  assert.equal(r.code, EXIT_SESSION);
+  assert.match(printed.join('\n'), /refresh HIRIFY_COOKIE/);
+  assert.equal(sent.length, 1);
+  assert.ok(isMasked('%company_title%') && isMasked('%%') && isMasked('***') && !isMasked('100% Remote Co') && !isMasked('%'));
+});
+
+test('a masked apply_url falls back to the Hirify link, with a flag', async () => {
+  fresh();
+  const v = vac({ apply_url: '%apply_url%', slug: undefined });
+  v.slug = `${v.id}-product-manager-iot`;
+  const r = await go({ fetch: server({ list: [v] }).fetch });
+  assert.equal(r.code, 0);
+  const job = inbox().find(j => j.hirify_url === `https://hirify.me/jobs/${v.id}-product-manager-iot`);
+  assert.ok(job, 'written');
+  assert.equal(job.url, job.hirify_url);
+  assert.match(job.gate_flags, /apply link: hidden by Hirify/);
+  assert.ok(!inbox().some(j => /%apply_url%/.test(j.url || '')));
+});
+
+test('every request looks like the site itself (browser User-Agent, Origin, Referer)', async () => {
+  fresh();
+  const { fetch, calls } = server({ list: [vac()] });
+  await go({ fetch });
+  assert.ok(calls.length >= 3);
+  for (const c of calls) {
+    assert.match(c.headers['User-Agent'] || '', /^Mozilla\/5\.0 .+/);
+    assert.equal(c.headers.Origin, 'https://hirify.me');
+    assert.equal(c.headers.Referer, 'https://hirify.me/');
+  }
+});
+
+test('429 on the list stops the run, keeps state, marks nothing seen, exits non-zero', async () => {
+  fresh();
+  const a = vac(), b = vac();
+  const s = server({ pages: [[a], [b]], on: { '/api/vacancies': u => (u.searchParams.get('page') === '2' ? json(429, { message: 'Too Many Attempts.' }) : json(200, { data: [a], meta: { last_page: 2 } })) } });
+  printed = [];
+  const r = await go({ fetch: s.fetch });
+  assert.equal(r.code, EXIT_RATE_LIMITED);
+  assert.notEqual(r.code, 0);
+  assert.match(printed.join('\n'), /hirify: Hirify is limiting requests \(HTTP 429\)/);
+  assert.equal(state().seen[a.id].status, 'written', 'work done before the 429 is kept');
+  assert.equal(state().seen[b.id], undefined);
+});
+
+test('429 on a detail call stops at once; that vacancy and the rest are not marked seen', async () => {
+  fresh();
+  const a = vac(), b = vac(), c = vac();
+  const s = server({ list: [a, b, c], details: { [b.id]: () => json(429, {}) } });
+  const r = await go({ fetch: s.fetch });
+  assert.equal(r.code, EXIT_RATE_LIMITED);
+  assert.ok(byUrl(a.apply_url));
+  assert.equal(state().seen[b.id], undefined);
+  assert.equal(state().seen[c.id], undefined);
+  assert.ok(!s.calls.some(x => x.path === `/api/vacancies/${c.id}`), 'no request after the 429');
+});
+
+test('a short Retry-After is waited out and the request tried once more', async () => {
+  fresh();
+  const v = vac();
+  let n = 0;
+  const waits = [];
+  const s = server({ list: [v], details: { [v.id]: () => (n++ === 0 ? json(429, {}, { 'retry-after': '2' }) : json(200, { data: v })) } });
+  const r = await go({ fetch: s.fetch, sleep: async ms => waits.push(ms) });
+  assert.equal(r.code, 0);
+  assert.ok(waits.includes(2000), `waited ${waits.join(', ')}`);
+  assert.ok(byUrl(v.apply_url));
+});
+
+test('a long Retry-After is kept: the next run before then makes no request', async () => {
+  fresh();
+  const s = server({ on: { '/auth/user': () => json(429, {}, { 'retry-after': new Date(NOW.getTime() + 3 * 3600e3).toUTCString() }) } });
+  let r = await go({ fetch: s.fetch });
+  assert.equal(r.code, EXIT_RATE_LIMITED);
+  assert.equal(state().blocked_until, new Date(NOW.getTime() + 3 * 3600e3).toISOString());
+  const again = server({ list: [vac()] });
+  printed = [];
+  r = await go({ fetch: again.fetch, now: new Date(NOW.getTime() + 3600e3) });
+  assert.equal(r.code, EXIT_RATE_LIMITED);
+  assert.equal(again.calls.length, 0);
+  assert.match(printed.join('\n'), /asked to wait until/);
+  r = await go({ fetch: again.fetch, now: new Date(NOW.getTime() + 4 * 3600e3) });
+  assert.equal(r.code, 0, 'after that time it runs again');
+  assert.equal(state().blocked_until, undefined);
+});
+
+test('result.failed is redacted too', async () => {
+  fresh();
+  const v = vac();
+  const { fetch } = server({ list: [v], details: { [v.id]: () => { throw new Error(`proxy said Cookie: ${COOKIE}`); } } });
+  const r = await go({ fetch });
+  assert.equal(r.failed.length, 1);
+  for (const f of r.failed) for (const x of SECRETS) assert.ok(!f.includes(x), `result.failed leaks a session value: ${f}`);
+  assert.match(r.failed[0], /\[hidden\]/);
+});
+
+test('scam and archived flags on the list skip the detail call; the detail still counts', async () => {
+  fresh();
+  const scam = vac({ is_scam: true }), maybe = vac({ is_potential_scam: true }), gone = vac({ is_archived: true });
+  const late = vac(), lateDetail = { ...late, is_potential_scam: true };
+  const s = server({ list: [scam, maybe, gone, late], details: { [late.id]: lateDetail } });
+  const r = await go({ fetch: s.fetch });
+  assert.equal(r.code, 0);
+  for (const v of [scam, maybe, gone]) assert.ok(!s.calls.some(c => c.path === `/api/vacancies/${v.id}`), `no detail call for ${v.id}`);
+  assert.equal(state().seen[scam.id].status, 'scam');
+  assert.equal(state().seen[maybe.id].status, 'scam');
+  assert.equal(state().seen[gone.id].status, 'unavailable');
+  assert.equal(state().seen[late.id].status, 'scam', 'a scam mark only on the detail is still caught');
+});
+
 // cli.mjs: the source's exit 3 makes `sources` (and `run`) exit 3; doctor checks the cookie variable.
-function cli(args) {
+function cli(args, { sources = { hirify: { enabled: true, filters: [{ name: 'pm', query: 'search=pm' }] } }, hooks } = {}) {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-hirify-cli-'));
   const settings = path.join(t, 'settings.json');
-  fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', sources: { hirify: { enabled: true, filters: [{ name: 'pm', query: 'search=pm' }] } } }));
-  const env = { ...process.env, JOBPILOT_SETTINGS: settings, JOBPILOT_DATA: path.join(t, 'data'), HIRIFY_COOKIE: '' };
+  fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', sources, ...(hooks ? { hooks: hooks(t) } : {}) }));
+  const env = { ...process.env, JOBPILOT_SETTINGS: settings, JOBPILOT_DATA: path.join(t, 'data'), HIRIFY_COOKIE: '', RTJ_API_TOKEN: '' };
   delete env.JOBPILOT_HOME;
-  return spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), ...args], { env, encoding: 'utf8', timeout: 60000 });
+  return { ...spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), ...args], { env, encoding: 'utf8', timeout: 60000 }), dir: t };
 }
 test('cli: a source exiting 3 makes `sources` exit 3 and name it', () => {
   const r = cli(['sources']);
   assert.equal(r.status, 3, r.stdout + r.stderr);
   assert.match(r.stdout, /HIRIFY_COOKIE is not set in \.env/);
-  assert.match(r.stdout, /source\(s\) need you: hirify/);
+  assert.match(r.stdout, /jobpilot: source hirify failed \(exit 3\); it needs you/);
 });
 test('cli: doctor checks the Hirify cookie variable', () => {
   const r = cli(['doctor']);
   assert.match(r.stdout, /TODO Hirify session cookie \(HIRIFY_COOKIE\) in \.env/);
   assert.match(r.stdout, /ok {3}Hirify filters: 1/);
   assert.ok(!/unknown source\(s\) ignored: .*hirify/.test(r.stdout));
+});
+
+test('cli: any source that exits non-zero is named; only exit 3 changes the exit code', () => {
+  const r = cli(['sources'], { sources: { rtj: { enabled: true } } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /jobpilot: source rtj failed \(exit 2\)/);
+});
+test('cli: the evening run names failed sources in its log and in run_done', () => {
+  const r = cli(['run', '--example'], {
+    sources: { rtj: { enabled: true }, hirify: { enabled: true, filters: [{ name: 'pm', query: 'search=pm' }] } },
+    hooks: t => {
+      const script = path.join(t, 'save-done.mjs');
+      fs.writeFileSync(script, `import fs from 'node:fs';\nprocess.stdin.pipe(fs.createWriteStream(${JSON.stringify(path.join(t, 'done.json'))}));\n`);
+      return { run_done: `node "${script}"` };
+    },
+  });
+  assert.equal(r.status, 3, r.stdout + r.stderr);
+  assert.match(r.stdout, /run finished; failed source\(s\): rtj \(exit 2\), hirify \(exit 3\)/);
+  const done = JSON.parse(fs.readFileSync(path.join(r.dir, 'done.json'), 'utf8'));
+  assert.deepEqual(done.sources_failed, [{ source: 'rtj', exit: 2 }, { source: 'hirify', exit: 3 }]);
 });

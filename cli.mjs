@@ -30,15 +30,23 @@ SOURCES.hirify = 'sources/hirify.mjs';
 const APPS = STATE('applications.json');
 const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 
-// A source exits 3 when it cannot work until the user acts (an expired login). The run still decodes and packs what
-// it has, then exits 3 too, so the timer's status and health alerts show the failure. Other exit codes are only logged.
+// A source that exits non-zero is logged by name and listed in the run's result (the closing log line and run_done's
+// sources_failed), so a dead source is never silent. Exit 3 means it cannot work until the user acts (an expired
+// login): the run still decodes and packs what it has, then exits 3 too, so the timer's status and health alerts
+// show it. Other exit codes do not change the run's own exit code.
 const NEEDS_USER = 3;
 function runSources() {
-  const stopped = [];
-  for (const [k, f] of Object.entries(SOURCES)) if (SETTINGS.sources[k]?.enabled && node(f) === NEEDS_USER) stopped.push(k);
-  if (stopped.length) console.log(`jobpilot: source(s) need you: ${stopped.join(', ')} (see the message above)`);
-  return stopped;
+  const failed = [];
+  for (const [k, f] of Object.entries(SOURCES)) {
+    if (!SETTINGS.sources[k]?.enabled) continue;
+    const exit = node(f);
+    if (exit === 0) continue;
+    failed.push({ source: k, exit });
+    console.log(`jobpilot: source ${k} failed (exit ${exit ?? 'none, it was killed'})${exit === NEEDS_USER ? '; it needs you, see the message above' : ''}`);
+  }
+  return failed;
 }
+const failedLine = failed => failed.map(f => `${f.source} (exit ${f.exit ?? 'killed'})`).join(', ');
 
 // One run at a time: the timer and a manual command must not decode the same files or write state twice.
 function lock() {
@@ -141,11 +149,12 @@ const codes = {
     if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
     process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
     const t0 = Date.now(); runHook('before_run', { date: today() });
-    const stopped = runSources(); const decoder = node('decoder/decoder.mjs'); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
-    runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: stopped });
-    return stopped.length ? NEEDS_USER : 0;
+    const failed = runSources(); const decoder = node('decoder/decoder.mjs'); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
+    runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed });
+    if (failed.length) console.log(`jobpilot: run finished; failed source(s): ${failedLine(failed)}`);
+    return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
   }),
-  sources: locked(() => (runSources().length ? NEEDS_USER : 0)),
+  sources: locked(() => (runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0)),
   decode: locked(() => node('decoder/decoder.mjs', rest)),
   picks: () => node('decoder/decoder.mjs', ['--picks']),
   pack: locked(() => node('pack/pack.mjs', rest)),
