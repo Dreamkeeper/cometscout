@@ -31,6 +31,12 @@
       "max_fetch": 40, "delay_ms": 3000,
       "title_exclude": ["intern", "junior"], "location_exclude_regex": ""
     },
+    "outcomes": {
+      "enabled": false,
+      "query": "newer_than:3d -category:promotions -category:social",
+      "max_emails": 50, "overlap_hours": 24, "account_index": 0,
+      "model": null
+    },
     "drop_dir": {
       "enabled": false,
       "dir": "/home/youruser/jobpilot-drop",
