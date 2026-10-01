@@ -139,6 +139,28 @@ jobpilot checks `dir` on every run (`node cli.mjs sources` or the evening run) a
 1. **A job file in jobpilot's own format**: front matter (`company`, `role`, `url`, `source`, `location`, ...) followed by the job text, the same shape jobpilot itself writes to `data/inbox`. It is queued with the normal dedupe rules, then moved to `processed/`. A file missing `company` or `role` is moved to `failed/` with a `.reason.txt` beside it rather than queued half-wrong.
 2. **A `*.queue.json` file**: `{ "candidates": [{ "title": "...", "url": "...", "company": "optional", "location": "optional", "source_key": "optional" }] }`, the shape a search-style tool naturally produces (a page title and a link). For each candidate, jobpilot fetches the full job text itself (from the ATS API when the link is a known Greenhouse, Ashby, Lever, Workable or Recruitee posting, otherwise the page), works out the company from whichever of `company`, the page title, the fetch, or the link's board slug is the most specific, and skips search-result pages and jobs it cannot identify. Jobs are queued with `source: "drop:<source_key or file name>"`. Closed postings and links that redirect to a listing page or the home page are skipped too. The queue file is only moved to `processed/` once every candidate in it has a final answer. A page that could not be fetched (a rate limit, a server error, a network hiccup) keeps the file in place and is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job that stays unreadable is still queued without text when its company and role are known (open the link to read it), and reported as unreadable otherwise, so no file waits forever. A company only guessed from the title's punctuation ("Co - Title") does not count as known there. A queue file that is not valid JSON goes to `failed/`. jobpilot fetches pages slowly (1.5 seconds apart), at most `max_fetches_per_run` pages per run (default 40; calls to a known ATS API do not count), only over http or https, and never from this machine or a private network. Jobs past that limit stay in their file and are fetched on the next run. Files saved with a UTF-8 byte order mark (common with Windows tools) are read normally.
 
+### career-ops
+
+If you also run [career-ops](https://github.com/career-ops-hq/career-ops), jobpilot can pick up what its scans find, so those jobs get decoded and picked like any other. jobpilot only reads two files in your career-ops checkout and never writes into that folder.
+
+```json
+"sources": {
+  "career_ops": {
+    "enabled": true,
+    "path": "/home/youruser/career-ops",
+    "include_evaluated": false,
+    "max_per_run": 30
+  }
+}
+```
+
+- `data/pipeline.md` (required): every `- [ ] <url> | <company> | <role>` line is a candidate. Lines marked `[!]` (skipped by career-ops) are left out. Lines marked `[x]` were already evaluated by career-ops; they are taken only with `include_evaluated: true`, and the career-ops number and score go into the job's notes. A line with any other mark is listed in the log and not taken.
+- `data/scan-history.tsv` (optional): a row with status `added` whose link is not in the pipeline is a candidate too. Rows with `filtered` or any other status are left out.
+
+Before anything is fetched, the [gates](#gates) run on the company and role career-ops wrote, so an excluded company costs nothing. jobpilot then fetches the full text (from the ATS API for Greenhouse, Ashby, Lever, Workable and Recruitee links, otherwise the page), runs the gates again on it, and queues the job with `source: "career-ops"`. Closed postings are skipped. The company is the one career-ops wrote, else the one the posting names, else the board in the link; it is never guessed from the title. A job with no company anywhere is queued as "Unknown" with a flag, so the decoder sees it.
+
+`max_per_run` caps the jobs handled per run, shared out one per company in turn; the rest wait for the next run. Every link is remembered in `data/state/career-ops.json`, so nothing is fetched twice. A link that could not be fetched (a rate limit, a server error, a network hiccup) is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job given up on is still queued without text when its company and role are known. Try it with `node sources/career-ops.mjs --dry-run` (fetches and logs, writes nothing). `node cli.mjs doctor` checks that the folder has `data/pipeline.md` and that jobpilot can read it.
+
 ### Tests
 
 `npm test` runs the unit tests (no network, no model calls).

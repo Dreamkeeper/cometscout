@@ -1,0 +1,15 @@
+{
+  "organizationName": "Northwind Devices",
+  "jobs": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "title": "Senior Product Manager",
+      "jobUrl": "https://jobs.ashbyhq.com/northwind/11111111-1111-1111-1111-111111111111",
+      "location": "Madrid, Spain",
+      "workplaceType": "Hybrid",
+      "isRemote": false,
+      "publishedAt": "2026-09-27T00:00:00Z",
+      "descriptionPlain": "Northwind Devices is hiring a senior product manager for its connected devices line. You will own the roadmap for the companion app and work with firmware, design and support teams in Madrid."
+    }
+  ]
+}

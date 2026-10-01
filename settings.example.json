@@ -43,6 +43,12 @@
       "settle_sec": 60,
       "move_processed_to": "/home/youruser/jobpilot-drop/processed",
       "max_fetches_per_run": 40
+    },
+    "career_ops": {
+      "enabled": false,
+      "path": "/home/youruser/career-ops",
+      "include_evaluated": false,
+      "max_per_run": 30
     }
   },
   "gates": {
