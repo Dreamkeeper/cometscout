@@ -22,7 +22,7 @@ import { exportData, importData } from './lib/archive.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
-const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs' };
+const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs', drop_dir: 'sources/drop-dir.mjs' };
 const APPS = STATE('applications.json');
 const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 

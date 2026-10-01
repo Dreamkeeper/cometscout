@@ -1,0 +1,11 @@
+{
+  "offer": {
+    "title": "Backend Engineer",
+    "slug": "backend-engineer",
+    "city": "Lisbon",
+    "country": "Portugal",
+    "remote": true,
+    "description": "&lt;p&gt;Join our backend team building the core platform.&lt;/p&gt;",
+    "requirements_description": "&lt;ul&gt;&lt;li&gt;Node.js experience&lt;/li&gt;&lt;/ul&gt;"
+  }
+}
