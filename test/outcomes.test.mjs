@@ -425,3 +425,117 @@ test('README documents the report file, --no-telegram and the outcome hook paylo
   const hooks = readme.slice(readme.indexOf('### Hooks'));
   for (const f of ['thread_id', 'email_date', 'from', 'subject', 'evidence', 'note', 'gmail_id', 'reopened', 'event_date']) assert.match(hooks, new RegExp(`\`${f}\``), f);
 });
+
+// ---------- second review round ----------
+test('generic role words never make a match or reopen a rejection', async () => {
+  // "senior" alone does not tie Senior Product Manager to a rejected Senior Data Analyst
+  const apps = { 'os-sda.md': rec('Ostrava Tools', 'Senior Data Analyst', 'rejected', '2026-09-15'), 'os-backend.md': rec('Ostrava Tools', 'Backend Developer', 'applied', '2026-09-15') };
+  const { r, apps: after } = await scenario({ apps, messages: [ostravaInterview('s1', 'Senior Product Manager')], answers: { s1: { type: 'interview', company: 'Ostrava Tools', role: 'Senior Product Manager' } } });
+  assert.equal(r.matched.length, 0);
+  assert.equal(r.unmatched.length, 1);
+  assert.deepEqual(after, apps, 'nothing is reopened or re-labelled');
+  // "manager" alone does not tie Product Manager to Engineering Manager
+  const list = [{ key: 'em', company: 'Acme', role: 'Engineering Manager', status: 'applied', recorded: true }, { key: 'da', company: 'Acme', role: 'Data Analyst', status: 'applied', recorded: true }];
+  assert.ok(o.match({ type: 'interview', company: 'Acme', role: 'Product Manager' }, list).reason);
+  assert.equal(o.match({ type: 'interview', company: 'Acme', role: 'Senior Engineering Manager' }, list).hit.key, 'em', 'a real role word still matches');
+  // Russian seniority and filler words do not count either
+  const ru = [{ key: 'a', company: 'Квадрат', role: 'Старший инженер по данным', status: 'rejected', recorded: true }, { key: 'b', company: 'Квадрат', role: 'Аналитик', status: 'applied', recorded: true }];
+  assert.ok(o.match({ type: 'interview', company: 'Квадрат', role: 'Старший менеджер по продукту' }, ru).reason);
+  assert.equal(o.overlap('Ведущий разработчик', 'Главный разработчик'), 0);
+  assert.equal(o.overlap('Senior Product Manager', 'Product Manager'), 1);
+  // the single-application exception still works for an interview naming another role
+  assert.equal(o.match({ type: 'interview', company: 'Acme', role: 'Product Manager' }, [list[0]]).hit.key, 'em');
+});
+
+test('a rejection naming another role does not close the only application at the company', async () => {
+  const apps = { 'pc-qa.md': rec('Pinecrest Health', 'QA Engineer', 'applied', '2026-09-15') };
+  const rejection = (id, role) => msg({ id, from: 'Pinecrest Health <hr@pinecrest.example>', subject: 'Your application', body: `We will not move forward with your application for ${role || 'the role'}.`, at: '2026-09-26T10:00:00Z' });
+  const other = await scenario({ apps, messages: [rejection('r1', 'Release Manager')], answers: { r1: { type: 'rejection', company: 'Pinecrest Health', role: 'Release Manager' } } });
+  assert.equal(other.r.matched.length, 0);
+  assert.equal(other.r.unmatched.length, 1);
+  assert.equal(other.r.unmatched[0].type, 'rejection');
+  assert.deepEqual(other.apps, apps, 'the QA Engineer application stays open');
+  assert.match(other.sent[0], /Unmatched/);
+  // same role, or no role named: it closes
+  const same = await scenario({ apps, messages: [rejection('r2', 'Senior QA Engineer')], answers: { r2: { type: 'rejection', company: 'Pinecrest Health', role: 'Senior QA Engineer' } } });
+  assert.equal(same.apps['pc-qa.md'].status, 'rejected');
+  const none = await scenario({ apps, messages: [rejection('r3', '')], answers: { r3: { type: 'rejection', company: 'Pinecrest Health', role: '' } } });
+  assert.equal(none.apps['pc-qa.md'].status, 'rejected');
+  // other types keep the single-application exception
+  for (const type of ['interview', 'test_task', 'offer', 'application_received']) {
+    const r = await scenario({ apps, messages: [rejection('r4', 'Release Manager')], answers: { r4: { type, company: 'Pinecrest Health', role: 'Release Manager' } } });
+    assert.equal(r.r.matched.length, 1, type);
+    assert.equal(r.apps['pc-qa.md'].events.at(-1).type, type);
+  }
+});
+
+test('a closed application is protected like a rejected one', async () => {
+  // no role named and reopen not allowed: blocked, nothing changes
+  const blocked = o.applyOutcome({ k: rec('Acme', 'Product Manager', 'closed', '2026-09-01') }, { key: 'k' }, { type: 'interview', evidence: '' }, { id: 'z', date: '2026-09-05' });
+  assert.ok(blocked.blocked);
+  assert.match(blocked.blocked, /closed/);
+  // another role at a company with two applications: unmatched, the closed one stays closed
+  const two = { 'os-ops.md': rec('Ostrava Tools', 'Operations Lead', 'closed', '2026-09-15'), 'os-backend.md': rec('Ostrava Tools', 'Backend Developer', 'applied', '2026-09-15') };
+  const other = await scenario({ apps: two, messages: [ostravaInterview('c1', 'Senior Data Manager')], answers: { c1: { type: 'interview', company: 'Ostrava Tools', role: 'Senior Data Manager' } } });
+  assert.equal(other.r.matched.length, 0);
+  assert.deepEqual(other.apps, two);
+  // the same role: reopened with a "closed -> interview" event
+  const same = await scenario({ apps: two, messages: [ostravaInterview('c2', 'Operations Lead')], answers: { c2: { type: 'interview', company: 'Ostrava Tools', role: 'Operations Lead' } } });
+  const ops = same.apps['os-ops.md'];
+  assert.equal(ops.status, 'interview');
+  assert.deepEqual(ops.events.slice(1).map(e => e.type), ['interview', 'reopened']);
+  assert.equal(ops.events[2].note, 'closed -> interview');
+  assert.equal(same.r.matched[0].reopened, true);
+  assert.match(same.sent[0], /reopened, was closed/);
+  // the single application at a company: an offer for another role reopens it too
+  const one = await scenario({
+    apps: { 'pc-qa.md': rec('Pinecrest Health', 'QA Engineer', 'closed', '2026-09-15') },
+    messages: [msg({ id: 'c3', from: 'Pinecrest Health <hr@pinecrest.example>', subject: 'Offer', body: 'We are happy to offer you the position of Release Manager.', at: '2026-09-26T10:00:00Z' })],
+    answers: { c3: { type: 'offer', company: 'Pinecrest Health', role: 'Release Manager' } },
+  });
+  assert.equal(one.apps['pc-qa.md'].status, 'offer');
+  assert.deepEqual(one.apps['pc-qa.md'].events.at(-1), { date: '2026-09-26', type: 'reopened', note: 'closed -> offer', source: 'gmail', gmail_id: 'c3' });
+});
+
+test('a failed report write marks no email seen', async () => {
+  seed();
+  // a directory where the report file should be: the write fails
+  fs.mkdirSync(path.join(DIGESTS, 'outcomes-2026-09-27.md'), { recursive: true });
+  await assert.rejects(o.runOutcomes({ gmail: fakeGmail(), classify: fakeClassifier([]), send: null, messageText, now: NOW }));
+  assert.equal(fs.existsSync(STATE), false, 'the state file is not written, so the unmatched email comes back next run');
+  fs.rmSync(path.join(DIGESTS, 'outcomes-2026-09-27.md'), { recursive: true });
+  const again = await o.runOutcomes({ gmail: fakeGmail(), classify: fakeClassifier([]), send: null, messageText, now: NOW });
+  assert.deepEqual(again.unmatched.map(u => u.id), ['g5'], 'the unmatched email is reported on the retry');
+  assert.match(fs.readFileSync(path.join(DIGESTS, 'outcomes-2026-09-27.md'), 'utf8'), /#all\/g5/);
+});
+
+test('email_date falls back to the internal date when the Date header is missing', async () => {
+  const m = msg({ id: 'd1', from: 'Lumenfield <hr@lumenfield.example>', subject: 'Interview', body: 'We would like to invite you to an interview.', at: '2026-09-26T10:00:00Z' });
+  m.payload.headers = m.payload.headers.filter(h => h.name !== 'Date');
+  const email = await o.toEmail(m, messageText);
+  assert.equal(email.date_header, new Date('2026-09-26T10:00:00Z').toUTCString());
+  await scenario({ apps: { 'lf.md': rec('Lumenfield', 'Product Owner', 'applied', '2026-09-12') }, messages: [m], answers: { d1: { type: 'interview', company: 'Lumenfield', role: 'Product Owner' } } });
+  const hook = JSON.parse(fs.readFileSync(hookOut, 'utf8').trim());
+  assert.equal(hook.email_date, 'Sat, 26 Sep 2026 10:00:00 GMT');
+});
+
+test('job board notifications are skipped without a model call; invitations and rejections are not', async () => {
+  const notices = [
+    ['hh.ru <noreply@hh.ru>', 'Работодатель просмотрел ваше резюме', 'Ваше резюме просмотрела компания.'],
+    ['hh.ru <noreply@hh.ru>', 'Компания просмотрела ваш отклик', 'Ваш отклик на вакансию просмотрен.'],
+    ['hh.ru <noreply@hh.ru>', 'Ваше резюме просмотрели 3 компании', 'Посмотрите, кто интересовался вашим резюме.'],
+    ['hh.ru <noreply@hh.ru>', 'Похожие вакансии', 'Вакансии, похожие на ваш отклик.'],
+    ['hh.ru <noreply@hh.ru>', 'Статистика по вашему резюме за неделю', 'Ваше резюме показали 40 раз.'],
+    ['hh.ru <noreply@hh.ru>', 'Статистика по резюме', 'Ваше резюме показали 12 раз.'],
+    ['Job Board <noreply@board.example>', 'Your application was viewed', 'Acme viewed your application for Product Manager.'],
+    ['Job Board <noreply@board.example>', 'You appeared in 12 searches this week', 'Recruiters searching for candidates found your profile.'],
+    ['Job Board <noreply@board.example>', 'Jobs you may be interested in', 'Apply to these roles: Product Manager at Acme.'],
+  ];
+  const messages = notices.map(([from, subject, body], i) => msg({ id: `n${i}`, from, subject, body, at: `2026-09-26T10:0${i}:00Z` }));
+  messages.push(msg({ id: 'n9', from: 'hh.ru <noreply@hh.ru>', subject: 'Приглашение на собеседование', body: 'Работодатель пригласил вас на собеседование по вакансии Аналитик.', at: '2026-09-26T11:00:00Z' }));
+  messages.push(msg({ id: 'n10', from: 'hh.ru <noreply@hh.ru>', subject: 'Отказ по вакансии Аналитик', body: 'К сожалению, работодатель отказал по вашему отклику.', at: '2026-09-26T11:01:00Z' }));
+  messages.push(msg({ id: 'n11', from: 'Job Board <noreply@board.example>', subject: 'Update on your application', body: 'Acme decided not to move forward with your application.', at: '2026-09-26T11:02:00Z' }));
+  const { calls, r } = await scenario({ messages, answers: { n9: { type: 'interview' }, n10: { type: 'rejection' }, n11: { type: 'rejection' } } });
+  assert.deepEqual(calls, ['n9', 'n10', 'n11']);
+  assert.equal(r.skipped['job alert or newsletter'], notices.length);
+});

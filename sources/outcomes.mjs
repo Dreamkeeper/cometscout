@@ -48,7 +48,7 @@ const dayOf = ms => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 
 /** A Gmail message as { id, thread_id, from, subject, date (day), date_header (as received), ms (internalDate), text }. */
 export async function toEmail(msg, messageText) {
   const ms = Number(msg.internalDate) || Date.parse(header(msg, 'date')) || Date.now();
-  return { id: msg.id, thread_id: msg.threadId || null, from: header(msg, 'from'), subject: header(msg, 'subject'), date: dayOf(ms), date_header: header(msg, 'date'), ms, text: messageText(msg.payload) };
+  return { id: msg.id, thread_id: msg.threadId || null, from: header(msg, 'from'), subject: header(msg, 'subject'), date: dayOf(ms), date_header: header(msg, 'date') || new Date(ms).toUTCString(), ms, text: messageText(msg.payload) };
 }
 /** The Gmail search for this run: the configured query, limited to emails since the last run (minus overlap) or --since.
  *  newer_than: is dropped whenever after: is added, so a gap longer than newer_than loses nothing. */
@@ -64,7 +64,7 @@ export function searchQuery(cfg, lastRun, since) {
 // Senders that only ever send job alerts. Job boards such as hh.ru also send employer invitations and rejections,
 // so their senders are not listed here: their subscription mail is caught by the subject.
 const ALERT_ONLY_SENDER = /jobalerts-noreply@linkedin\.com|jobs-listings@linkedin\.com/i;
-const ALERT_SUBJECT = /jobs? you might like|job alert|new jobs? (for you|matching)|jobs? for you|recommended jobs|newsletter|weekly digest|подборка вакансий|новые вакансии|вакансии по (вашей )?подписке|вакансии для вас|подходящие вакансии|рекомендуем(ые)? ваканси/i;
+const ALERT_SUBJECT = /jobs? you might like|jobs? you may be interested in|job alert|your application was viewed|you appeared in \d+ search(es)?|new jobs? (for you|matching)|jobs? for you|recommended jobs|newsletter|weekly digest|подборка вакансий|новые вакансии|вакансии по (вашей )?подписке|вакансии для вас|подходящие вакансии|рекомендуем(ые)? ваканси|похожие вакансии|просмотрел[аи]? ваш[еу]? (резюме|отклик)|ваш[еу]? (резюме|отклик) просмотрел|статистика по (вашему )?резюме/i;
 // A bulk-looking sender alone proves nothing (an ATS can send outcomes from alerts@); with a listing-style subject it is an alert.
 const BULK_SENDER = /newsletter|digest@|alerts?@/i;
 const LISTING_SUBJECT = /\b\d+\+? (new )?(\w+ )*?(jobs|vacancies|roles|openings)\b|\bjobs (in|near|at)\b|\d+ (новых )?ваканси[йи]|дайджест|рассылк/i;
@@ -110,7 +110,12 @@ export function companyMatch(a, b, families = aliasFamilies()) {
 }
 export const sameCompany = (a, b, families) => !!companyMatch(a, b, families);
 const words = s => new Set(norm(s).split(' ').filter(w => w.length > 1));
-export const overlap = (a, b) => { const x = words(a); let n = 0; for (const w of words(b)) if (x.has(w)) n++; return n; };
+// Seniority, generic job words and filler never make two roles the same ("Senior Data Analyst" is not "Senior Product Manager").
+export const ROLE_STOPWORDS = new Set(['senior', 'sr', 'junior', 'jr', 'middle', 'mid', 'lead', 'head', 'principal', 'staff', 'chief', 'manager', 'engineer', 'developer', 'specialist', 'associate', 'of', 'the', 'and', 'for', 'in', 'at', 'to', 'with',
+  'старший', 'младший', 'ведущий', 'главный', 'руководитель', 'менеджер', 'инженер', 'разработчик', 'специалист', 'по']);
+const roleWords = s => new Set([...words(s)].filter(w => !ROLE_STOPWORDS.has(w)));
+/** Role words two roles share, not counting ROLE_STOPWORDS. */
+export const overlap = (a, b) => { const x = roleWords(a); let n = 0; for (const w of roleWords(b)) if (x.has(w)) n++; return n; };
 /** Applications plus decoded files that are not recorded yet: [{ key, company, role, status?, updated?, recorded }]. */
 export function candidates(apps) {
   const list = Object.entries(apps).map(([key, a]) => ({ key, company: a.company, role: a.role, status: a.status, updated: a.updated, recorded: true }));
@@ -122,12 +127,14 @@ export function candidates(apps) {
   return list;
 }
 const isApplication = c => c.recorded && c.status !== 'skipped';
+const CLOSED = new Set(['rejected', 'closed']);
 // Among equal role overlap: an open application, then a rejected or closed one, then a decoded file or a skipped role.
-const tier = c => (!isApplication(c) ? 0 : c.status === 'rejected' || c.status === 'closed' ? 1 : 2);
+const tier = c => (!isApplication(c) ? 0 : CLOSED.has(c.status) ? 1 : 2);
 /**
  * Best application for an outcome: { hit, overlap, single }, or { reason } when there is none or two fit equally well.
- * Role overlap decides first. When both the email and the application name a role, they must share a word; the one
- * exception is a company with exactly one application (single: true). A prefix company match needs a shared role word.
+ * Role overlap decides first. When both the email and the application name a role, they must share a word that is not
+ * in ROLE_STOPWORDS; the one exception is a company with exactly one application (single: true), except for a rejection,
+ * which must name that application's role (or none). A prefix company match needs a shared role word.
  */
 export function match(outcome, list) {
   const fams = aliasFamilies();
@@ -138,7 +145,7 @@ export function match(outcome, list) {
   const apps = hits.filter(h => h.kind === 'exact' && isApplication(h.c));
   const single = apps.length === 1;
   if (!fit.length) {
-    if (single) return { hit: apps[0].c, overlap: apps[0].ov, single };
+    if (single && outcome.type !== 'rejection') return { hit: apps[0].c, overlap: apps[0].ov, single };
     return { reason: hits.some(h => h.kind === 'exact') ? 'no application for this role at this company' : 'no application at this company' };
   }
   const score = h => [h.ov, tier(h.c), String(h.c.updated || h.c.key.slice(0, 10))];
@@ -158,7 +165,8 @@ function statusTime(prev) {
 }
 /**
  * Append the event and set the status unless the application already has a later status. Returns what changed, or
- * { blocked: reason } (and changes nothing) when the email would reopen a rejected application and `reopen` is false.
+ * { blocked: reason } (and changes nothing) when the email would reopen a rejected or closed application and `reopen`
+ * is false.
  */
 export function applyOutcome(apps, hit, o, email, { reopen = false } = {}) {
   const prev = apps[hit.key] || { company: hit.company, role: hit.role || '' };
@@ -173,10 +181,10 @@ export function applyOutcome(apps, hit, o, email, { reopen = false } = {}) {
     const same = t != null && Number.isFinite(ms) ? ms === t : when === email.date;
     if (older || (same && RANK[status] < (RANK[old] ?? 0))) status = null;
   }
-  const reopened = !!status && old === 'rejected' && status !== 'rejected';
-  if (reopened && !reopen) return { blocked: 'a later email reopens a rejected application but does not name its role' };
+  const reopened = !!status && CLOSED.has(old) && !CLOSED.has(status);
+  if (reopened && !reopen) return { blocked: `a later email reopens a ${old} application but does not name its role` };
   const events = [...(prev.events || []), event];
-  if (reopened) events.push({ date: email.date, type: 'reopened', note: `rejected -> ${status}`, source: 'gmail', gmail_id: email.id });
+  if (reopened) events.push({ date: email.date, type: 'reopened', note: `${old} -> ${status}`, source: 'gmail', gmail_id: email.id });
   const next = { ...prev, events };
   if (status) {
     next.status = status; next.updated = email.date > when ? email.date : when || email.date;
@@ -193,7 +201,7 @@ export function report(matched, unmatched) {
   if (!matched.length && !unmatched.length) return '';
   const lines = [`Outcomes from email: ${matched.length} recorded, ${unmatched.length} to record by hand`];
   for (const m of matched) {
-    const now = [m.changed ? `now ${m.status}` : '', m.reopened ? 'reopened, was rejected' : ''].filter(Boolean).join('; ');
+    const now = [m.changed ? `now ${m.status}` : '', m.reopened ? `reopened, was ${m.from}` : ''].filter(Boolean).join('; ');
     lines.push(`- ${m.company}: ${m.role || '(role not given)'}: ${kind(m.type)}${now ? ` (${now})` : ''}${m.event.note ? `. "${m.event.note}"` : ''}${m.link ? ` ${m.link}` : ''}`);
   }
   if (unmatched.length) {
@@ -246,7 +254,8 @@ export async function runOutcomes({ gmail, classify = modelClassify, send = null
     if (dryRun) log(`outcomes: ${o.type}  ${o.company || '?'}: ${o.role || '?'}  "${cut(email.subject, 80)}"${o.evidence ? `  evidence: "${o.evidence}"` : ''}`);
     if (o.type === 'none') { skip('not an outcome'); if (!dryRun) state.seen[id] = email.date; continue; }
     const m = match(o, candidates(apps));
-    // D1: a later email reopens a rejected application only when it names the same role or the company has one application
+    // D1: a later email reopens a rejected or closed application only when it names the same role or the company has one
+    // application (match() never returns a single-application hit for a rejection that names another role)
     const reopen = !!m.hit && (m.overlap >= 1 || m.single);
     const r = m.hit ? applyOutcome(apps, m.hit, o, email, { reopen }) : null;
     if (r && !r.blocked) { known.add(id); ops.push({ hit: m.hit, o, email, reopen, r: { ...r, link: gmailLink(id, account) } }); }
@@ -255,6 +264,7 @@ export async function runOutcomes({ gmail, classify = modelClassify, send = null
   }
   if (capped) log(`outcomes: max_emails (${cap}) reached; the next run continues from ${new Date(oldest).toISOString()}`);
   let matched = ops.map(op => op.r);
+  let text = '', reportFile = null;
   if (!dryRun) {
     if (ops.length) {
       // applications.json may have changed while the model ran (cli.mjs applied/status): re-read it and apply again
@@ -269,6 +279,13 @@ export async function runOutcomes({ gmail, classify = modelClassify, send = null
       fs.writeFileSync(appsFile, JSON.stringify(fresh, null, 1));
       for (const { r, op } of done) runHook('outcome', hookPayload(r, op.email, op.o));
     }
+    // the report goes to disk before the state file: if it cannot be written, no email is marked seen and the
+    // unmatched ones come back next run (the recorded ones are skipped by their gmail_id)
+    text = report(matched, unmatched);
+    if (text) {
+      reportFile = path.join(DIRS.digests, `outcomes-${process.env.JOBPILOT_RUN_DATE || dayOf(now.getTime())}.md`);
+      fs.existsSync(reportFile) ? fs.appendFileSync(reportFile, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(reportFile, `${text}\n`, 'utf8');
+    }
     // seen ids older than 120 days (and older than this run's window) are dropped; the search never reaches them again
     const windowStart = since || (state.last_run ? dayOf(Date.parse(state.last_run) - num(cfg.overlap_hours, 24, 0) * 3.6e6) : '');
     let cutoff = new Date(now.getTime() - 120 * 864e5).toISOString().slice(0, 10);
@@ -277,14 +294,8 @@ export async function runOutcomes({ gmail, classify = modelClassify, send = null
     // a failed email keeps the search window open for the retry; a capped run continues from the oldest email it read
     if (!failed) state.last_run = capped ? new Date(oldest).toISOString() : now.toISOString();
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 1));
-  }
-  const text = report(matched, unmatched);
-  let reportFile = null;
-  if (!dryRun && text) {
-    reportFile = path.join(DIRS.digests, `outcomes-${process.env.JOBPILOT_RUN_DATE || dayOf(now.getTime())}.md`);
-    fs.existsSync(reportFile) ? fs.appendFileSync(reportFile, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(reportFile, `${text}\n`, 'utf8');
-    if (send) { try { await send(text); } catch (e) { log(`outcomes: telegram failed (the report is in ${reportFile}): ${e.message}`); } }
-  }
+    if (text && send) { try { await send(text); } catch (e) { log(`outcomes: telegram failed (the report is in ${reportFile}): ${e.message}`); } }
+  } else text = report(matched, unmatched);
   log(`outcomes: ${ids.length} email(s), ${matched.length} recorded, ${unmatched.length} unmatched, ${failed} failed${capped ? ', capped' : ''}${dryRun ? ' (dry run, nothing written)' : ''}; skipped ${JSON.stringify(skipped)}`);
   return { query: q, matched, unmatched, skipped, failed, capped, text, reportFile, apps };
 }
