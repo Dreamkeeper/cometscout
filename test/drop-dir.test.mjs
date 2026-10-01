@@ -421,3 +421,76 @@ test('run(): a broken state file is kept aside, never silently overwritten', asy
   assert.ok(lines.some(l => /was not valid JSON/.test(l)));
   assert.ok(stateNow().seen, 'a fresh, valid state is written');
 });
+
+// --- second review round ------------------------------------------------------------------------------------------
+test('a final failure never invents a company from title punctuation: reported as unreadable, nothing written', async () => {
+  const url = 'https://example.com/careers/lumenfield-pm-ai';
+  const file = q('lumenfield.queue.json', [{ title: 'Lumenfield - Product Manager - AI', url }]);
+  const seen = {};
+  const r = await handleQueueFile(file, opts({ fetch: status(403), seen }));
+  assert.equal(r.allDone, true);
+  assert.equal(r.written, 0);
+  assert.equal(seen[url].outcome, 'unreadable');
+  assert.match(r.message, /unreadable: https:\/\/example\.com\/careers\/lumenfield-pm-ai \(HTTP 403\)/);
+  assert.equal(byUrl(url), undefined);
+});
+
+test('run(): page fetches are capped by max_fetches_per_run; ATS calls do not count; the rest waits, nothing lost or fetched twice', async () => {
+  const dir = freshDir('drop-cap');
+  SETTINGS.sources.drop_dir.max_fetches_per_run = 2;
+  const page = n => `https://example.com/careers/cap-${n}`;
+  const ats = 'https://job-boards.greenhouse.io/northwind/jobs/7300001';
+  q('a-cap.queue.json', [
+    { title: 'Cap One: Product Owner', url: page(1) },
+    { title: 'Cap Two: Product Owner', url: page(2) },
+    { title: 'Cap Three: Product Owner', url: page(3) },
+    { title: 'Job Application for PM at Northwind Devices', url: ats },
+  ], dir);
+  q('b-cap.queue.json', [{ title: 'Cap Four: Product Owner', url: page(4) }], dir);
+  const calls = [];
+  const fetch = async url => { calls.push(url); return url.includes('greenhouse') ? jsonRes(200, read('fetch-detail', 'greenhouse-job.json')) : htmlRes(200, read('fetch-detail', 'page-plain.html')); };
+  try {
+    const r1 = await run({ fetch, pageDelayMs: 0 });
+    assert.deepEqual(calls.filter(u => !u.includes('greenhouse')), [page(1), page(2)], 'two pages, then the cap');
+    assert.ok(calls.some(u => u.includes('greenhouse')), 'the ATS call past the cap still runs');
+    assert.match(r1.report.find(l => l.startsWith('a-cap.queue.json')), /1 left for the next run \(page fetch limit of 2 reached\).*file kept/);
+    assert.match(r1.report.find(l => l.startsWith('b-cap.queue.json')), /1 left for the next run/);
+    assert.ok(r1.report.some(l => /page fetch limit reached \(2 per run.*2 job\(s\) left for the next run/.test(l)), r1.report.join('\n'));
+    assert.ok(fs.existsSync(path.join(dir, 'a-cap.queue.json')) && fs.existsSync(path.join(dir, 'b-cap.queue.json')), 'both files stay');
+    const st = stateNow();
+    assert.equal(st.seen[page(3)], undefined, 'a deferred candidate is not marked');
+    assert.equal(st.seen[page(4)], undefined);
+
+    calls.length = 0;
+    const r2 = await run({ fetch, pageDelayMs: 0 });
+    assert.deepEqual(calls, [page(3), page(4)], 'only the deferred ones, once each');
+    assert.ok(!r2.report.some(l => /limit/.test(l)), r2.report.join('\n'));
+    assert.ok(!fs.existsSync(path.join(dir, 'a-cap.queue.json')) && !fs.existsSync(path.join(dir, 'b-cap.queue.json')), 'both files done');
+    for (const u of [page(1), page(2), page(3), page(4)]) assert.equal(inboxJobs().filter(fm => fm.url === u).length, 1, `${u} queued once`);
+    assert.ok(stateNow().seen[ats], 'the ATS candidate was handled in the first run (a duplicate of an earlier test\'s job)');
+  } finally { delete SETTINGS.sources.drop_dir.max_fetches_per_run; }
+});
+
+test('run(): a dropped file that starts with a UTF-8 BOM is read normally, not sent to failed/', async () => {
+  const dir = freshDir('drop-bom');
+  const put = (n, body) => { fs.writeFileSync(path.join(dir, n), `﻿${body}`); fs.utimesSync(path.join(dir, n), ...old()); };
+  put('win.queue.json', JSON.stringify({ candidates: [{ title: 'Bom Co: Product Owner', url: 'https://example.com/careers/bom-queue' }] }));
+  put('win-job.md', '---\r\ncompany: "Bom Works"\r\nrole: "Product Analyst"\r\nurl: "https://example.com/careers/bom-md"\r\n---\r\n\r\nAnalyse product data.\r\n');
+  const r = await run({ fetch: async () => htmlRes(200, read('fetch-detail', 'page-plain.html')), pageDelayMs: 0 });
+  assert.match(r.report.find(l => l.startsWith('win.queue.json')), /^win\.queue\.json: 1 new/, r.report.join('\n'));
+  assert.match(r.report.find(l => l.startsWith('win-job.md')), /queued/, r.report.join('\n'));
+  assert.ok(!fs.existsSync(path.join(dir, 'failed')), 'nothing in failed/');
+  assert.equal(byUrl('https://example.com/careers/bom-md').company, 'Bom Works');
+  assert.ok(byUrl('https://example.com/careers/bom-queue'));
+});
+
+test('moveInto: when the source cannot be deleted after an EXDEV copy, the copy is removed so retries leave no duplicates', () => {
+  const dir = freshDir('drop-exdev-unlink');
+  const file = path.join(dir, 'y.queue.json'); fs.writeFileSync(file, '{"candidates":[]}');
+  const dest = path.join(dir, 'other');
+  const exdev = () => { const e = new Error('cross-device link not permitted'); e.code = 'EXDEV'; throw e; };
+  const locked = () => { const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e; };
+  for (let i = 0; i < 2; i++) assert.throws(() => moveInto(file, dest, { rename: exdev, unlink: locked }), /operation not permitted/);
+  assert.ok(fs.existsSync(file), 'the source stays for the next try');
+  assert.deepEqual(fs.readdirSync(dest), [], 'no copy left behind');
+});

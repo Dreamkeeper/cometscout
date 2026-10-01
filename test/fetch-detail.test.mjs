@@ -314,6 +314,24 @@ test('fetchDetail: only http(s), never loopback, link-local or private hosts (al
   assert.equal(ok.via, 'page'); assert.ok(ok.text);
 });
 
+test('fetchDetail: a trailing dot, IPv6 site-local, NAT64 and the 192.0.0.0/24 and 198.18.0.0/15 ranges are refused', async () => {
+  const never = async url => { throw new Error(`must not fetch ${url}`); };
+  for (const url of ['http://localhost./job', 'http://printer.local./job', 'http://[fec0::1]/job', 'http://[feff::1]/job',
+    'http://[64:ff9b::127.0.0.1]/job', 'http://[64:ff9b::a9fe:a9fe]/job', 'http://192.0.0.8/job', 'http://198.18.0.1/job', 'http://198.19.255.254/job']) {
+    const d = await fetchDetail(url, { fetch: never });
+    assert.equal(d.via, 'error', url); assert.equal(d.terminal, true, url); assert.match(d.error, /^refused/, url);
+  }
+  const nat64 = await fetchDetail('https://nat64.example.com/job', { fetch: never, lookup: async () => [{ address: '64:ff9b::a00:7', family: 6 }] });
+  assert.match(nat64.error, /resolves to a private address/, 'NAT64 of 10.0.0.7');
+  const siteLocal = await fetchDetail('https://sitelocal.example.com/job', { fetch: never, lookup: async () => [{ address: 'fec0::5', family: 6 }] });
+  assert.match(siteLocal.error, /resolves to a private address/);
+  // public addresses next to those ranges are still fetched
+  for (const url of ['http://[64:ff9b::808:808]/careers/pm', 'http://198.20.0.1/careers/pm', 'http://192.0.1.1/careers/pm']) {
+    const d = await fetchDetail(url, { fetch: async () => htmlRes(200, read('page-plain.html')) });
+    assert.equal(d.via, 'page', url);
+  }
+});
+
 test('fetchDetail: response bodies over about 2 MB are refused (streamed and declared)', async () => {
   const big = 'x'.repeat(2 * 1024 * 1024 + 10);
   const streamed = await fetchDetail('https://example.com/careers/big', { fetch: async () => new Response(`<p>${big}</p>`, { status: 200 }) });
