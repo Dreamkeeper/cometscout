@@ -103,5 +103,9 @@
     }
   },
   "health": { "ping_url": "" },
-  "backup": { "nightly": true, "copy_to": "", "zip_codepage": null }
+  "backup": { "nightly": true, "copy_to": "", "zip_codepage": null },
+  "modules": {
+    "_comment": "Optional modules, installed from their own projects. coach: Noam Segal's interview coach (bash deploy/modules/coach.sh); path null means a folder named interview-coach next to this one.",
+    "coach": { "enabled": false, "path": null, "repo": "https://github.com/noamseg/interview-coach-skill.git" }
+  }
 }
