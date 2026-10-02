@@ -539,3 +539,19 @@ test('job board notifications are skipped without a model call; invitations and 
   assert.deepEqual(calls, ['n9', 'n10', 'n11']);
   assert.equal(r.skipped['job alert or newsletter'], notices.length);
 });
+
+test('"screen" ranks between applied and interview: a same-day interview email moves a screen on', () => {
+  assert.ok(o.RANK.applied < o.RANK.screen && o.RANK.screen < o.RANK.interview, 'a screen never downgrades an interview');
+  const at = Date.parse('2026-09-05T09:00:00Z');
+  const apps = { k: { company: 'Acme', role: 'PM', status: 'screen', updated: '2026-09-05', updated_at: new Date(at).toISOString(), events: [{ date: '2026-09-05', type: 'screen', source: 'gmail' }] } };
+  const r = o.applyOutcome(apps, { key: 'k' }, { type: 'interview', evidence: '' }, { id: 's1', date: '2026-09-05', ms: at });
+  assert.equal(r.status, 'interview');
+  assert.equal(r.from, 'screen');
+});
+
+test('the outcomes match keeps its exact / prefix company rule after the move to lib/companies.mjs', () => {
+  assert.equal(o.companyMatch('Kvadrat', 'Kvadrat Soft'), 'exact', 'alias family from queue.aliases');
+  assert.equal(o.companyMatch('Ridgeway', 'Ridgeway Labs'), 'prefix');
+  assert.equal(o.companyMatch('Labs', 'Ridgeway Labs'), null, 'not the looser containment the queue uses');
+  assert.ok(o.ROLE_STOPWORDS.has('senior'));
+});

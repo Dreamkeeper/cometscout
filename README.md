@@ -18,7 +18,7 @@ sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack 
 
 - **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans.
 - **Decode:** each job is judged against `profile/profile.md`: your experience, what you want, location and work permit, hard gates, and scope guards (what you must never claim). Verdicts: strong fit, investable stretch, long shot (with the reason it was held), weak fit, gate.
-- **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you already applied to excluded.
+- **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you are already in process for excluded.
 - **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
 
 ## Quick start
@@ -41,7 +41,7 @@ node cli.mjs doctor                       # what is set up, what is missing
 node cli.mjs run                          # the evening run (the timer calls this)
 node cli.mjs sources | decode | picks | pack
 node cli.mjs applied <company> [role]     # you applied: picks move on
-node cli.mjs status <company> interview|offer|rejected|skipped [role] [--note "..."]
+node cli.mjs status <company> screen|interview|offer|rejected|skipped|closed [role] [--note "..."]
 node cli.mjs list
 node cli.mjs timer [HH:MM]                # reinstall the daily timer from settings.json (run_time, timezone)
 node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
@@ -59,6 +59,49 @@ node cli.mjs reset --yes                  # clear data/ (e.g. after trying the e
 Models: decoding uses `llm.model` (a mid-size model is enough), packs use `llm.pack_model` (use the strongest you have). On smaller plans, lower `decoder.cap` or use a smaller model.
 
 `JOBPILOT_HOME`, `JOBPILOT_DATA` and `JOBPILOT_SETTINGS` point jobpilot at another folder, data directory or settings file (handy for trials and evals).
+
+### Companies, duplicates and statuses
+
+**Company aliases.** When one employer goes by several names (a brand and its parent, a short name), list them together in `queue.aliases`:
+
+```json
+"queue": { "aliases": [["Acme Robotics", "Acme"], ["Northwind Labs", "Northwind", "NWL Group"]] }
+```
+
+A company belongs to a family when one of the family's names occurs in it as whole words ("Acme Robotics Inc." is in the Acme family; "Motorola" is never in a family named "Ola"). Names shorter than 3 characters only match the whole company name. Two companies are the same employer when their families share a name, or when one name (4 characters or more) is contained in the other as whole words ("Ridgeway" and "Ridgeway Labs"). An empty or "Unknown" company never matches anything. The aliases are used by the duplicate check, the decoder's history, the picks and the outcomes source.
+
+**Duplicates.** A new job is skipped when its link was queued before, or when the same company posted the exact same title within `queue.dedupe_days` (default 60) in an overlapping location. On top of that, a job that repeats one of your applications (`data/state/applications.json`, any status) is skipped: same employer (aliases included) and role titles sharing at least half their words, not counting seniority and generic words (senior, lead, manager, engineer and the like) or words of two letters. A job you only decoded does not count this way, so a second, different opening at that company still reaches you. Placeholder companies ("Confidential (Hirify)") and unknown companies are matched by link only.
+
+**Statuses.** `applied`, `screen` (a recruiter screen), `interview`, `offer`, `rejected`, `skipped`, `closed`; outcomes from Gmail may also record events. A role with any of these statuses (or `withdrawn`), or with any recorded event, never becomes a pick again, nor does another opening for the same role at the same employer.
+
+### Decoder
+
+`decoder.prompt_file` (optional) replaces the built-in `decoder/prompt.md` with your own prompt: an absolute path, or a path relative to the profile folder. It uses the same `{{NAME}}` and `{{PROFILE}}` placeholders. `node cli.mjs doctor` shows which prompt is in use, and both doctor and the decoder stop with a clear message when the file is missing.
+
+The decoder tells the model what happened before with the company (your applications and their events, past decodes), matching the company through the aliases.
+
+Fact rules in `profile/fact-rules.json` are checked against the rationale, the action, the hold reason, the fit signals and the gaps. Each rule reports its first match. A rule with `"guard": true` ignores a match that is denied or that describes the employer's opening rather than you: a negation word (never, not, no, nor, without, wasn't, isn't) in the 50 characters before it, or an employer word right after it (hire, mandate, role, req, seat, or a colon). So with a guarded rule for "first PM", "was never the first PM" and "the first PM hire" do not flag, and "as the first PM there" does:
+
+```json
+{ "id": "first-pm", "pattern": "\\bthe first PM\\b", "why": "The candidate was never a company's first PM.", "guard": true }
+```
+
+### Picks
+
+Every evening the best open roles from the last `picks.window_days` (14) are picked, `picks.per_day` (2) of them, one per employer (aliases count), each shown at most `picks.max_shown` (3) times. The ranking weighs the decoder's priority most, then the work shape (fully remote, then remote with office days, then on-site), then the board's `band` when a source gives one (1 best to 4; unknown counts as 2.5), then age and how often the job was shown. A job with no company (or "Unknown") is never a pick, and a link that is closed or archived (Greenhouse and Lever 404, Ashby, LinkedIn "no longer accepting", archived hh.ru and Hirify vacancies) is skipped; when the page cannot be checked (a network error, 403, 429) the job stays.
+
+```json
+"picks": {
+  "per_day": 2, "window_days": 14, "max_shown": 3,
+  "exclude_location_regex": "",
+  "exclude_onsite_location_regex": "",
+  "shape_bonus": [{ "location_regex": "barcelona|spain", "rank": 1 }]
+}
+```
+
+- `exclude_location_regex`: never pick a job whose location matches, remote or not.
+- `exclude_onsite_location_regex`: never pick a job whose location matches unless it is fully remote (a fully remote job from that country stays).
+- `shape_bonus`: the first entry whose `location_regex` matches sets the shape rank of a job that is not fully remote (fully remote is 0, remote with office days 1.5, on-site 2), so an office in a city you like can rank with remote roles.
 
 ### Gates
 
@@ -127,7 +170,7 @@ Every run writes a report to `data/digests/outcomes-YYYY-MM-DD.md` (appended whe
 "outcomes": { "enabled": true, "query": "newer_than:3d -category:promotions -category:social", "max_emails": 50, "overlap_hours": 24, "account_index": 0, "model": null }
 ```
 
-`model: null` uses `llm.model`. Each email is read once (by Gmail id). After the first run the search starts at the last run minus `overlap_hours` and `newer_than:` is dropped, so a few days without a run lose nothing. `max_emails` caps the emails sent to the model per run; the rest are picked up by the next run, oldest first. `account_index` is the `N` in `mail.google.com/mail/u/N/` for the links (0 unless you read this mailbox as a second Google account). Try it with `node sources/outcomes.mjs --dry-run` (classifies and prints, writes nothing); backfill with `--since YYYY-MM-DD`; `--no-telegram` writes the report file only. Company aliases come from `queue.aliases` (`[["Acme", "Acme Labs"]]`) if you set them.
+`model: null` uses `llm.model`. Each email is read once (by Gmail id). After the first run the search starts at the last run minus `overlap_hours` and `newer_than:` is dropped, so a few days without a run lose nothing. `max_emails` caps the emails sent to the model per run; the rest are picked up by the next run, oldest first. `account_index` is the `N` in `mail.google.com/mail/u/N/` for the links (0 unless you read this mailbox as a second Google account). Try it with `node sources/outcomes.mjs --dry-run` (classifies and prints, writes nothing); backfill with `--since YYYY-MM-DD`; `--no-telegram` writes the report file only. Company aliases come from `queue.aliases` (see [Companies, duplicates and statuses](#companies-duplicates-and-statuses)); here a company matches only when the names are equal, in one family, or one is the other plus extra words.
 
 ### Hooks
 
@@ -142,6 +185,8 @@ Hooks let your own scripts react to the pipeline without changing jobpilot, for 
 ```
 
 Events: `before_run`, `job_written`, `decoded`, `picks`, `pack_built`, `outcome`, `run_done`. Each command gets the event as JSON on stdin (`{ "event", "at", ...details }`). A hook that fails or runs too long is logged and never stops the run.
+
+`decoded` carries `file`, `dir`, `company`, `role`, `url`, `source`, `verdict`, `gate`, `confidence`, `apply_priority`, `action` and `fact_flags`: every fact rule the verdict tripped, as `[{ "id", "why", "excerpt" }]` (the excerpt is the matched text, at most 80 characters).
 
 `run_done` carries `date`, `seconds`, `decoder_exit`, `pack_exit` and `sources_failed`: every source that exited non-zero in this run, as `[{ "source": "rtj", "exit": 2 }]` (empty when all went well). The same sources are named in the run's log (`jobpilot: source rtj failed (exit 2)`, and a closing `run finished; failed source(s): ...` line), so a dead source is never silent. Only exit 3 (a source that needs you, such as an expired login) makes the run itself exit non-zero. `node cli.mjs doctor` lists configured hooks and flags unknown event names.
 

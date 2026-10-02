@@ -3,7 +3,7 @@
 //   node cli.mjs run                 # the evening run: every enabled source (and outcomes from Gmail), then decode + picks + digest, then packs
 //   node cli.mjs sources|decode|pack|picks
 //   node cli.mjs applied <company> [role words]   # record an application (picks stop showing it)
-//   node cli.mjs status <company> <applied|interview|offer|rejected|skipped|closed> [role words] [--note "..."]
+//   node cli.mjs status <company> <applied|screen|interview|offer|rejected|skipped|closed> [role words] [--note "..."]
 //                                    # add --manual to record a role that is not in the queue (it does not affect picks)
 //   node cli.mjs list                # what is recorded
 //   node cli.mjs doctor              # check the setup, one line per item
@@ -21,6 +21,7 @@ import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { exportData, importData } from './lib/archive.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 import { checkSetup as careerOpsSetup } from './sources/career-ops.mjs';
+import { promptFile, DEFAULT_PROMPT_FILE } from './decoder/decoder.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
@@ -30,7 +31,7 @@ const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, 
 const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs',
   hh_alerts: 'sources/hh-alerts.mjs', hirify: 'sources/hirify.mjs', career_ops: 'sources/career-ops.mjs', drop_dir: 'sources/drop-dir.mjs', outcomes: 'sources/outcomes.mjs' };
 const APPS = STATE('applications.json');
-const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
+const STATUSES = ['applied', 'screen', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 
 // A source that exits non-zero is logged by name and listed in the run's result (the closing log line and run_done's
 // sources_failed), so a dead source is never silent. Exit 3 means it cannot work until the user acts (an expired
@@ -115,6 +116,8 @@ function doctor() {
   const unknownHooks = Object.keys(SETTINGS.hooks || {}).filter(k => k !== 'timeout_sec' && !HOOK_EVENTS.includes(k));
   const hookCount = HOOK_EVENTS.reduce((n, e) => n + hooksFor(e).length, 0);
   const ctx = (SETTINGS.decoder?.context_files || []).filter(e => !/\*\.md$/.test(e) && !fs.existsSync(path.isAbsolute(e) ? e : path.join(PROFILE.dir, e)));
+  const prompt = promptFile(), builtIn = prompt === DEFAULT_PROMPT_FILE;
+  ok(fs.existsSync(prompt), `decoder prompt: ${builtIn ? 'built-in (decoder/prompt.md)' : prompt}`, `decoder.prompt_file not found; fix the path in settings.json (absolute, or relative to ${PROFILE.dir}) or remove it to use the built-in prompt`);
   ok(!ctx.length, `decoder context files: ${(SETTINGS.decoder?.context_files || []).length}`, `not found: ${ctx.join(', ')}`);
   ok(!unknownHooks.length, `hooks: ${hookCount} configured`, `unknown hook event(s) ignored: ${unknownHooks.join(', ')} (known: ${HOOK_EVENTS.join(', ')})`);
   ok(!PROFILE.isExample, `profile: ${path.basename(PROFILE.dir)}`, 'create profile/ with your own facts (the onboarding does this); the evening run waits until then');
