@@ -1,6 +1,6 @@
 # Roadmap
 
-jobpilot started as one person's job-search pipeline and is being rebuilt as a product anyone can install. The goal of the current work: reach parity with that original pipeline, prove the quality with evals on identical inputs, then grow into a small workspace (one Telegram group with a topic per function).
+jobpilot started as one person's job-search pipeline and is being rebuilt as a product anyone can install. The goal of the current work: reach parity with that original pipeline, prove the quality with evals on identical inputs, then grow into a web workspace (a PWA that also opens as a Telegram Mini App, plus one Telegram bot) so nobody needs a Claude Code session after setup.
 
 Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task briefs for self-contained pieces are in `docs/tasks/`.
 
@@ -11,6 +11,7 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 - ✅ Install script, `doctor`, systemd timer, run lock, run date pinned per run
 - ✅ Hooks (`settings.hooks`), `JOBPILOT_SETTINGS`, extra front-matter fields, export / import (`jobpilot-export-v1`), decoder context files, application `events[]`
 - ✅ Unit tests (`npm test`)
+- ✅ Parity with the original pipeline (M2, the table below): every source, shared gates, aliases and dedupe, outcomes from Gmail, picks and decoder parity, pack lint, tracker export, scorecard, health ping, failure alert, Russian labels. Checked on its real data: identical tracker rows (95 of 95), gate replay with no unexplained hard-gate difference, outcome tracking agreeing on 28 of 30 events
 
 ## Parity (M2)
 
@@ -37,7 +38,7 @@ Updates are notify only: a daily check, release notes in the bot and the workspa
 
 ## Evals (M3)
 
-`evals/decode.mjs` (verdicts against human labels: confusion table, surfaced precision/recall, gate correctness, paired comparison of two systems, no history leakage), `evals/pack.mjs` (blind A/B judge for CVs and answers), `evals/voice.mjs` (does it sound like the user), `evals/shadow-diff.mjs` (two systems on the same days). 💤 after M2 starts.
+`evals/decode.mjs` (verdicts against human labels: confusion table, surfaced precision/recall, gate correctness, paired comparison of two systems, no history leakage), `evals/pack.mjs` (blind A/B judge for CVs and answers), `evals/voice.mjs` (does it sound like the user), `evals/shadow-diff.mjs` (two systems on the same days). ⏳ next; starts with a human labelling session of about 70 jobs.
 
 ## Workspace (M5)
 

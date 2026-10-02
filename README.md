@@ -1,7 +1,5 @@
 # jobpilot
 
-**По-русски:** установка на Debian шаг за шагом в [README-rus.md](README-rus.md).
-
 A self-hosted job search pipeline that runs every evening on your own server and ends with something you can act on: **up to two roles worth applying to, each with a CV tailored from your own checked wording and draft answers for its application form.**
 
 It is built by a product manager for his own search (seven applications in four days once it was running) and uses the Claude or ChatGPT subscription you already have. Your data never leaves your server except for the model calls.
@@ -9,16 +7,21 @@ It is built by a product manager for his own search (seven applications in four 
 ## How it works
 
 ```
-sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack  ─►  Telegram
-(job boards,          (your profile,    (best 2 a day,     (tailored CV PDF,
- RealtimeJobs, ...)    hard gates,       dead links and     cover letter if the
-                       fit verdict)      applied roles      form asks, drafted
-                                         skipped)           form answers)
+sources  ─►  gates  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack  ─►  Telegram
+(job boards,  (language,           (your profile,  (best 2 a day,  (tailored CV PDF,
+ alerts,       permit, place,       fit verdict,    dead links and  cover letter if the
+ feeds)        company, industry)   fact check)     closed roles    form asks, drafted
+                                                    skipped)        form answers, lint)
+                                         ▲
+Gmail outcomes ─► applications ──────────┘  (rejections, interviews and offers close roles for the picks)
 ```
 
-- **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans.
+- **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans; any outside tool that drops job files into a folder (drop-dir, e.g. OpenClaw).
+- **Gates:** hard rules every source applies before a job costs a model call: posting language, work permit and citizenship, on-site countries, remote scope, sponsorship refusals, excluded companies, agencies and industries. A missing or unclear field never rejects a job; it is flagged for the decoder. Duplicates are caught across company aliases and against roles you already applied to.
 - **Decode:** each job is judged against `profile/profile.md`: your experience, what you want, location and work permit, hard gates, and scope guards (what you must never claim). Verdicts: strong fit, investable stretch, long shot (with the reason it was held), weak fit, gate.
 - **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you are already in process for excluded.
+- **Outcomes:** with Gmail connected, answers to your applications (received, rejection, interview, test task, offer) are recognised and recorded, so a role you are already in process for never comes back as a pick.
+- **Reports:** your applications as a [job-pipeline-tracker](https://github.com/Dreamkeeper/job-pipeline-tracker) file, a monthly scorecard of which source earns its price, a health ping and a Telegram alert when a run fails, labels in English or Russian.
 - **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The finished CV, cover letter and answers are checked against your [lint rules](#lint-rules); a CV that would still carry a banned claim is not sent. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
 
 ## Quick start
@@ -30,7 +33,7 @@ git clone https://github.com/Dreamkeeper/jobpilot.git && cd jobpilot
 bash deploy/install.sh
 ```
 
-Then open the folder in **Claude Code** or **Codex** and say **"set me up"**. The agent follows `AGENTS.md`: it interviews you for the profile, turns your CV into the library (you approve every line), connects a first source, and shows you a real decoded job and its tailored CV in the same sitting. Telegram delivery and the daily timer come after.
+Then open the folder in **Claude Code** or **Codex** and say **"set me up"** (step by step, from a fresh server: see [Install guides](#install-guides)). The agent follows `AGENTS.md`: it interviews you for the profile, turns your CV into the library (you approve every line), connects a first source, and shows you a real decoded job and its tailored CV in the same sitting. Telegram delivery and the daily timer come after.
 
 Try it before onboarding: with no `profile/`, jobpilot runs on the fictional example profile in `profile.example/`.
 
@@ -47,6 +50,8 @@ node cli.mjs timer [HH:MM]                # reinstall the daily timer from setti
 node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
 node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
 node cli.mjs sources-report [--send]      # which source earns its price
+node cli.mjs export --out <file.tar.gz|folder>   # your data (and with --with-profile --with-settings, profile and settings)
+node cli.mjs import --from <file.tar.gz|folder> [--dry-run]   # bring an export into this install
 node cli.mjs notify <text>                # one Telegram message (the failure alert uses it)
 ```
 
@@ -347,7 +352,35 @@ The daily timer also installs a failure alert: the run unit has `OnFailure=jobpi
 
 ## Status
 
-v0.1, first testers. Working: ATS boards, RealtimeJobs, LinkedIn-alerts, hh.ru-alerts, Hirify and career-ops sources, outcomes from Gmail, decode, picks, packs (Claude and Codex), Telegram, installer. Next: guided onboarding polish from tester sessions, evals for your own voice and CV quality.
+v0.1, first testers. Working today:
+
+- Sources: Greenhouse, Ashby and Lever boards, RealtimeJobs, LinkedIn and hh.ru job alerts through Gmail, Hirify, career-ops, drop-dir for outside tools.
+- Shared gates for every source, company aliases, duplicates caught against your own applications.
+- Decode with your profile, history with each company and a fact check; daily picks that skip closed roles and dead links.
+- Application packs (Claude or Codex) with lint rules from your profile.
+- Outcomes from Gmail, tracker export, source scorecard, health ping, failure alert, English and Russian labels.
+- Installer, `doctor`, daily timer, hooks, export and import.
+
+The pipeline it replaces ran one person's search for three months; jobpilot reached parity with it on that data (identical tracker rows, gate replay and outcome checks within the agreed thresholds) before the next steps below.
+
+## Roadmap
+
+Planned, in order (details and task briefs in [ROADMAP.md](ROADMAP.md) and `docs/tasks/`):
+
+1. **Evals.** Decoder verdicts scored against human labels, blind A/B judging of CVs and form answers, a check that answers sound like you, and a side-by-side diff of two systems on the same days. Quality is proven before anyone relies on it.
+2. **Workspace (in progress).** A web app served by jobpilot itself, so nobody needs a Claude Code session after setup:
+   - fullscreen and dense on the desktop (picks, decode and pack side by side, keyboard shortcuts), installable on the phone with offline access and notifications;
+   - the same app opens as a Telegram Mini App; one bot in a private chat brings picks with Apply / Skip / Later buttons, outcome cards and alerts;
+   - screens for the pack editor, your pipeline, sources, settings and gates ("wrong pick: why?" turns into a suggested setting), and a guided onboarding that replaces the setup session.
+   - First piece being built: the "Today" screen.
+3. **Backups, export and updates (in progress).** One ZIP export you can open and read (your data, profile and settings), import with a preview and conflict choices, nightly backups with restore, an encrypted export for secrets. Updates are notify only: release notes in the bot and the app, one tap to update, a backup first, automatic rollback if anything fails, and a manual rollback.
+4. **Optional modules,** installed from their own projects: an interview coach, meeting transcription (on your own GPU or the server's CPU), OpenClaw and career-ops.
+5. **Later:** a hosted option for people who do not want to run a server, after the self-hosted version has been through testers.
+
+## Install guides
+
+- **English:** step by step on a Debian server, from a fresh machine to the first tailored CV: [INSTALL.md](INSTALL.md).
+- **По-русски:** установка на Debian шаг за шагом: [README-rus.md](README-rus.md).
 
 ## License
 
