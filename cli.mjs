@@ -16,7 +16,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
-import { frontMatter, norm } from './lib/queue.mjs';
+import { frontMatter, norm, readApplications } from './lib/queue.mjs';
+import { pickRoleWords } from './lib/companies.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { exportData, importData } from './lib/archive.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
@@ -38,6 +39,10 @@ const STATUSES = ['applied', 'screen', 'interview', 'offer', 'rejected', 'skippe
 // login): the run still decodes and packs what it has, then exits 3 too, so the timer's status and health alerts
 // show it. Other exit codes do not change the run's own exit code.
 const NEEDS_USER = 3;
+// A broken applications.json would make every source stop half-way; check it once, before any source runs.
+function appsBroken() {
+  try { readApplications(APPS); return null; } catch (e) { return `jobpilot: ${e.message}`; }
+}
 function runSources() {
   const failed = [];
   for (const [k, f] of Object.entries(SOURCES)) {
@@ -74,7 +79,8 @@ function findRole(company, words) {
 function setStatus(company, status, words, note, manual) {
   if (!company) { console.log('Say which company: node cli.mjs applied <company> [role words]'); return 1; }
   if (!STATUSES.includes(status)) { console.log(`Unknown status "${status ?? ''}". Use one of: ${STATUSES.join(', ')}`); return 1; }
-  const { atCompany, hits } = findRole(company, words); const apps = readJson(APPS, {});
+  let apps; try { apps = readApplications(APPS); } catch (e) { console.log(`${e.message}. Nothing was recorded.`); return 1; }
+  const { atCompany, hits } = findRole(company, words);
   if (hits.length > 1) { console.log(`Several roles match; add role words:\n${hits.map(h => `  ${h.company}: ${h.role}`).join('\n')}`); return 1; }
   if (!hits.length && !manual) {
     console.log(atCompany.length ? `No role at "${company}" matches "${words}". Roles there:\n${atCompany.map(h => `  ${h.company}: ${h.role}`).join('\n')}`
@@ -86,7 +92,9 @@ function setStatus(company, status, words, note, manual) {
   const prev = apps[key] || {};
   apps[key] = { ...prev, company: hits[0]?.company || prev.company || company, role: hits[0]?.role || prev.role || words || '', status, updated: today(), ...(note ? { note } : {}),
     events: [...(prev.events || []), { date: today(), type: status, ...(note ? { note } : {}), source: 'cli' }] };
-  fs.writeFileSync(APPS, JSON.stringify(apps, null, 1)); console.log(`${apps[key].company}: ${apps[key].role || '(role not given)'} -> ${status}${hits.length ? '' : ' (manual record)'}`); return 0;
+  fs.writeFileSync(APPS, JSON.stringify(apps, null, 1)); console.log(`${apps[key].company}: ${apps[key].role || '(role not given)'} -> ${status}${hits.length ? '' : ' (manual record)'}`);
+  if (!pickRoleWords(apps[key].role).size) console.log(`Note: no role words recorded, so every pick at ${apps[key].company} is now treated as closed. Add role words to record one role only.`);
+  return 0;
 }
 
 function timer(at) {
@@ -155,13 +163,14 @@ const codes = {
     // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
     if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
     process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
+    const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
     const t0 = Date.now(); runHook('before_run', { date: today() });
     const failed = runSources(); const decoder = node('decoder/decoder.mjs'); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
     runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed });
     if (failed.length) console.log(`jobpilot: run finished; failed source(s): ${failedLine(failed)}`);
     return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
   }),
-  sources: locked(() => (runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0)),
+  sources: locked(() => { const broken = appsBroken(); if (broken) { console.log(broken); return 2; } return runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0; }),
   decode: locked(() => node('decoder/decoder.mjs', rest)),
   picks: () => node('decoder/decoder.mjs', ['--picks']),
   pack: locked(() => node('pack/pack.mjs', rest)),

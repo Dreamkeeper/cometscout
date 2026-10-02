@@ -140,3 +140,30 @@ test('applications.json is read again when it changes in the same process', () =
   writeApps({}, new Date('2026-09-30T11:00:00Z'));
   assert.equal(job('Harborline', 'Growth Analytics Lead', 'https://harbor.example/3').written, true, 'the record was removed');
 });
+
+test('dedupe against applications never merges roles whose distinguishing words differ', () => {
+  writeApps({
+    'manual:fenwick|senior product manager': { company: 'Fenwick', role: 'Senior Product Manager', status: 'applied', updated: '2026-09-20' },
+    'manual:galloway|product manager': { company: 'Galloway', role: 'Product Manager', status: 'applied', updated: '2026-09-20' },
+    'manual:hollis|senior product manager growth': { company: 'Hollis', role: 'Senior Product Manager, Growth', status: 'interview', updated: '2026-09-20' },
+    'manual:inkwell|software engineer backend': { company: 'Inkwell', role: 'Software Engineer, Backend', status: 'rejected', updated: '2026-09-20' },
+  }, new Date('2026-09-30T12:00:00Z'));
+  assert.equal(job('Fenwick', 'Product Manager, Payments', 'https://fenwick.example/1').written, true);
+  assert.equal(job('Galloway', 'Product Marketing Manager', 'https://galloway.example/1').written, true);
+  assert.equal(job('Hollis', 'Product Manager, Hardware', 'https://hollis.example/1').written, true);
+  assert.equal(job('Inkwell', 'Software Engineer, Mobile', 'https://inkwell.example/1').written, true);
+  assert.equal(job('Inkwell', 'Senior Software Engineer, Backend', 'https://inkwell.example/2').written, false, 'the same role still dedupes');
+});
+
+test('the duplicate check reads the alias families once per job, not once per application', async () => {
+  const { SETTINGS } = await import('../lib/config.mjs');
+  const apps = {};
+  for (let i = 0; i < 6; i++) apps[`manual:co${i}|robotics`] = { company: `Company ${i}`, role: 'Robotics Analytics', status: 'applied', updated: '2026-09-20' };
+  writeApps(apps, new Date('2026-09-30T13:00:00Z'));
+  const value = SETTINGS.queue.aliases; let reads = 0;
+  Object.defineProperty(SETTINGS.queue, 'aliases', { configurable: true, enumerable: true, get: () => { reads++; return value; } });
+  try {
+    assert.equal(job('Elsewhere', 'Robotics Analytics Lead', 'https://elsewhere.example/1').written, true);
+    assert.ok(reads <= 1, `aliases read ${reads} times`);
+  } finally { Object.defineProperty(SETTINGS.queue, 'aliases', { configurable: true, enumerable: true, writable: true, value }); }
+});

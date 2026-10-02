@@ -29,9 +29,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { SETTINGS, STATE, read, log, num, today } from '../lib/config.mjs';
-import { writeJob, matchesAny, htmlText } from '../lib/queue.mjs';
+import { SETTINGS, STATE, read, log, num, today, isMain } from '../lib/config.mjs';
+import { writeJob, matchesAny, htmlText, applications } from '../lib/queue.mjs';
 import { checkGates, countriesIn, gateTally, settle } from '../lib/gates.mjs';
 
 export const API = 'https://api.hirify.me';
@@ -259,6 +258,7 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
   const result = (code, extra = {}) => ({ code, messages: out, ...extra });
 
   if (!cfg.enabled) { say('hirify: disabled in settings.json'); return result(0); }
+  applications();   // a broken applications.json stops the source before it marks anything seen
   const filters = (Array.isArray(cfg.filters) ? cfg.filters : []).filter(f => f && str(f.query));
   if (!filters.length) { say('hirify: no filters in settings.json (sources.hirify.filters: [{ "name": "...", "query": "..." }])'); return result(2); }
 
@@ -412,7 +412,7 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
   return result(n.pagesOk === 0 && n.pagesFailed > 0 ? 1 : 0, { ...n, failed });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   const { sendText } = await import('../lib/telegram.mjs');
   const r = await run({ dryRun: args.includes('--dry-run'), send: args.includes('--no-telegram') ? null : sendText });

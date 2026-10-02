@@ -13,7 +13,7 @@
 // Usage: node sources/linkedin-alerts.mjs [--dry-run] [--hours 96] [--max-fetch 10]
 import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, log, num } from '../lib/config.mjs';
-import { writeJob, alreadyQueued, htmlText, matchesAny } from '../lib/queue.mjs';
+import { writeJob, alreadyQueued, htmlText, matchesAny, applications } from '../lib/queue.mjs';
 import { Gmail, messageText } from '../lib/gmail.mjs';
 import { checkGates, fromText, settle } from '../lib/gates.mjs';
 
@@ -23,6 +23,7 @@ const opt = n => (i => (i >= 0 ? args[i + 1] : null))(args.indexOf(`--${n}`));
 const DRY = args.includes('--dry-run');
 const MAX = num(opt('max-fetch') ?? cfg.max_fetch, 40, 0), DELAY = Math.max(2000, num(cfg.delay_ms, 3000, 0));   // a typo never removes the limit or the delay
 if (!SETTINGS.sources.linkedin_alerts?.enabled) { log('linkedin-alerts: disabled in settings.json'); process.exit(0); }
+applications();   // a broken applications.json stops the source before it marks anything seen
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const stateFile = STATE('linkedin-alerts.json');
 const state = readJson(stateFile, { last_run: null, seen: {} });

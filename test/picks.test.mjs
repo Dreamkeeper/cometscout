@@ -80,11 +80,33 @@ test('closedRole: own file, closed status or any event, alias family and role ov
   assert.equal(c('Quarry Systems', 'Anything At All'), true, 'the application role has no words: same process');
   assert.equal(c('Harborline', 'Payments Product Lead'), true, 'any event counts');
   assert.equal(c('Driftwood', 'Growth Product Manager'), false);
+  const B = { 'manual:larkspur|lead engineer': { company: 'Larkspur', role: 'Lead Engineer', status: 'applied' },
+    'manual:marlow|senior product manager': { company: 'Marlow', role: 'Senior Product Manager', status: 'rejected' } };
+  assert.equal(d.closedRole({ file: 'y.md', fm: { company: 'Larkspur', role: 'Data Scientist' } }, B), false, 'no stoplist: "Lead Engineer" still has words, none shared');
+  assert.equal(d.closedRole({ file: 'y.md', fm: { company: 'Marlow', role: 'Product Manager, Payments' } }, B), true, 'two of three words shared');
+});
+
+test('picks: on-site exclusion and location regexes on real location strings', async () => {
+  const lisbon = job('Nettlefield', 'Product Manager', 'Lisbon, PT (remote_scope: none)', { priority: 1 });
+  const sevilla = job('Oakhurst', 'Product Manager', 'Sevilla, España', { priority: 1 });
+  const voronezh = job('Pinecrest', 'Product Manager', 'Воронеж (удалённо)', { priority: 1 });
+  const { SETTINGS } = await import('../lib/config.mjs');
+  const keep = { ...SETTINGS.picks };
+  Object.assign(SETTINGS.picks, { exclude_onsite_location_regex: 'lisbon|воронеж', exclude_location_regex: 'espana' });
+  try {
+    const files = (await d.buildPicks([], { fetch: fakeFetch({}) })).picks.map(p => p.file);
+    assert.ok(!files.includes(lisbon), 'remote_scope: none is on-site, so the on-site exclusion applies');
+    assert.ok(!files.includes(sevilla), '"espana" matches "España"');
+    assert.ok(files.includes(voronezh), 'a fully remote job from an excluded on-site city stays');
+  } finally { SETTINGS.picks = keep; }
 });
 
 test('shapeRank: remote words, office days, on-site, and the first matching shape bonus', () => {
   const bonus = [{ location_regex: 'barcelona', rank: 0.5 }, { location_regex: 'spain', rank: 1 }];
-  for (const loc of ['Remote', 'Remoto, España', 'Anywhere', 'Worldwide', 'Удаленно']) assert.equal(d.shapeRank(loc, bonus), 0, loc);
+  for (const loc of ['Remote', 'Remoto, España', 'Anywhere', 'Worldwide', 'Удаленно', 'Воронеж (удалённо)', 'Remote-first, EU']) assert.equal(d.shapeRank(loc, bonus), 0, loc);
+  assert.equal(d.shapeRank('Lisbon, PT (remote_scope: none)', bonus), 2, '"remote" inside remote_scope is not remote work');
+  assert.equal(d.shapeRank('Sevilla, España', [{ location_regex: 'espana', rank: 0.25 }]), 0.25, 'a regex matches the normalised location too');
+  assert.equal(d.shapeRank('Sevilla, España', [{ location_regex: 'España', rank: 0.25 }]), 0.25, 'and the location as written');
   assert.equal(d.shapeRank('Remote, Barcelona', bonus), 0, 'fully remote stays 0');
   assert.equal(d.shapeRank('Remote with office days, London', bonus), 1.5);
   assert.equal(d.shapeRank('London, UK', bonus), 2);
@@ -99,11 +121,13 @@ test('linkAlive: hh.ru and Hirify archive markers; 403, 429 and network errors s
   const hh = 'https://spb.hh.ru/vacancy/555';
   assert.equal(await alive(hh, page('<span data-qa="vacancy-title-archived-text">x</span>')), false);
   assert.equal(await alive(hh, page('<p>В архиве с 12 сентября</p>')), false);
-  assert.equal(await alive(hh, page('{&quot;archived&quot;: true}')), false);
-  assert.equal(await alive(hh, page('{&#34;archived&#34;:true}')), false);
-  assert.equal(await alive(hh, page('{"archived" : true}')), false);
-  assert.equal(await alive(hh, page('{"archived": false} <h1>Product Manager</h1>')), true);
-  assert.equal(await alive('https://jobs.example/9', page('{"archived": true}')), true, 'hh markers only count on hh.ru');
+  assert.equal(await alive(hh, page('<div class="vacancy-archived">x</div>')), false);
+  assert.equal(await alive(hh, page('<p>Вакансия в архиве</p>')), false);
+  // the page's embedded state lists other vacancies, some archived: that says nothing about this one
+  assert.equal(await alive(hh, page('<h1>Product Manager</h1><template>{&quot;archived&quot;: true}</template>')), true);
+  assert.equal(await alive(hh, page('<h1>Product Manager</h1><script>{"vacancies":[{"id":1,"archived" : true}],"archived":true}</script>')), true);
+  assert.equal(await alive(hh, page('{&#34;archived&#34;:true} <h1>Product Manager</h1>')), true);
+  assert.equal(await alive('https://jobs.example/9', page('<div class="vacancy-archived">x</div>')), true, 'hh markers only count on hh.ru');
   const hf = 'https://hirify.me/jobs/42';
   assert.equal(await alive(hf, page('<div>Эта вакансия в архиве</div>')), false);
   assert.equal(await alive(hf, page('<div>This vacancy is archived</div>')), false);

@@ -24,8 +24,11 @@ decoded('decoded', '2026-08-01--acme-robotics--product-manager-robotics.md', 'Ac
 decoded('rejected', '2026-09-20--acme--data-analyst.md', 'Acme', 'Data Analyst', 'weak-fit', '2026-09-20');
 decoded('decoded', '2026-09-25--driftwood--product-owner.md', 'Driftwood', 'Product Owner', 'strong-fit', '2026-09-25');
 fs.writeFileSync(path.join(DATA, 'state', 'applications.json'), JSON.stringify({
-  '2026-08-01--acme-robotics--product-manager-robotics.md': { company: 'Acme Robotics', role: 'Product Manager, Robotics', status: 'rejected', updated: '2026-09-10',
-    events: [{ date: '2026-08-02', type: 'applied', source: 'cli' }, { date: '2026-08-20', type: 'interview', source: 'gmail' }, { date: '2026-09-10', type: 'rejection', source: 'gmail' }] },
+  '2026-08-01--acme-robotics--product-manager-robotics.md': { company: 'Acme Robotics', role: 'Product Manager, Robotics', status: 'rejected', updated: '2026-09-10', note: 'filled internally',
+    events: [{ date: '2026-08-02', type: 'applied', source: 'cli' }, { date: '2026-09-10', type: 'rejection', source: 'gmail' }] },
+  'manual:acme|robotics qa': { company: 'Acme', role: 'Robotics QA', status: 'offer', updated: '2026-09-20',
+    events: [{ date: '2026-08-25', type: 'test_task', source: 'gmail' }, { date: '2026-08-26', type: 'reopened', source: 'gmail' }, { date: '2026-09-20', type: 'offer', source: 'gmail' }] },
+  'manual:acme|vision lead': { company: 'Acme', role: 'Vision Lead', status: 'applied', updated: '2026-09-05', events: [{ date: '2026-09-05', type: 'applied', source: 'cli' }] },
   'manual:acme|firmware lead': { company: 'ACME', role: 'Firmware Lead', status: 'applied', updated: '2026-08-15',
     events: [{ date: '2026-09-02', type: 'interview', source: 'gmail' }] },
 }, null, 1));
@@ -35,7 +38,7 @@ const { SETTINGS, PROFILE } = await import('../lib/config.mjs');
 
 test('history matches the company through alias families, applications and decodes', () => {
   const h = d.history('Acme');
-  assert.match(h, /2026-09-10: Product Manager, Robotics: rejected/, 'application under the family name');
+  assert.match(h, /2026-09-10: Product Manager, Robotics: rejected \(filled internally\)/, 'application under the family name');
   assert.match(h, /2026-08-15: Firmware Lead: applied/);
   assert.match(h, /decoded "Product Manager, Robotics": strong-fit/);
   assert.match(h, /decoded "Data Analyst": weak-fit/);
@@ -43,15 +46,31 @@ test('history matches the company through alias families, applications and decod
   assert.equal(d.history('Lumenfield'), '(nothing before with this company)');
 });
 
-test('history before a day: only applications updated, events dated and decodes made before it', () => {
+test('history before a day shows the world as it was then', () => {
   const h = d.history('Acme Robotics', { before: '2026-09-01' });
-  assert.doesNotMatch(h, /rejected/, 'the application updated after the cutoff is left out');
+  assert.match(h, /^- 2026-08-02: Product Manager, Robotics: applied \[events: 2026-08-02 applied\] \[recorded by the candidate\]$/m,
+    'applied before the cutoff, rejected after it: shown as applied on the day of that event, without the later note');
+  assert.doesNotMatch(h, /rejected|filled internally|rejection/);
+  assert.match(h, /^- 2026-08-25: Robotics QA: interview \[events: 2026-08-25 test_task; 2026-08-26 reopened\]/m, 'a test task sets "interview"; an event with no status is skipped');
+  assert.doesNotMatch(h, /offer/);
+  assert.doesNotMatch(h, /Vision Lead/, 'nothing before the cutoff');
   assert.match(h, /2026-08-15: Firmware Lead: applied \[recorded by the candidate\]$/m, 'updated before the cutoff, its only event after it: no events shown');
   assert.match(h, /decoded "Product Manager, Robotics"/);
   assert.doesNotMatch(h, /Data Analyst/, 'decoded after the cutoff');
   const later = d.history('Acme Robotics', { before: '2026-09-15' });
-  assert.match(later, /rejected \[events: 2026-08-02 applied; 2026-08-20 interview; 2026-09-10 rejection\]/);
+  assert.match(later, /2026-09-10: Product Manager, Robotics: rejected \(filled internally\) \[events: 2026-08-02 applied; 2026-09-10 rejection\]/);
   assert.match(later, /Firmware Lead: applied \[events: 2026-09-02 interview\]/);
+  assert.match(later, /2026-09-05: Vision Lead: applied/);
+});
+
+test('asOf maps every event type to a status', () => {
+  const app = (type, source = 'gmail') => ({ status: 'closed', updated: '2026-09-30', events: [{ date: '2026-09-01', type, source }] });
+  const want = { rejection: 'rejected', interview: 'interview', test_task: 'interview', offer: 'offer', application_received: 'applied',
+    applied: 'applied', screen: 'screen', skipped: 'skipped', closed: 'closed' };
+  for (const [type, status] of Object.entries(want)) assert.equal(d.asOf(app(type), '2026-09-15').status, status, type);
+  assert.equal(d.asOf(app('rejection'), '2026-09-15').date, '2026-09-01');
+  assert.equal(d.asOf(app('rejection'), '2026-09-01'), null, 'an event on the cutoff day is not before it');
+  assert.equal(d.asOf({ status: 'applied', events: 'broken' }, '2026-09-15'), null);
 });
 
 test('history excludeFile drops the job\'s own application and decode', () => {
@@ -79,6 +98,8 @@ test('fact flags: a guarded rule ignores a negated match and an employer opening
   const flag = text => d.factFlags({ rationale: text }, rules).map(f => f.excerpt);
   assert.deepEqual(flag('Sam was never the first PM anywhere.'), []);
   assert.deepEqual(flag('This is the first PM hire for the team.'), []);
+  assert.deepEqual(flag('Sam would be the first PM hired by the founders.'), [], 'a prefix: "hired"');
+  assert.deepEqual(flag('The company is the first PM hiring in this unit.'), [], 'a prefix: "hiring"');
   assert.deepEqual(flag('They want the first PM: someone to set up the process.'), []);
   assert.deepEqual(flag('Sam would join as the first PM there.'), ['the first PM']);
   assert.deepEqual(flag('Sam was never the first PM hire at the agency in its early years, then became the first PM there.'), ['the first PM'], 'a later match outside the 50 characters counts');

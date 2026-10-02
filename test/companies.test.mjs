@@ -11,7 +11,7 @@ process.env.JOBPILOT_DATA = path.join(tmp, 'data');
 process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
 fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
   timezone: 'UTC',
-  queue: { aliases: [['Acme Robotics', 'Acme'], ['Northwind Labs', 'Northwind', 'NWL Group'], ['Ola', 'Ola Cabs'], ['Zeta Holdings', 'ZH']] },
+  queue: { aliases: [['Acme Robotics', 'Acme'], ['Northwind Labs', 'Northwind', 'NWL Group'], ['Ola', 'Ola Cabs'], ['Zeta Holdings', 'ZH']], role_stopwords: ['Banking'] },
 }));
 const c = await import('../lib/companies.mjs');
 
@@ -51,6 +51,14 @@ test('companyMatch: family members, whole-word containment of 4+ characters, nev
   assert.equal(c.companyMatch('Unknown', 'Unknown'), false);
 });
 
+test('companyMatch: a contained name that is one generic word never matches', () => {
+  for (const [a, b] of [['Labs', 'Ridgeway Labs'], ['Quarry Systems', 'Systems'], ['Holdings', 'Driftwood Holdings'], ['GmbH', 'Kestrel GmbH'],
+    ['Technologies', 'Harborline Technologies'], ['Group', 'Juniper Group'], ['ООО', 'ООО Квадрат']]) assert.equal(c.companyMatch(a, b), false, `${a} / ${b}`);
+  assert.equal(c.companyMatch('Kestrel', 'Kestrel GmbH'), true, 'the distinctive name still matches');
+  assert.equal(c.companyMatch('Квадрат', 'ООО Квадрат'), true);
+  assert.equal(c.companyMatch('Labs', 'labs'), true, 'equal names always match');
+});
+
 test('companyKind keeps the stricter exact / prefix match the outcomes source uses', () => {
   assert.equal(c.companyKind('Acme', 'Acme Robotics'), 'exact');
   assert.equal(c.companyKind('Ridgeway', 'Ridgeway Labs'), 'prefix');
@@ -62,8 +70,37 @@ test('roleWords and roleOverlap: stopwords and words of 2 characters or less do 
   assert.deepEqual([...c.roleWords('Product Manager, Robotics')], ['product', 'robotics']);
   assert.equal(c.roleOverlap('Senior PM, Robotics', 'Product Manager, Robotics'), 1);
   assert.equal(c.roleOverlap('Hardware Product Manager', 'Data Analyst'), 0);
-  assert.equal(c.roleOverlap('Product Manager Payments', 'Product Owner Logistics'), 0.5);
+  assert.equal(c.roleOverlap('Product Manager Payments', 'Product Owner Logistics', c.dedupeStopwords()), 0, 'with the dedupe stoplist "product" is no shared word');
   assert.equal(c.roleOverlap('Senior Manager', 'Product Manager'), 0, 'one side has no words left');
   assert.equal(c.roleOverlap('', 'Product Manager'), 0);
   assert.equal(c.roleOverlap('Ведущий менеджер продукта', 'Менеджер продукта'), 1);
+});
+
+test('dedupe role match: the dedupe stoplist and more than half the words shared', () => {
+  const dup = (a, b) => c.sameRoleForDedupe(a, b);
+  for (const [a, b] of [['Senior Product Manager', 'Product Manager, Payments'], ['Product Manager', 'Product Marketing Manager'],
+    ['Senior Product Manager, Growth', 'Product Manager, Hardware'], ['Software Engineer, Backend', 'Software Engineer, Mobile'],
+    ['Product Owner', 'Product Manager'], ['Менеджер продукта', 'Менеджер по продукту']]) assert.equal(dup(a, b), false, `${a} / ${b}`);
+  for (const [a, b] of [['Senior PM, Robotics', 'Product Manager, Robotics'], ['Platform Product Owner', 'Product Owner, Platform'],
+    ['Growth Analytics', 'Growth Analytics Lead'], ['Senior Software Engineer, Backend Payments', 'Software Engineer, Backend Payments']]) assert.equal(dup(a, b), true, `${a} / ${b}`);
+  for (const w of ['product', 'owner', 'продукта', 'продукту', 'mfd', 'senior', 'banking']) assert.ok(c.dedupeStopwords().has(w), w);
+  assert.equal(dup('Mobile Payments Platform', 'Web Payments Platform'), true, 'two of three words shared');
+  assert.equal(c.sameRoleForDedupe('Mobile Payments Platform', 'Web Payments Platform', c.dedupeStopwords(['Payments', 'platform'])), false, 'queue.role_stopwords adds words');
+  assert.equal(dup('Mobile Banking Analytics', 'Web Banking Analytics'), false, '"banking" from queue.role_stopwords in settings');
+  assert.equal(c.ROLE_STOPWORDS.has('product'), false, 'the shared ROLE_STOPWORDS (outcomes) is unchanged');
+});
+
+test('picks role match: no stoplist, half the words shared, an empty side is the same process', () => {
+  assert.equal(c.sameRole('Senior Product Manager', 'Product Manager, Payments'), true);
+  assert.equal(c.sameRole('Lead Engineer', 'Data Scientist'), false, 'stopwords alone never empty a title here');
+  assert.equal(c.sameRole('PM', 'Data Scientist'), true, 'no word longer than 2 characters on one side');
+  assert.equal(c.sameRole('', 'Anything'), true);
+  assert.equal(c.sameRole('Software Engineer, Backend', 'Software Engineer, Mobile'), true, 'two of three words shared');
+  assert.equal(c.sameRole('Data Analyst', 'Product Manager'), false);
+});
+
+test('companies.mjs and queue.mjs do not import each other', () => {
+  const src = f => fs.readFileSync(new URL(`../lib/${f}`, import.meta.url), 'utf8');
+  assert.doesNotMatch(src('companies.mjs'), /from '\.\/queue\.mjs'/);
+  assert.match(src('companies.mjs'), /from '\.\/text\.mjs'/);
 });

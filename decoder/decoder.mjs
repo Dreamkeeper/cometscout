@@ -4,13 +4,13 @@
 // Usage: node decoder/decoder.mjs [--dry-run] [--no-telegram] [--picks] [--cap 30]
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num } from '../lib/config.mjs';
+import { fileURLToPath } from 'node:url';
+import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num, isMain } from '../lib/config.mjs';
 import { loadJob, parseResult, frontMatter, norm } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
 import { runHook } from '../lib/hooks.mjs';
-import { aliasFamilies, companyMatch, roleOverlap, roleWords } from '../lib/companies.mjs';
+import { aliasFamilies, companyMatch, sameRole } from '../lib/companies.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -64,21 +64,37 @@ export const apps = () => readJson(APPS_FILE, {});
 // What the candidate recorded (applied, rejected, offer ...) always reaches the model, newest first; past decodes,
 // newest first, fill the remaining lines. A long history must never drop "they already rejected me".
 // The company matches through alias families (lib/companies.mjs), so "Acme" also finds "Acme Robotics".
-// before (YYYY-MM-DD): only applications updated, events dated and decodes made before that day (evals use it so a
-// job's own outcome cannot leak into its decode); excludeFile: leave out that job's own application entry and decode.
+// before (YYYY-MM-DD) shows the world as it was on that day (evals use it so a job's own outcome cannot leak into its
+// decode): an application counts when it was updated or has an event before that day; when it changed later, its
+// status is the one its last earlier event set, dated by that event, and the later note is left out. Decodes count
+// when made before that day. excludeFile leaves out that job's own application entry and decode.
+const EVENT_STATUS = { rejection: 'rejected', interview: 'interview', test_task: 'interview', offer: 'offer', application_received: 'applied' };
+const STATUS_WORDS = new Set(['applied', 'screen', 'interview', 'offer', 'rejected', 'skipped', 'closed', 'withdrawn']);
+const statusOfEvent = e => EVENT_STATUS[e.type] || (STATUS_WORDS.has(e.type) ? e.type : null);
+const byDate = (x, y) => (String(x.date || '') < String(y.date || '') ? -1 : String(x.date || '') > String(y.date || '') ? 1 : 0);
+/** One application as the history shows it on a given day: { date, status, note, events } or null when it did not exist yet. */
+export function asOf(a, before = null) {
+  const all = Array.isArray(a.events) ? a.events.filter(e => e && typeof e === 'object') : [];
+  if (!before) return { date: a.updated, status: a.status, note: a.note, events: all };
+  const events = all.filter(e => e.date && String(e.date) < before).sort(byDate);
+  if (a.updated && String(a.updated) < before) return { date: a.updated, status: a.status, note: a.note, events };
+  if (!events.length) return null;
+  const set = [...events].reverse().find(statusOfEvent) || events[events.length - 1];
+  return { date: set.date, status: statusOfEvent(set) || set.type || 'applied', note: null, events };
+}
 export function history(company, { before = null, excludeFile = null } = {}) {
   const fams = aliasFamilies(); const recorded = [], decodes = [];
-  const earlier = d => !before || (!!d && String(d) < before);
   for (const [key, a] of Object.entries(apps())) {
-    if (!a || key === excludeFile || !companyMatch(a.company, company, fams) || !earlier(a.updated)) continue;
-    const ev = (a.events || []).filter(e => earlier(e.date)).slice(-3).map(e => `${e.date || '?'} ${e.type || ''}${e.note ? ` (${String(e.note).slice(0, 120)})` : ''}`).join('; ');
-    recorded.push({ d: a.updated || '', line: `- ${a.updated}: ${a.role}: ${a.status}${a.note ? ` (${a.note})` : ''}${ev ? ` [events: ${ev}]` : ''} [recorded by the candidate]` });
+    if (!a || key === excludeFile || !companyMatch(a.company, company, fams)) continue;
+    const s = asOf(a, before); if (!s) continue;
+    const ev = s.events.slice(-3).map(e => `${e.date || '?'} ${e.type || ''}${e.note ? ` (${String(e.note).slice(0, 120)})` : ''}`).join('; ');
+    recorded.push({ d: s.date || '', line: `- ${s.date}: ${a.role}: ${s.status}${s.note ? ` (${s.note})` : ''}${ev ? ` [events: ${ev}]` : ''} [recorded by the candidate]` });
   }
   for (const dir of ['decoded', 'rejected']) for (const f of fs.readdirSync(DIRS[dir])) {
     if (!f.endsWith('.md') || f === excludeFile) continue; const t = read(path.join(DIRS[dir], f)); const fm = frontMatter(t);
     if (!companyMatch(fm.company, company, fams)) continue;
     const v = parseResult(t); const d = v.decoded_on || f.slice(0, 10);
-    if (earlier(d)) decodes.push({ d, line: `- ${d}: decoded "${fm.role}": ${v.verdict}` });
+    if (!before || d < before) decodes.push({ d, line: `- ${d}: decoded "${fm.role}": ${v.verdict}` });
   }
   const newest = list => list.sort((x, y) => (x.d < y.d ? 1 : x.d > y.d ? -1 : 0)).map(x => x.line);
   const lines = [...newest(recorded).slice(0, 20), ...newest(decodes).slice(0, Math.max(5, 15 - recorded.length))];
@@ -90,7 +106,9 @@ export function history(company, { before = null, excludeFile = null } = {}) {
 // employer's opening ("the first PM hire"): a negation word in the 50 characters before it, or an employer word
 // right after it.
 const NEGATION = /(?<![\p{L}\p{N}'’])(?:never|not|no|nor|without|wasn['’]t|isn['’]t)(?![\p{L}\p{N}'’])/giu;
-const EMPLOYER_WORD = /^\s*(?:(?:hire|mandate|role|req|seat)s?(?![\p{L}\p{N}])|:)/iu;
+// A prefix match, as in the original ("hired by", "roles", "requisition" count too), plus "hiring", which does not
+// start with "hire".
+const EMPLOYER_WORD = /^\s*(hire|hiring|mandate|role|req|seat|:)/i;
 function denied(text, at, len) {
   for (const m of text.slice(0, at).matchAll(NEGATION)) if (m.index >= at - 50) return true;
   return EMPLOYER_WORD.test(text.slice(at + len, at + len + 12));
@@ -129,20 +147,27 @@ function resultBlock(v) {
 
 // ---------- picks ----------
 const PICKS_FILE = STATE('picks.json');
-const REMOTE = /\bremote\b|\bremoto\b|\banywhere\b|\bworldwide\b|udalen|удален/, ONSITE = /\bhybrid\b|\bonsite\b|on site|\boffice\b|гибрид/;
-const fullyRemote = loc => { const l = norm(loc); return REMOTE.test(l) && !ONSITE.test(l); };
+// Work-shape words are matched on the location as written (lowercase, Latin accents dropped), as whole words where
+// "_" is part of a word: "Lisbon, PT (remote_scope: none)" names no remote work. ё and е are one letter here.
+const shapeText = loc => String(loc || '').toLowerCase().normalize('NFKD').replace(/([a-z])\p{M}+/gu, '$1').normalize('NFC').replace(/ё/g, 'е');
+const W = words => new RegExp(`(?<![\\p{L}\\p{N}_])(?:${words})(?![\\p{L}\\p{N}_])`, 'u');
+const REMOTE = W('remote|remoto|anywhere|worldwide'), ONSITE = W('hybrid|onsite|on[\\s-]+site|office');
+const remoteShape = loc => { const l = shapeText(loc); return { remote: REMOTE.test(l) || /udalen|удален/.test(l), onsite: ONSITE.test(l) || /гибрид/.test(l) }; };
+const fullyRemote = loc => { const { remote, onsite } = remoteShape(loc); return remote && !onsite; };
 // A user-edited regex: a typo stops the run with the setting's name instead of silently matching nothing.
 const settingRegex = (v, key) => { if (!v) return null; try { return new RegExp(v, 'i'); } catch (e) { throw new Error(`picks.${key} is not a valid regex (${e.message})`); } };
+// Location regexes from settings match the location as written or normalised ("espana" matches "España").
+const locMatches = (re, loc) => !!re && (re.test(String(loc || '')) || re.test(norm(loc)));
 /**
  * 0 fully remote, 1.5 remote with office days, 2 on-site; lower is better. picks.shape_bonus
  * ([{ location_regex, rank }]): the first entry whose regex matches the location sets the rank of a job that is not
  * fully remote (a city you would happily commute to).
  */
 export function shapeRank(loc, bonus = SETTINGS.picks?.shape_bonus) {
-  const l = norm(loc), remote = REMOTE.test(l), onsite = ONSITE.test(l);
+  const { remote, onsite } = remoteShape(loc);
   if (remote && !onsite) return 0;
   for (const [i, b] of (Array.isArray(bonus) ? bonus : []).entries()) {
-    if (settingRegex(b?.location_regex, `shape_bonus[${i}].location_regex`)?.test(String(loc || ''))) return num(b.rank, remote ? 1.5 : 2, 0, 10);
+    if (locMatches(settingRegex(b?.location_regex, `shape_bonus[${i}].location_regex`), loc)) return num(b.rank, remote ? 1.5 : 2, 0, 10);
   }
   return remote ? 1.5 : 2;
 }
@@ -151,7 +176,8 @@ export function shapeRank(loc, bonus = SETTINGS.picks?.shape_bonus) {
 // other boards are checked for "no longer accepting" style text; hh.ru and Hirify mark archived vacancies on the page.
 // Network errors, 403 and 429 count as alive (never drop on doubt).
 const DEAD_TEXT = /No longer accepting applications|This job is no longer available|job (?:posting )?(?:has been )?closed|This vacancy is archived|Вакансия в архиве|Эта вакансия в архиве/i;
-const HH_PAGE = /(^|[/.])hh\.ru\/vacancy\//i, HH_DEAD = /data-qa="vacancy-title-archived-text"|В архиве с|archived(?:&#34;|&quot;|")\s*:\s*true/;
+// hh.ru: only markers of the vacancy itself. The page's embedded state also lists other vacancies, which may be archived.
+const HH_PAGE = /(^|[/.])hh\.ru\/vacancy\//i, HH_DEAD = /data-qa="vacancy-title-archived-text"|В архиве с|Вакансия в архиве|vacancy-archived/;
 const HIRIFY_PAGE = /(^|[/.])hirify\.me\/jobs\//i, HIRIFY_DEAD = /Эта вакансия в архиве|This vacancy is archived/i;
 export async function linkAlive(url, { fetch = globalThis.fetch } = {}) {
   if (!/^https?:/.test(url || '')) return true;
@@ -179,13 +205,12 @@ export const CLOSED_STATUSES = new Set(['applied', 'screen', 'interview', 'offer
 const knownCompany = c => !!norm(c) && norm(c) !== 'unknown';
 /**
  * A pool job is closed when its own file is an application, or an application the user acted on (a closed status or
- * any event) is at the same employer (alias families) for the same role: roles sharing half their words, or a role
- * with no readable words on either side (the company matched, so it is taken as the same process).
+ * any event) is at the same employer (alias families) for the same role (sameRole: half the words shared, no
+ * stoplist; a role with no readable words on either side is taken as the same process).
  */
 export function closedRole(job, A, fams = aliasFamilies()) {
   if (A[job.file]) return true;
-  return Object.values(A).some(a => a && (CLOSED_STATUSES.has(a.status) || (a.events || []).length) && companyMatch(a.company, job.fm.company, fams)
-    && (roleOverlap(a.role, job.fm.role) >= 0.5 || !roleWords(a.role).size || !roleWords(job.fm.role).size));
+  return Object.values(A).some(a => a && (CLOSED_STATUSES.has(a.status) || (a.events || []).length) && companyMatch(a.company, job.fm.company, fams) && sameRole(a.role, job.fm.role));
 }
 // The board's band (1 best to 4), when a source gives one; unknown counts as the middle.
 const band = fm => { const b = Number(fm.band); return fm.band !== undefined && fm.band !== '' && b >= 1 && b <= 4 ? b : 2.5; };
@@ -202,7 +227,7 @@ export async function buildPicks(extra = [], { fetch = globalThis.fetch } = {}) 
   }
   for (const d of extra) if (APPLY_WORTHY.includes(d.v.verdict) && !pool.some(p => p.file === d.file)) pool.push(d);
   const open = pool.filter(c => knownCompany(c.fm.company) && !closedRole(c, A, fams) && (state[c.file]?.shown || 0) < P.max_shown
-    && !(excludeLoc && excludeLoc.test(c.fm.location || '')) && !(excludeOnsite && excludeOnsite.test(c.fm.location || '') && !fullyRemote(c.fm.location)));
+    && !locMatches(excludeLoc, c.fm.location) && !(locMatches(excludeOnsite, c.fm.location) && !fullyRemote(c.fm.location)));
   const score = c => (c.v.apply_priority || 5) * 10 + shapeRank(c.fm.location, P.shape_bonus) * 4 + band(c.fm) + Math.min((Date.now() - Date.parse(c.v.decoded_on || today())) / 86400000, 10) * 0.3 + (state[c.file]?.shown || 0) * 2;
   open.sort((a, b) => score(a) - score(b));
   const picks = [];
@@ -277,4 +302,4 @@ async function main() {
   if (failed.length) process.exitCode = process.exitCode || 1;
 }
 // Imported by tests and cli.mjs for its exports; run as a script, it decodes.
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await main();
+if (isMain(import.meta.url)) await main();

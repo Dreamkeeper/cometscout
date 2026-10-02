@@ -10,7 +10,7 @@
     "timeout_sec": 300
   },
   "decoder": { "cap": 30, "prompt_file": null },
-  "queue": { "dedupe_days": 60, "aliases": [] },
+  "queue": { "dedupe_days": 60, "aliases": [], "role_stopwords": [] },
   "picks": {
     "per_day": 2, "window_days": 14, "max_shown": 3,
     "exclude_location_regex": "", "exclude_onsite_location_regex": "",

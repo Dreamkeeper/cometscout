@@ -17,7 +17,7 @@
 // remembers which were gated before); a demoted job is also appended to data/state/demoted.jsonl.
 // Usage: node sources/ats-boards.mjs [--dry-run]
 import { SETTINGS, STATE, readJson, log, today } from '../lib/config.mjs';
-import { writeJob, htmlText, matchesAny } from '../lib/queue.mjs';
+import { writeJob, htmlText, matchesAny, applications } from '../lib/queue.mjs';
 import { checkGates, fromText, gateTally, settle } from '../lib/gates.mjs';
 import fs from 'node:fs';
 
@@ -52,6 +52,7 @@ const FETCH = {
 };
 
 if (!cfg.enabled) { log('ats-boards: disabled in settings.json'); process.exit(0); }
+applications();   // a broken applications.json stops the source before it marks anything seen
 const seenFile = STATE('ats-boards-seen.json'); const seen = readJson(seenFile, {});
 const gatedFile = STATE('ats-boards-gated.json'); const gatedBefore = readJson(gatedFile, {});   // url -> { date, gate }
 const MAX = cfg.max_per_run || 30;

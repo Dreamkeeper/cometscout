@@ -8,7 +8,7 @@
 // Usage: node sources/rtj.mjs [--dry-run] [--hours 72]
 import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, secret, log, num } from '../lib/config.mjs';
-import { writeJob, matchesAny } from '../lib/queue.mjs';
+import { writeJob, matchesAny, applications } from '../lib/queue.mjs';
 import { checkGates, fromRtj, gateTally, settle } from '../lib/gates.mjs';
 
 const cfg = SETTINGS.sources.rtj || {};
@@ -19,6 +19,7 @@ const MAX_BACK = num(cfg.max_lookback_hours, 168, HOURS);   // after missed days
 if (!cfg.enabled) { log('rtj: disabled in settings.json'); process.exit(0); }
 const token = secret(cfg.token_env || 'RTJ_API_TOKEN');
 if (!token) { log(`rtj: ${cfg.token_env || 'RTJ_API_TOKEN'} is not set in .env`); process.exit(2); }
+applications();   // a broken applications.json stops the source before it marks anything seen
 
 const stateFile = STATE('rtj-state.json'); const state = readJson(stateFile, { last_before: null });
 const before = new Date();

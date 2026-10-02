@@ -17,9 +17,9 @@
 // Usage: node sources/outcomes.mjs [--dry-run] [--no-telegram] [--since YYYY-MM-DD]
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { SETTINGS, DIRS, STATE, read, readJson, log, num } from '../lib/config.mjs';
-import { frontMatter, norm } from '../lib/queue.mjs';
+import { fileURLToPath } from 'node:url';
+import { SETTINGS, DIRS, STATE, read, readJson, log, num, isMain } from '../lib/config.mjs';
+import { frontMatter, norm, applications } from '../lib/queue.mjs';
 import { runHook } from '../lib/hooks.mjs';
 import { aliasFamilies, companyKind, ROLE_STOPWORDS } from '../lib/companies.mjs';
 
@@ -217,6 +217,7 @@ const hookPayload = (r, email, o) => ({
  * gmail { list(q, max) -> [{ id }] newest first, get(id) }, classify(input, email) -> schema value, send(text), messageText(payload).
  */
 export async function runOutcomes({ gmail, classify = modelClassify, send = null, messageText, dryRun = false, since = null, now = new Date() } = {}) {
+  applications();   // a broken applications.json stops the source before it marks anything seen
   const cfg = settings();
   const cap = num(cfg.max_emails, 50, 1, 500), account = Math.floor(num(cfg.account_index, 0, 0, 99));
   const stateFile = STATE('outcomes.json'), appsFile = STATE('applications.json');
@@ -291,7 +292,7 @@ export async function runOutcomes({ gmail, classify = modelClassify, send = null
 }
 
 // ---------- command line ----------
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = n => (i => (i >= 0 ? args[i + 1] : null))(args.indexOf(`--${n}`));
   const dryRun = args.includes('--dry-run'), since = opt('since');
