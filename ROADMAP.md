@@ -11,6 +11,7 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 - ✅ Install script, `doctor`, systemd timer, run lock, run date pinned per run
 - ✅ Hooks (`settings.hooks`), `JOBPILOT_SETTINGS`, extra front-matter fields, export / import (`jobpilot-export-v1`), decoder context files, application `events[]`
 - ✅ Unit tests (`npm test`)
+- ✅ Status `accepted` for jobs the user holds: closes the role for picks and dedupe, never set or undone by email, "Jobs I hold" in the coach hand-off, Offer in the tracker export (`docs/tasks/14-accepted-status.md`)
 - ✅ Interview coach as an optional onboarding step: installer from upstream (`deploy/modules/coach.sh`, `coach.ps1`), `cli.mjs coach-handoff`, doctor lines (`docs/tasks/13-coach-onboarding.md`)
 - ✅ Parity with the original pipeline (M2, the table below): every source, shared gates, aliases and dedupe, outcomes from Gmail, picks and decoder parity, pack lint, tracker export, scorecard, health ping, failure alert, Russian labels. Checked on its real data: identical tracker rows (95 of 95), gate replay with no unexplained hard-gate difference, outcome tracking agreeing on 28 of 30 events
 

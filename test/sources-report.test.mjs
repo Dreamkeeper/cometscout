@@ -89,6 +89,7 @@ test('the table counts queued, worth applying, only here, picks, applied and pas
     '2026-08-01--epsilon--designer.md': { company: 'Epsilon', role: 'Designer', status: 'rejected', updated: '2026-08-20', events: [{ date: '2026-08-05', type: 'applied' }] },
     'manual:kite|pm': { company: 'Kite', role: 'PM', status: 'applied', updated: '2026-09-10' },
     'manual:loom|pm': { company: 'Loom', role: 'PM', status: 'skipped', updated: '2026-09-10' },
+    'manual:orbit|data pm': { company: 'Orbit', role: 'Data PM', status: 'accepted', updated: '2026-09-12', events: [{ date: '2026-09-01', type: 'applied' }, { date: '2026-09-12', type: 'accepted' }] },
   }));
   const r = sc.scorecard({ date: '2026-10-01' });
   const by = Object.fromEntries(r.rows.map(x => [x.source, x]));
@@ -97,7 +98,8 @@ test('the table counts queued, worth applying, only here, picks, applied and pas
   assert.deepEqual(pick(by.linkedin), { queued: 2, worth: 1, only: 0, picks: 0, applied: 0, past: 0 }, 'Zeta Labs was seen by rtj too');
   assert.deepEqual(pick(by.hh), { queued: 1, worth: 0, only: 0, picks: 0, applied: 0, past: 0 });
   assert.deepEqual(pick(by['ats:greenhouse']), { queued: 0, worth: 0, only: 0, picks: 0, applied: 1, past: 0 }, 'outside the window; applications are all time');
-  assert.equal(by['(manual)'].applied, 1, 'a manual record counts; a skipped role does not');
+  assert.equal(by['(manual)'].applied, 2, 'a manual record counts; a skipped role does not');
+  assert.equal(by['(manual)'].past, 1, 'an accepted offer counts where an offer counts');
   assert.deepEqual(by.rtj.price, { month: 10, currency: 'USD', renews: '2026-10-05', decision: 'under review', perOnly: 10 });
   assert.deepEqual(r.notFeeds.map(n => n.source), ['premium-plan']);
   assert.ok(!by['premium-plan'], 'not a job feed: listed under the table, not in it');

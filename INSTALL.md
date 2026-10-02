@@ -165,6 +165,7 @@ If you already run [career-ops](https://github.com/career-ops-hq/career-ops), jo
 - In the evening, Telegram brings up to two of the day's best jobs, each with a pack: a CV as PDF, a cover letter if the form asks for one, and draft answers.
 - You applied: `node cli.mjs applied Company`, so the job is not offered again.
 - News from a company: `node cli.mjs status Company interview` (or `screen`, `offer`, `rejected`, `skipped`).
+- You took an offer and work there, but keep looking: `node cli.mjs status Company accepted`. The job stops counting as an open process, and no email changes that status.
 - All your applications: `node cli.mjs list`.
 - Clear the data after trying the example: `node cli.mjs reset --yes`.
 

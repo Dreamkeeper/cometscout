@@ -43,7 +43,10 @@ export const SCHEMA = {
 };
 const STATUS_FOR = { rejection: 'rejected', offer: 'offer', interview: 'interview', test_task: 'interview' };
 // Same-day order: a weaker status never replaces a stronger one (a recruiter screen never downgrades an interview).
-export const RANK = { applied: 0, skipped: 0, closed: 0, screen: 0.5, interview: 1, rejected: 2, offer: 2 };
+export const RANK = { applied: 0, skipped: 0, closed: 0, screen: 0.5, interview: 1, rejected: 2, offer: 2, accepted: 3 };
+// Statuses only the user sets: an email adds its event but never changes them (an offer email never turns a job the
+// user holds back into an open offer).
+export const USER_ONLY = new Set(['accepted']);
 const settings = () => ({ query: 'newer_than:3d -category:promotions -category:social', max_emails: 50, overlap_hours: 24, account_index: 0, model: null, ...(SETTINGS.sources.outcomes || {}) });
 
 // ---------- 1. reading emails ----------
@@ -155,7 +158,8 @@ function statusTime(prev) {
   return at;
 }
 /**
- * Append the event and set the status unless the application already has a later status. Returns what changed, or
+ * Append the event and set the status unless the application already has a later status or one only the user sets
+ * (accepted). Returns what changed, or
  * { blocked: reason } (and changes nothing) when the email would reopen a rejected or closed application and `reopen`
  * is false.
  */
@@ -164,6 +168,7 @@ export function applyOutcome(apps, hit, o, email, { reopen = false } = {}) {
   const event = { date: email.date, type: o.type, ...(o.round ? { round: o.round } : {}), ...(o.event_date ? { event_date: o.event_date } : {}), note: o.evidence, source: 'gmail', gmail_id: email.id };
   let status = STATUS_FOR[o.type] || (prev.status ? null : 'applied');        // application_received only adds an event
   const old = prev.status, when = prev.updated || '';
+  if (USER_ONLY.has(old)) status = null;
   if (status && old) {
     // An older email never overrides a status recorded later. Times are compared when an email set the status;
     // a status recorded by hand only has a day, and on that day only a stronger status wins.

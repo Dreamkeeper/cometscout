@@ -73,7 +73,7 @@ export const apps = () => readApplications(APPS_FILE);
 // status is the one its last earlier event set, dated by that event, and the later note is left out. Decodes count
 // when made before that day. excludeFile leaves out that job's own application entry and decode.
 const EVENT_STATUS = { rejection: 'rejected', interview: 'interview', test_task: 'interview', offer: 'offer', application_received: 'applied' };
-const STATUS_WORDS = new Set(['applied', 'screen', 'interview', 'offer', 'rejected', 'skipped', 'closed', 'withdrawn']);
+const STATUS_WORDS = new Set(['applied', 'screen', 'interview', 'offer', 'accepted', 'rejected', 'skipped', 'closed', 'withdrawn']);
 const statusOfEvent = e => EVENT_STATUS[e.type] || (STATUS_WORDS.has(e.type) ? e.type : null);
 const byDate = (x, y) => (String(x.date || '') < String(y.date || '') ? -1 : String(x.date || '') > String(y.date || '') ? 1 : 0);
 /** One application as the history shows it on a given day: { date, status, note, events } or null when it did not exist yet. */
@@ -83,7 +83,10 @@ export function asOf(a, before = null) {
   const events = all.filter(e => e.date && String(e.date) < before).sort(byDate);
   if (a.updated && String(a.updated) < before) return { date: a.updated, status: a.status, note: a.note, events };
   if (!events.length) return null;
-  const set = [...events].reverse().find(statusOfEvent) || events[events.length - 1];
+  // the last event that set a status; an email never moves an accepted application (sources/outcomes.mjs USER_ONLY)
+  let set = null;
+  for (const e of events) if (statusOfEvent(e) && !(set && statusOfEvent(set) === 'accepted' && e.source === 'gmail')) set = e;
+  set = set || events[events.length - 1];
   return { date: set.date, status: statusOfEvent(set) || set.type || 'applied', note: null, events };
 }
 export function history(company, { before = null, excludeFile = null } = {}) {
@@ -212,7 +215,7 @@ export async function linkAlive(url, { fetch = globalThis.fetch } = {}) {
   } catch { return true; }
 }
 // Statuses that mean the user already acted on a role; any recorded event counts too.
-export const CLOSED_STATUSES = new Set(['applied', 'screen', 'interview', 'offer', 'rejected', 'withdrawn', 'closed', 'skipped']);
+export const CLOSED_STATUSES = new Set(['applied', 'screen', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'closed', 'skipped']);
 const knownCompany = c => !!norm(c) && norm(c) !== 'unknown';
 /**
  * A pool job is closed when its own file is an application, or an application the user acted on (a closed status or
