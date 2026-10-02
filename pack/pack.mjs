@@ -16,6 +16,7 @@ import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, log, today as runDate }
 import { callJson } from '../lib/llm.mjs';
 import { loadJob, slug } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
+import { packMessage } from './message.mjs';
 import { runHook } from '../lib/hooks.mjs';
 import { profileRules, paragraphsFromXml, lintParagraphs, lintText, formatReport, RULES_FILE } from '../lib/lint.mjs';
 
@@ -444,9 +445,7 @@ for (const f of targets) {
     log(`${f}: pack in ${r.dir} (${r.files.length} file(s), ${r.answers.length} answer(s), ${r.flags.length} flag(s))`);
     runHook('pack_built', { file: f, company: r.fm.company, role: r.fm.role, url: r.fm.url || null, dir: r.dir, files: r.files, flags: r.flags, answers: r.answers.length, cover_letter: r.clNeed });
     if (!NO_TG && telegramOn()) {
-      const head = [`📎 Application pack: ${r.fm.company}, ${r.fm.role}`, r.fm.url, '', ...(r.flags.length ? ['Check before sending:', ...r.flags.map(x => `• ${x}`), ''] : [])];
-      const ans = r.answers.map(a => `▸ ${a.field}${a.own_words ? ' (your words)' : ''}\n\n${a.answer}`);
-      await sendText([...head, ...(ans.length ? ['Form answers:', '', ans.join('\n\n')] : [r.form ? 'No form questions beyond personal data.' : 'Form not readable: open the link.']), ...(r.clNeed === 'text' && r.clText ? ['', 'Cover letter (paste as text):', '', r.clText] : [])].join('\n'));
+      await sendText(packMessage(r));
       for (const file of r.files) await sendFile(file, path.basename(file));
     }
   } catch (e) { failed++; log(`${f}: FAILED ${e.message}`); }

@@ -10,6 +10,8 @@ import { loadJob, parseResult, frontMatter, norm } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
 import { runHook } from '../lib/hooks.mjs';
+import { APPLY_WORTHY, picksText, digestText } from './digest.mjs';
+import { translator } from '../lib/i18n.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -43,8 +45,7 @@ export function contextBlock() {
   return out ? `\n\n## Further context from the candidate's own files (may lag the profile above; the profile wins)\n\n${out.trim()}` : '';
 }
 const CONTEXT = contextBlock();
-export const APPLY_WORTHY = ['strong-fit', 'investable-stretch'];
-const label = v => ({ 'strong-fit': 'Strong fit', 'investable-stretch': 'Investable stretch', 'long-shot': 'Long shot', 'weak-fit': 'Weak fit', 'gate-reject': 'Gate', unreadable: 'No job text' }[v] || v);
+export { APPLY_WORTHY };
 
 // ---------- applications (the user's own record of what happened) ----------
 export const APPS_FILE = STATE('applications.json');
@@ -141,11 +142,9 @@ export async function buildPicks(extra = []) {
   return { picks, open: open.length };
 }
 export function recordPicks(picks) { const s = readJson(PICKS_FILE, {}); for (const p of picks) s[p.file] = { shown: (s[p.file]?.shown || 0) + 1, last: today() }; fs.writeFileSync(PICKS_FILE, JSON.stringify(s, null, 1)); }
-const picksText = ({ picks, open }) => picks.length ? [`🎯 Apply today (${picks.length}; ${open} open in the pipeline)`,
-  ...picks.flatMap((p, i) => [`${i + 1}. ${p.fm.company}: ${p.fm.role} [${String(p.fm.location || '').slice(0, 60)}] ${label(p.v.verdict)}, p${p.v.apply_priority}, via ${p.fm.source}`, `   How: ${p.v.action}`, `   ${p.fm.url || ''}`]), ''] : [];
 
 // ---------- main ----------
-if (PICKS_ONLY) { const pk = await buildPicks(); console.log(picksText(pk).join('\n') || `no picks (${pk.open} open)`); process.exit(0); }
+if (PICKS_ONLY) { const pk = await buildPicks(); console.log(picksText(pk).join('\n') || translator()('picks.none', { open: pk.open })); process.exit(0); }
 // jobpilot's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
 // into data/inbox on its own schedule, set decoder.settle_sec (e.g. 60) so half-written files are left for later.
 const SETTLE_MS = Number(SETTINGS.decoder?.settle_sec || 0) * 1000;
@@ -185,15 +184,7 @@ if (!DRY) fs.writeFileSync(TRIES_FILE, JSON.stringify(tries, null, 1));
 const pk = await buildPicks(DRY ? done : []);
 if (!DRY) { recordPicks(pk.picks); if (pk.picks.length) runHook('picks', { date: today(), picks: pk.picks.map(p => ({ file: p.file, company: p.fm.company, role: p.fm.role, url: p.fm.url || null, verdict: p.v.verdict, apply_priority: p.v.apply_priority ?? null })) }); }
 if (!done.length && !failed.length && !gaveUp.length && !pk.picks.length) { log(`nothing new and no picks${LEFT ? ` (${LEFT} waiting in the inbox)` : ''}`); process.exit(0); }
-const worth = done.filter(d => APPLY_WORTHY.includes(d.v.verdict)), held = done.filter(d => ['long-shot', 'unreadable'].includes(d.v.verdict)), rej = done.filter(d => ['gate-reject', 'weak-fit'].includes(d.v.verdict));
-const L = [...picksText(pk), `${SETTINGS.candidate_name}: ${done.length} decoded ${today()}${DRY ? ' (dry run)' : ''}`, ''];
-if (worth.length) L.push(`Worth applying (${worth.length})`, ...worth.flatMap((d, i) => [`${i + 1}. ${d.fm.company}: ${d.fm.role} [${String(d.fm.location || '').slice(0, 60)}] ${label(d.v.verdict)}, p${d.v.apply_priority}`, `   ${d.v.action}`, ...(d.v.fact_flags?.length ? [`   Fact check: ${d.v.fact_flags.map(x => x.why).join(' ')}`] : []), `   ${d.fm.url || ''}`]), '');
-if (held.length) L.push(`Held (${held.length})`, ...held.flatMap(d => [`- ${d.fm.company}: ${d.fm.role}`, `   Why held: ${d.v.hold_reason || d.v.rationale}`, `   ${d.fm.url || ''}`]), '');
-if (rej.length) L.push(`Rejected (${rej.length})`, ...rej.map(d => `- ${d.fm.company}: ${d.v.gate || 'weak fit'}`), '');
-if (failed.length) L.push(`Failed (${failed.length}), will retry: ${failed.map(f => f.file).join(', ')}`);
-if (gaveUp.length) L.push(`Gave up after ${MAX_TRIES} failed tries (${gaveUp.length}), moved to rejected/: ${gaveUp.map(f => f.file).join(', ')}`);
-if (LEFT) L.push(`Waiting (${LEFT}): decoder.cap ${CAP} reached, the rest are decoded next run.`);
-const text = L.join('\n');
+const text = digestText({ name: SETTINGS.candidate_name, date: today(), dry: DRY, done, failed, gaveUp, pk, left: LEFT, cap: CAP, maxTries: MAX_TRIES });
 // A dry run never touches the digest; a second real run on the same day is appended, not written over the first.
 if (!DRY) { const dg = path.join(DIRS.digests, `${today()}.md`); fs.existsSync(dg) ? fs.appendFileSync(dg, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(dg, text + '\n', 'utf8'); }
 console.log('\n' + text);
