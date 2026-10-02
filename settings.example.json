@@ -88,7 +88,7 @@
     "must_reside_phrases": [],
     "headcount": { "demote_over": null, "reject_over": null, "demote_unless": ["remote_worldwide", "remote_region", "sponsorship"] },
     "companies": { "exclude": [], "agencies": [] },
-    "industries": { "exclude": [] }
+    "industries": { "exclude": [], "exclude_combos": [] }
   },
   "delivery": { "telegram": { "enabled": false, "token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID" } },
   "pack": { "enabled": true, "pdf": "auto" }
