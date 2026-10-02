@@ -178,7 +178,7 @@ test('a role closed or withdrawn before applying is not exported; an entry with 
   assert.equal(r.applications.length, 7, 'the rest of the file is still written');
   assert.ok(fs.existsSync(OUT));
   assert.deepEqual(r.undated.map(x => x.company), ['Nodate']);
-  assert.deepEqual(tr.exportNotes(r), ['skipped, no date: Nodate: Product Manager']);
+  assert.deepEqual(tr.exportNotes(r), ['skipped, no date up to today: Nodate: Product Manager']);
   assert.equal(tr.isApplication({ status: 'closed', applied: '2026-09-01' }), true, 'an applied date is proof enough');
   assert.equal(tr.isApplication({ status: 'withdrawn', events: [ev('2026-09-01', 'applied')] }), true);
 });
@@ -192,6 +192,8 @@ test('dateApplied falls back to the earliest dated event before updated; lastAct
   assert.equal(rows.Earlyco.dateApplied, '2026-09-05');
   assert.equal(rows.Bookedco.lastActivity, '2026-09-28', 'the interview on 2026-10-10 is booked, not done (today is 2026-10-02)');
   assert.equal(rows.Bookedco.notes, 'Last update 2026-09-28');
+  const future = tr.toRow('manual:soonco|pm', { company: 'Soonco', role: 'PM', status: 'rejected', updated: '2026-09-30', events: [ev('2026-09-20', 'applied'), ev('2026-10-09', 'rejected')] }, {}, '2026-10-02');
+  assert.equal(future.notes, 'Rejected 2026-09-30', 'notes never name an event after today');
   const later = byCompany(tr.trackerExport({ out: OUT, date: '2026-10-10' }).applications);
   assert.equal(later.Bookedco.lastActivity, '2026-10-10', 'it counts from its day on');
 });
@@ -233,13 +235,12 @@ test('a relative tracker_export.out is under the data folder; doctor shows it wi
   assert.match(doc.stdout, /^ok {3}tracker export: data\/exports\/pipeline\.json$/m, doc.stdout);
 });
 
-test('cli.mjs tracker-export --dry-run prints the rows as JSON, then the summary, and writes nothing', () => {
+test('cli.mjs tracker-export --dry-run prints the rows as JSON on stdout, the summary on stderr, and writes nothing', () => {
   seed();
   const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'tracker-export', '--out', OUT, '--dry-run'], { encoding: 'utf8', env: process.env });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  const lines = r.stdout.trimEnd().split('\n');
-  assert.match(lines.at(-1), /^would write .*pipeline\.json \(7 applications: .*dry run, nothing written\)$/);
-  const rows = JSON.parse(lines.slice(0, -1).join('\n'));
+  assert.match(r.stderr.trimEnd().split('\n').at(-1), /^would write .*pipeline\.json \(7 applications: .*dry run, nothing written\)$/);
+  const rows = JSON.parse(r.stdout);   // stdout is the JSON alone, so it can be piped
   assert.equal(rows.length, 7);
   assert.deepEqual(Object.keys(rows[0]), ['company', 'role', 'stage', 'furthestStage', 'dateApplied', 'lastActivity', 'notes', 'source', 'link']);
   assert.ok(!fs.existsSync(OUT));

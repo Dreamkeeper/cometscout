@@ -87,6 +87,19 @@ test('formatReport names each hit with its level, paragraph and why', () => {
   assert.doesNotMatch(out, /\u2014/);
 });
 
+test('matchesWhole: a universal check covers a lint hit only when it is the whole hit', () => {
+  assert.equal(L.matchesWhole(/\b(he|his|him)\b/i, 'his'), true);
+  assert.equal(L.matchesWhole(/\b(he|his|him)\b/i, 'his team of 40'), false);
+  assert.equal(L.matchesWhole(/\u2014/g, '\u2014'), true, 'g and y flags are dropped');
+});
+
+test('libraryTexts: company blurbs are linted too', () => {
+  const lib = { experience: [{ key: 'acme', company: 'Acme', blurb: 'Smart home devices, 40 people', roles: [{ bullets: [{ id: 'b1', text: 'Shipped a hub' }] }] }] };
+  assert.ok(L.libraryTexts(lib).some(x => x.item === 'acme (blurb)' && x.text === 'Smart home devices, 40 people' && x.kind === 'line'));
+  const r = L.lintLibrary(lib, L.compileRules({ banned_claims: [{ id: 'size', pattern: '\\b40 people\\b', why: 'Not 40.' }] }));
+  assert.deepEqual(r.errors.map(e => e.item), ['acme (blurb)']);
+});
+
 test('lintLibrary: banned hits and warnings (limits included) in vetted text, by item id', () => {
   const r = L.lintLibrary(LIB, RULES);
   assert.deepEqual(r.errors, [{ item: 'nw-team', id: 'big-team', match: 'team of 40', why: 'Never managed a team that size.' }]);

@@ -16,6 +16,17 @@ process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
 fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
 const { unitFiles, notify } = await import('../lib/ops.mjs');
 
+test('units run cli.mjs from the code folder and set JOBPILOT_HOME when it differs', () => {
+  const u = unitFiles({ root: '/home/me/jp-data', code: '/opt/jobpilot', node: '/usr/bin/node', time: '18:30', envPath: '/usr/bin' });
+  assert.match(u['jobpilot.service'], /^ExecStart=\/usr\/bin\/node \/opt\/jobpilot\/cli\.mjs run$/m);
+  assert.match(u['jobpilot.service'], /^Environment="JOBPILOT_HOME=\/home\/me\/jp-data"$/m);
+  assert.match(u['jobpilot.service'], /^WorkingDirectory=\/home\/me\/jp-data$/m);
+  assert.match(u['jobpilot-failure@.service'], /^ExecStart=\/usr\/bin\/node \/opt\/jobpilot\/cli\.mjs notify /m);
+  assert.match(u['jobpilot-failure@.service'], /^Environment="JOBPILOT_HOME=\/home\/me\/jp-data"$/m);
+  const same = unitFiles({ root: '/srv/jobpilot', node: '/usr/bin/node', time: '18:30', envPath: '/usr/bin' });
+  assert.ok(!same['jobpilot.service'].includes('JOBPILOT_HOME') && !same['jobpilot-failure@.service'].includes('JOBPILOT_HOME'));
+});
+
 test('the run unit has OnFailure= and the failure template runs notify', () => {
   const u = unitFiles({ root: '/srv/jobpilot', node: '/usr/bin/node', time: '18:30', tz: 'Europe/Madrid', envPath: '/usr/bin:/bin' });
   assert.deepEqual(Object.keys(u), ['jobpilot.service', 'jobpilot.timer', 'jobpilot-failure@.service']);

@@ -18,7 +18,7 @@ import { loadJob, slug } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
 import { packMessage } from './message.mjs';
 import { runHook } from '../lib/hooks.mjs';
-import { profileRules, paragraphsFromXml, lintParagraphs, lintText, formatReport, RULES_FILE } from '../lib/lint.mjs';
+import { profileRules, paragraphsFromXml, lintParagraphs, lintText, formatReport, RULES_FILE, matchesWhole } from '../lib/lint.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -169,7 +169,7 @@ function lintFlags(label, text, flags) {
   const fired = PROFILE.factRules.filter(f => f.re.test(text));
   const universal = BANNED.filter(([re]) => re.test(text)).map(([re]) => re);
   const dup = h => { const rule = [...LINT.banned, ...LINT.warn].find(x => x.id === h.id);
-    return fired.some(f => f.id === h.id || (rule && f.pattern === rule.pattern)) || universal.some(re => re.test(h.match)); };
+    return fired.some(f => f.id === h.id || (rule && f.pattern === rule.pattern)) || universal.some(re => matchesWhole(re, h.match)); };
   const seen = new Set();
   for (const [level, list] of [['error', r.errors], ['warning', r.warns]]) for (const h of list) {
     if (seen.has(h.id) || dup(h)) continue; seen.add(h.id);
