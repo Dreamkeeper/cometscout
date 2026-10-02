@@ -17,7 +17,7 @@ import { callJson } from '../lib/llm.mjs';
 import { loadJob, slug } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
 import { runHook } from '../lib/hooks.mjs';
-import { profileRules, paragraphsFromXml, lintParagraphs, lintText, formatReport } from '../lib/lint.mjs';
+import { profileRules, paragraphsFromXml, lintParagraphs, lintText, formatReport, RULES_FILE } from '../lib/lint.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -56,6 +56,9 @@ const PROMPT = read(path.join(HERE, 'prompt.md')).replace('{{NAME}}', () => SETT
 const PERSON = String(LIB.file_name || LIB.name || 'Candidate').toLowerCase().replace(/(^|\s|-)\S/g, s => s.toUpperCase());
 const PACKS_FILE = STATE('packs.json');
 const LINT = profileRules();
+// A refused pack is skipped until the library or the rules change (their modification times, null when absent).
+const mtime = f => { try { return fs.statSync(f).mtimeMs; } catch { return null; } };
+const LIB_FILE = path.join(PROFILE.dir, 'cv-library.json'), LINT_FILE = path.join(PROFILE.dir, RULES_FILE);
 for (const p of LINT.problems) log(`lint rule skipped: ${p} (profile/lint-rules.json)`);
 
 // ---------- application form readers ----------
@@ -157,19 +160,21 @@ function textIssues(t) {
   return out;
 }
 const dedash = t => String(t).replace(/\s*—\s*/g, ', ');
-// Lint a cover letter or an answer; each rule is flagged once per text, and not at all when a fact rule with the
-// same id or pattern already flagged that text.
+// Lint a cover letter or an answer; each rule is flagged once per text, and not at all when textIssues() already
+// flagged the same thing: a fact rule with the same id or pattern, or a universal check (em dash, third person)
+// that matches the lint hit's own match. Returns every hit as { errors, warns }.
 function lintFlags(label, text, flags) {
   const r = lintText(text, LINT);
   const fired = PROFILE.factRules.filter(f => f.re.test(text));
-  const dup = h => { const rule = [...LINT.banned, ...LINT.warn].find(x => x.id === h.id); return fired.some(f => f.id === h.id || (rule && f.pattern === rule.pattern)); };
-  const seen = new Set(), hits = [];
+  const universal = BANNED.filter(([re]) => re.test(text)).map(([re]) => re);
+  const dup = h => { const rule = [...LINT.banned, ...LINT.warn].find(x => x.id === h.id);
+    return fired.some(f => f.id === h.id || (rule && f.pattern === rule.pattern)) || universal.some(re => re.test(h.match)); };
+  const seen = new Set();
   for (const [level, list] of [['error', r.errors], ['warning', r.warns]]) for (const h of list) {
-    hits.push({ ...h, level });
     if (seen.has(h.id) || dup(h)) continue; seen.add(h.id);
     flags.push(`${label}${level === 'warning' ? ', warning' : ''}: ${h.id}${h.why ? ` (${h.why})` : ''}`);
   }
-  return hits;
+  return { errors: r.errors, warns: r.warns };
 }
 
 // ---------- rendering (same WordprocessingML as the master CV builds) ----------
@@ -305,16 +310,19 @@ async function buildPack(file) {
   const vetted = { tagline: pick(LIB.taglines), summary: pick(LIB.summaries) };
   const ids = hits => [...new Set(hits.map(h => h.id))].join(', ');
   let cvLint = lintCv();
-  const inModel = cvLint.errors.filter(h => ['tagline', 'summary'].some(k => cv[k] !== vetted[k] && flat(cv[k]) === cvLint.paras[h.para].text));
-  if (inModel.length) {
-    flags.push(`CV lint: ${ids(inModel)} in model text, vetted summary used`);
+  // a hit is in model text when its paragraph is the model's tagline or summary (not the vetted one)
+  const inModel = h => ['tagline', 'summary'].some(k => cv[k] !== vetted[k] && flat(cv[k]) === cvLint.paras[h.para - 1].text);
+  if (cvLint.errors.some(inModel)) {
+    flags.push(`CV lint: ${ids(cvLint.errors.filter(inModel))} in model text, vetted summary used`);
     cv.tagline = vetted.tagline; cv.summary = vetted.summary; cvLint = lintCv();
   }
   if (cvLint.errors.length) {
     log(`pack ${file}: CV still breaks ${ids(cvLint.errors)} after the vetted fallback; fix profile/cv-library.json`);
-    return { file, fm, refused: ids(cvLint.errors), lint: { errors: cvLint.errors, warns: cvLint.warns } };
+    return { file, fm, refused: [...new Set(cvLint.errors.map(h => h.id))], lint: { errors: cvLint.errors, warns: cvLint.warns } };
   }
-  for (const h of cvLint.warns) flags.push(`CV lint warning: ${h.id} (${h.id.endsWith('-length') ? h.match : `"${h.match}"`}${h.why ? `, ${h.why}` : ''}).`);
+  // Warnings on vetted text are doctor's to report (once); a pack flags only the ones in model-written text.
+  // Every warning stays in answers.md (## Lint) and pack.json.
+  for (const h of cvLint.warns.filter(inModel)) flags.push(`CV lint warning: ${h.id} (${h.id.endsWith('-length') ? h.match : `"${h.match}"`}${h.why ? `, ${h.why}` : ''}).`);
   const xml = renderCv(cv);
   // one folder per role (two roles at one company must not share answers.md / pack.json)
   const dir = path.join(OUT_ROOT, `${today}--${slug(fm.company)}--${slug(fm.role)}`); fs.mkdirSync(dir, { recursive: true });
@@ -331,7 +339,7 @@ async function buildPack(file) {
   const files = cvPdf.pdf ? [cvPdf.pdf] : [];
 
   // Cover letter
-  let clText = '', clLint = [];
+  let clText = '', clLint = { errors: [], warns: [] };
   if (clNeed !== 'no' && pack.cover_letter?.blocks?.length) {
     const blocks = pack.cover_letter.blocks.map(b => ({ ...b, text: dedash(b.text) }));
     const issues = [...new Set(blocks.flatMap(b => textIssues(b.text)))];
@@ -349,8 +357,7 @@ async function buildPack(file) {
   const answersLint = [];
   for (const a of answers) {
     const iss = textIssues(a.answer); if (iss.length) flags.push(`Answer "${a.field}": ${iss.join('; ')}.`);
-    const hits = lintFlags(`Answer "${a.field}"`, a.answer, flags);
-    answersLint.push({ field: a.field, errors: hits.filter(h => h.level === 'error'), warns: hits.filter(h => h.level === 'warning') });
+    answersLint.push({ field: a.field, ...lintFlags(`Answer "${a.field}"`, a.answer, flags) });
   }
   const md = [`# ${fm.company}: ${fm.role}`, '', `Link: ${fm.url}`, `Built ${today} by jobpilot (${SETTINGS.llm.provider}/${MODEL}${cost ? `, USD ${cost.toFixed(2)}` : ''}). Form: ${form ? form.ats : 'not readable, open the link'}. Cover letter: ${clNeed}.`, '',
     `**CV leads with:** ${pack.positioning}`, '', '## Check before sending', ...(flags.length ? flags.map(f => `- ${f}`) : ['- nothing flagged']), '',
@@ -411,13 +418,27 @@ if (!targets.length) {
   const picks = readJson(STATE('picks.json'), {});
   targets = Object.entries(picks).filter(([, v]) => v.last === today).map(([f]) => f);
 }
-targets = targets.filter(f => flag('force') || !packs[f]);
+targets = targets.filter(f => {
+  const p = packs[f];
+  if (flag('force') || !p) return true;
+  if (!p.refused) return false;
+  if (p.library_mtime !== mtime(LIB_FILE) || p.rules_mtime !== mtime(LINT_FILE)) { log(`${f}: the CV library or the lint rules changed since the refusal on ${p.date}; building again`); return true; }
+  log(`${f}: skipped, its CV broke ${p.refused.join(', ')} on ${p.date}; tried again when profile/cv-library.json or profile/lint-rules.json changes`);
+  return false;
+});
 if (!targets.length) { log('no picks to pack'); process.exit(0); }
 let failed = 0; const refused = [];
 for (const f of targets) {
   try {
     const r = await buildPack(f);
-    if (r.refused) { refused.push(`${f} (${r.refused})`); continue; }
+    if (r.refused) {
+      // remembered, so later runs skip it without a model call until the library or the rules change
+      packs[f] = { refused: r.refused, date: today, at: new Date().toISOString(), library_mtime: mtime(LIB_FILE), rules_mtime: mtime(LINT_FILE), company: r.fm.company, role: r.fm.role };
+      fs.writeFileSync(PACKS_FILE, JSON.stringify(packs, null, 2), 'utf8');
+      refused.push(`${f} (${r.refused.join(', ')})`);
+      if (!NO_TG && telegramOn()) await sendText(`Pack not built: ${r.fm.company}, ${r.fm.role}. The CV still breaks ${r.refused.join(', ')} with vetted text; fix profile/cv-library.json.`);
+      continue;
+    }
     packs[f] = { built: today, dir: path.basename(r.dir) };
     fs.writeFileSync(PACKS_FILE, JSON.stringify(packs, null, 2), 'utf8');
     log(`${f}: pack in ${r.dir} (${r.files.length} file(s), ${r.answers.length} answer(s), ${r.flags.length} flag(s))`);
@@ -430,6 +451,6 @@ for (const f of targets) {
     }
   } catch (e) { failed++; log(`${f}: FAILED ${e.message}`); }
 }
-// A refused pack needs the user (fix the library or the rule): exit 3, like a source that needs the user.
-if (refused.length) log(`pack: not built because the CV breaks a lint rule with vetted text: ${refused.join('; ')}`);
-process.exitCode = failed ? 1 : refused.length ? 3 : 0;
+// A refused pack is not a failure: the run goes on, and cli.mjs run lists it in run_done and its closing line.
+if (refused.length) log(`pack: refused (the CV breaks a lint rule with vetted text): ${refused.join('; ')}`);
+process.exitCode = failed ? 1 : 0;
