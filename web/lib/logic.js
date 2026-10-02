@@ -157,7 +157,7 @@ export function toLoad(file, jobs, packs, inflight = new Set()) {
 export function packView(pack) {
   if (!pack || !pack.dir) return null;
   const p = pack.pack;
-  if (p) return { fromMd: false, flags: p.flags || [], hits: lintHits(p), answers: p.answers || [], positioning: p.raw?.positioning || p.positioning || null, built: p.built || null };
+  if (p) return { fromMd: false, flags: p.flags || [], hits: p.lint ? lintHits(p) : null, answers: p.answers || [], positioning: p.raw?.positioning || p.positioning || null, built: p.built || null };
   const md = pack.from_answers || {};
   return { fromMd: true, flags: md.flags ?? null, hits: null, answers: md.answers ?? null, positioning: md.positioning || null, built: null };
 }

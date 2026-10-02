@@ -173,6 +173,7 @@ test('filters are remembered without the search text', () => {
 
 test('the pack view: pack.json when there is one; answers.md otherwise, never claiming what no file recorded', () => {
   assert.equal(L.packView({ file: 'x', dir: null, pack: null }), null);
+  assert.equal(L.packView({ dir: 'd', pack: { flags: [], answers: [] } }).hits, null, 'a pack.json without a lint record claims no lint result');
   const full = L.packView({ dir: 'd', pack: { flags: [], answers: [{ field: 'Why?', answer: 'A' }], lint: { cv: { errors: [], warns: [] } }, raw: { positioning: 'P' }, built: '2026-10-02T18:00:00Z' } });
   assert.deepEqual(full, { fromMd: false, flags: [], hits: [], answers: [{ field: 'Why?', answer: 'A' }], positioning: 'P', built: '2026-10-02T18:00:00Z' }, 'with pack.json an empty list means nothing was flagged');
   const md = L.packView({ dir: 'd', pack: null, from_answers: { flags: ['Check the dates.'], answers: [{ field: 'Why?', answer: 'B', own_words: true }], positioning: null } });
