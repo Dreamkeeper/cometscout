@@ -323,6 +323,10 @@ test('job board senders are not skipped; their subscription mail is, by subject'
   assert.deepEqual(calls, ['h1', 'h3', 'h4'], 'the hh.ru invitation reaches the classifier');
   assert.equal(r.skipped['job alert or newsletter'], 2);
   assert.equal(o.prefilter({ from: 'noreply@hh.ru', subject: 'Приглашение на собеседование', text: 'Вас пригласили на собеседование.' }), null);
+  // an ATS scheduling invite with no application words (seen live from Personio)
+  assert.equal(o.prefilter({ from: 'Acme Robotics <acme-jobs@m.personio.example>', subject: 'Vision call – Product Manager, Robotics at Acme Robotics', text: 'Hi, please pick a slot for a 30 minute call with our CEO: https://example.com/book' }), null);
+  assert.equal(o.prefilter({ from: 'Иван <ivan@acme.example>', subject: 'Созвон', text: 'Предлагаю звонок в четверг.' }), null);
+  assert.equal(o.prefilter({ from: 'friend@example.com', subject: 'Dinner', text: 'See you on Friday.' }), 'no application words');
 });
 
 test('the run report is written to data/digests whether Telegram is off or fails', async () => {
