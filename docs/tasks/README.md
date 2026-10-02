@@ -22,3 +22,4 @@ How to work on one:
 | 10 | `10-workspace-today-screen.md` workspace probe: `cli.mjs serve` and the Today screen (Preact + htm, no build) | 01-09 merged |
 | 11 | `11-export-v2-and-backups.md` export format v2 (ZIP, no dependency), import with conflict modes, encrypted secrets export, nightly backups and restore | none |
 | 12 | `12-releases-and-updates.md` release notes, update check and notification (notify only), update with backup, migrations, verify and automatic rollback, manual rollback, What is new | 11 |
+| 13 | `13-coach-onboarding.md` interview coach as an optional onboarding step: upstream installer, hand-off file from the profile, CV library, voice and applications | none |
