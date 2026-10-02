@@ -19,7 +19,7 @@ sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack 
 - **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans.
 - **Decode:** each job is judged against `profile/profile.md`: your experience, what you want, location and work permit, hard gates, and scope guards (what you must never claim). Verdicts: strong fit, investable stretch, long shot (with the reason it was held), weak fit, gate.
 - **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you are already in process for excluded.
-- **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
+- **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The finished CV, cover letter and answers are checked against your [lint rules](#lint-rules); a CV that would still carry a banned claim is not sent. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
 
 ## Quick start
 
@@ -45,6 +45,9 @@ node cli.mjs status <company> screen|interview|offer|rejected|skipped|closed [ro
 node cli.mjs list
 node cli.mjs timer [HH:MM]                # reinstall the daily timer from settings.json (run_time, timezone)
 node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
+node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
+node cli.mjs sources-report [--send]      # which source earns its price
+node cli.mjs notify <text>                # one Telegram message (the failure alert uses it)
 ```
 
 ## Configuration
@@ -53,7 +56,7 @@ node cli.mjs reset --yes                  # clear data/ (e.g. after trying the e
 |---|---|---|
 | `settings.json` | model provider (`claude` or `codex`) and models, sources and their filters, picks, Telegram | no |
 | `.env` | tokens: `RTJ_API_TOKEN`, `HIRIFY_COOKIE`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GMAIL_*` (written by `tools/gmail-auth.mjs`) | no |
-| `profile/` | `profile.md`, `cv-library.json`, `fact-rules.json`, `voice.md`, `cover-letter-template.md` | no |
+| `profile/` | `profile.md`, `cv-library.json`, `fact-rules.json`, `lint-rules.json`, `voice.md`, `cover-letter-template.md` | no |
 | `data/` | the queue, digests, packs, state | no |
 
 Models: decoding uses `llm.model` (a mid-size model is enough), packs use `llm.pack_model` (use the strongest you have). On smaller plans, lower `decoder.cap` or use a smaller model.
@@ -174,6 +177,29 @@ Every run writes a report to `data/digests/outcomes-YYYY-MM-DD.md` (appended whe
 
 `model: null` uses `llm.model`. Each email is read once (by Gmail id). After the first run the search starts at the last run minus `overlap_hours` and `newer_than:` is dropped, so a few days without a run lose nothing. `max_emails` caps the emails sent to the model per run; the rest are picked up by the next run, oldest first. `account_index` is the `N` in `mail.google.com/mail/u/N/` for the links (0 unless you read this mailbox as a second Google account). Try it with `node sources/outcomes.mjs --dry-run` (classifies and prints, writes nothing); backfill with `--since YYYY-MM-DD`; `--no-telegram` writes the report file only. Company aliases come from `queue.aliases` (see [Companies, duplicates and statuses](#companies-duplicates-and-statuses)); here a company matches only when the names are equal, in one family, or one is the other plus extra words.
 
+### Lint rules
+
+`profile/lint-rules.json` (optional) is your memory of what must never be written. Every time you correct a fact in a CV, a cover letter or an answer, add a rule for it, so the same claim never comes back. See `profile.example/lint-rules.json`:
+
+```json
+{
+  "banned_claims": [ { "id": "first-pm", "pattern": "\\bfirst (product )?(pm|product manager)\\b", "why": "Not the first PM at either company." } ],
+  "warn_claims":   [ { "id": "fluff", "pattern": "\\b(passionate|synergy)\\b", "why": "Empty words." } ],
+  "limits": { "bullet_max_words": 70, "summary_max_words": 190 }
+}
+```
+
+Every key is optional. Patterns are JavaScript regular expressions with the flags `giu` (case-insensitive, Unicode). `\b` only knows Latin letters; for Cyrillic write `(?<!\p{L})слово(?!\p{L})`. `node cli.mjs doctor` names a pattern that does not compile (it is skipped) and any pattern that puts `\b` next to a Cyrillic letter (it is left as written).
+
+Each pack is checked: the rendered CV, the cover letter and every form answer (your `fact-rules.json` still runs too; a hit is reported once).
+
+- A **banned claim** in the model's CV tagline or summary brings back your vetted tagline and summary (`CV lint: first-pm in model text, vetted summary used`).
+- A banned claim that is still in the CV after that is in your own vetted text, so **the pack for that job is refused**: no PDF, no pack, one short Telegram line (company, role, rule ids, "fix profile/cv-library.json"), and the log says `CV still breaks <ids> after the vetted fallback; fix profile/cv-library.json`. The run goes on and does not fail; the refusal is listed in the run's closing line and in `run_done` (`refused`). It is remembered in `data/state/packs.json`, so later runs skip that job without a model call until `cv-library.json` or `lint-rules.json` changes.
+- Banned claims in the cover letter or an answer go under "Check before sending", and so do **warnings** in text the model wrote (the cover letter, the answers, the CV tagline and summary). Warnings and **limits** (a bullet or a summary paragraph over the word limit) on your vetted CV text are reported once by `node cli.mjs doctor`, not in every pack. `answers.md` ends with the CV's full lint report, and `pack.json` keeps every hit under `lint` (paragraphs counted from 1).
+- `node cli.mjs doctor` checks every tagline, summary, bullet, highlight, skill and award in the library: a banned claim fails the check, warnings and limits are listed. You find a problem there before a run does.
+
+Check any file by hand: `node lib/lint.mjs <file.docx|document.xml|file.txt> [--rules lint-rules.json] [--json]` (exits 1 on a banned hit).
+
 ### Hooks
 
 Hooks let your own scripts react to the pipeline without changing jobpilot, for example to copy decodes into your notes or update a tracker:
@@ -190,7 +216,7 @@ Events: `before_run`, `job_written`, `decoded`, `picks`, `pack_built`, `outcome`
 
 `decoded` carries `file`, `dir`, `company`, `role`, `url`, `source`, `verdict`, `gate`, `confidence`, `apply_priority`, `action` and `fact_flags`: every fact rule the verdict tripped, as `[{ "id", "why", "excerpt" }]` (the excerpt is the matched text, at most 80 characters).
 
-`run_done` carries `date`, `seconds`, `decoder_exit`, `pack_exit` and `sources_failed`: every source that exited non-zero in this run, as `[{ "source": "rtj", "exit": 2 }]` (empty when all went well). The same sources are named in the run's log (`jobpilot: source rtj failed (exit 2)`, and a closing `run finished; failed source(s): ...` line), so a dead source is never silent. Only exit 3 (a source that needs you, such as an expired login) makes the run itself exit non-zero. `node cli.mjs doctor` lists configured hooks and flags unknown event names.
+`run_done` carries `date`, `seconds`, `decoder_exit`, `pack_exit`, `sources_failed`: every source that exited non-zero in this run, as `[{ "source": "rtj", "exit": 2 }]` (empty when all went well), and `refused`: the packs this run refused because vetted CV text breaks a [lint rule](#lint-rules), as `[{ "file", "company", "role", "rules": ["id"] }]` (listed in the closing line too, never a failure). The same sources are named in the run's log (`jobpilot: source rtj failed (exit 2)`, and a closing `run finished; failed source(s): ...` line), so a dead source is never silent. Only exit 3 (a source that needs you, such as an expired login) makes the run itself exit non-zero. `node cli.mjs doctor` lists configured hooks and flags unknown event names.
 
 The `outcome` event carries: `key` (the application), `company`, `role`, `type` (rejection, interview, test_task, offer, application_received), `status` and `previous_status`, `reopened` (true when a rejected or closed application was reopened), the event fields `date` (the email's day), `round` and `event_date` (when given), `note` (the evidence sentence), `source` (`gmail`) and `gmail_id`, plus `thread_id`, `email_date` (the email's Date header as received, or the time Gmail received it when there is none), `from`, `subject` and `evidence` (the same sentence as `note`).
 
@@ -266,6 +292,54 @@ If you also run [career-ops](https://github.com/career-ops-hq/career-ops), jobpi
 Before anything is fetched, a link you already have in `data/state/applications.json` (the same link, or the same company and role) is skipped, and the [gates](#gates) run on the company, role and location career-ops wrote, so an excluded company or an on-site job in the wrong country costs nothing. jobpilot then fetches the full text (from the ATS API for Greenhouse, Ashby, Lever, Workable and Recruitee links, otherwise the page), checks applications and the gates again on what the posting says, and queues the job with `source: "career-ops"`, the location and the compensation (as salary). Closed postings are skipped. The company is the one career-ops wrote, else the one the posting names, else the board in the link; it is never guessed from the title. A job with no company anywhere is queued as "Unknown" with a flag, so the decoder sees it.
 
 `max_per_run` caps the jobs handled per run, shared out one per company in turn (the company as written, else the board in the link); the rest wait for the next run. Every link is remembered in `data/state/career-ops.json`, so nothing is fetched twice. A gate reject is remembered too, but one made before the fetch is checked again on every run without any network, so changing `gates` brings it back. A link that could not be fetched (a rate limit, a server error, a network hiccup) is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job given up on is still queued without text when its company and role are known. Try it with `node sources/career-ops.mjs --dry-run` (fetches and logs, writes nothing). `node cli.mjs doctor` checks that the folder has the pipeline file and that jobpilot can read it.
+
+### Tracker export
+
+`node cli.mjs tracker-export` writes your applications as the import file of [job-pipeline-tracker](https://github.com/Dreamkeeper/job-pipeline-tracker), which re-imports it whenever `exportedAt` changes:
+
+```json
+"tracker_export": { "enabled": false, "out": "tracker/pipeline.json" }
+```
+
+`out` is relative to the data folder (`data/`, or `JOBPILOT_DATA` when set), so the default lands in `data/tracker/pipeline.json`; an absolute path is used as it is. `--out <file>` on the command line is relative to the folder you run it from.
+
+Every entry in `data/state/applications.json` that is an application is a row: one with an `applied` event or an `applied` date, or with a status that means you applied (not `skipped`, `closed` or `withdrawn`). A role closed or withdrawn before you applied is not exported. `stage` comes from the status (Applied, Screen, Interview, Offer, Rejected, Withdrawn; `withdrawn` and `closed` are Withdrawn); `furthestStage` is the furthest of Applied, Screen, Interview and Offer that the status and events reached, so a rejection after an interview keeps Interview. `dateApplied` is the first `applied` event, else the entry's `applied` date, else its earliest dated event, else `updated`. `lastActivity` is the latest event or update up to today (a booked interview counts from its day on). `notes` "Rejected <date>", "Closed <date>" or "Last update <date>". `source` and `link` come from the job's queue file. The file is written (to a temporary file, then renamed) only when its `contentHash` changes, so the app does not re-import the same data; the command says `wrote <file>` or `unchanged (N applications: Applied 3, ...)`. Every row is checked first (known stages, a company and a role, dates as YYYY-MM-DD); a bad row stops the export and is shown. An entry with no date at all is left out and listed (`skipped, no date: ...`); it does not stop the export. `--dry-run` prints the rows as JSON and the summary, and writes nothing. With `enabled`, `node cli.mjs run` exports at the end; a failure there is logged and does not fail the run.
+
+Corrections go in `data/state/tracker-overrides.json`. `company` matches the company (with your `queue.aliases` once company alias families are in), `role` is an optional substring of the role; `drop` leaves the row out, any other field replaces the row's value, and `note` is a comment for you that is never copied. An override applies to every row it matches, so add `role` to narrow it to one. An override that matches nothing is reported.
+
+```json
+{ "overrides": [ { "company": "Acme", "role": "designer", "drop": true }, { "company": "Northwind", "stage": "Interview", "notes": "Second round booked" } ] }
+```
+
+### Source scorecard
+
+`node cli.mjs sources-report` answers "which source earns its price" and writes `data/reports/source-scorecard.md`. Per source, over the last `window_days`: jobs queued; worth applying (decoded strong-fit or investable-stretch); only here (worth applying, and no other source sighted the same company and role within 7 days either side); picks shown. All time, from `applications.json`: applied, and past the application stage (screen, interview or offer). Then the price a month and the price per only-here role.
+
+```json
+"sources_report": {
+  "enabled": false, "window_days": 30,
+  "prices": {
+    "rtj": { "price_month": 10, "currency": "USD", "renews": "2026-12-01", "decision": "under review" },
+    "some-premium-plan": { "feed": false, "price_month": 20, "currency": "EUR" }
+  }
+}
+```
+
+Price keys are source names as the job files carry them (`rtj`, `linkedin`, `hh`, `hirify`, `ats:greenhouse` ...). A source with a `:` and no price of its own uses the price of the part before it, so `openclaw` prices `openclaw:web-search`. `feed: false` is a paid service that is not a job feed; it is listed under the table. To know which jobs two sources found, every job a source hands over, a duplicate too, is logged to `data/state/sightings.jsonl` (kept 120 days; `node cli.mjs run` drops older lines before its sources start). `--send` also sends a short version to Telegram (one line per source) on the 1st of the month and when a `renews` date is 7 days away or less, once each time. With `enabled`, `node cli.mjs run` does that after the digest.
+
+### Running unattended: health ping and failure alert
+
+Set `health.ping_url` to a [healthchecks.io](https://healthchecks.io) style URL and every `node cli.mjs run` ends with a GET to it, or to `<url>/<exit code>` when the run exits non-zero, so a run that fails or never happens (a dead timer, a server that is off) is noticed. It waits 10 seconds at most and never fails the run. Treat the URL as a secret: jobpilot never logs it. `doctor` shows whether it is set.
+
+```json
+"health": { "ping_url": "" }
+```
+
+The daily timer also installs a failure alert: the run unit has `OnFailure=jobpilot-failure@%n.service` (template in `deploy/jobpilot-failure@.service`), which runs `node cli.mjs notify "jobpilot: jobpilot.service failed, see journalctl --user -u jobpilot.service"`. `notify` sends one Telegram message; with Telegram off it only logs the text. Re-run `node cli.mjs timer` to add the alert to an existing install.
+
+### Language of the messages
+
+`"locale": "ru"` in `settings.json` writes jobpilot's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram and the scorecard's Telegram text. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
 
 ### Tests
 

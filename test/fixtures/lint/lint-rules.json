@@ -1,0 +1,13 @@
+{
+  "_comment": "Synthetic rules for test/lint.test.mjs.",
+  "banned_claims": [
+    { "id": "first-pm", "pattern": "\\bfirst (product )?(pm|product manager)\\b", "why": "Not the first PM anywhere." },
+    { "id": "big-team", "pattern": "\\bteam of \\d{2,}\\b", "why": "Never managed a team that size." },
+    { "id": "no-cto", "pattern": "\\bcto\\b", "why": "Never a CTO." }
+  ],
+  "warn_claims": [
+    { "id": "fluff", "pattern": "\\b(passionate|synergy)\\b", "why": "Empty words." },
+    { "id": "best-ru", "pattern": "(?<!\\p{L})лучший(?!\\p{L})", "why": "Пустое слово." }
+  ],
+  "limits": { "bullet_max_words": 20, "summary_max_words": 70 }
+}

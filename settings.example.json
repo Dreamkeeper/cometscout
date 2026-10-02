@@ -91,5 +91,16 @@
     "industries": { "exclude": [], "exclude_combos": [] }
   },
   "delivery": { "telegram": { "enabled": false, "token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID" } },
-  "pack": { "enabled": true, "pdf": "auto" }
+  "locale": "en",
+  "pack": { "enabled": true, "pdf": "auto" },
+  "tracker_export": { "enabled": false, "out": "tracker/pipeline.json" },
+  "sources_report": {
+    "enabled": false,
+    "window_days": 30,
+    "prices": {
+      "rtj": { "price_month": 10, "currency": "USD", "renews": "2026-12-01", "decision": "under review" },
+      "some-premium-plan": { "feed": false, "price_month": 20, "currency": "EUR" }
+    }
+  },
+  "health": { "ping_url": "" }
 }

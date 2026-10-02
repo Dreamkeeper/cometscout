@@ -29,9 +29,11 @@ echo "==> Config files"
 [ -f .env ] || { touch .env; chmod 600 .env; }
 mkdir -p data
 
-echo "==> Daily timer (systemd user unit)"
+echo "==> Daily timer and failure alert (systemd user units)"
 # The timer runs only once profile/ exists (cli.mjs run skips the example profile). After the onboarding sets
 # run_time and timezone in settings.json, "node cli.mjs timer" re-installs it with those values.
+# The run unit gets OnFailure=jobpilot-failure@%n.service: a failed run sends a Telegram alert through
+# "node cli.mjs notify" (template: deploy/jobpilot-failure@.service, installed with the paths filled in).
 sudo loginctl enable-linger "$USER"
 node cli.mjs timer "${JOBPILOT_TIME:-}" || true
 

@@ -11,10 +11,14 @@
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
 //   node cli.mjs export [--out file.tar.gz|folder] [--with-profile] [--with-settings]   # .env is never exported
 //   node cli.mjs import --from <file.tar.gz|folder> [--dry-run] [--force] [--with-profile] [--with-settings]
+//   node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file (--dry-run prints the rows)
+//   node cli.mjs sources-report [--send]                     # which source earns its price (data/reports/source-scorecard.md)
+//   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
 import { frontMatter, norm, readApplications } from './lib/queue.mjs';
 import { pickRoleWords } from './lib/companies.mjs';
@@ -23,9 +27,19 @@ import { exportData, importData } from './lib/archive.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 import { checkSetup as careerOpsSetup } from './sources/career-ops.mjs';
 import { promptFile, DEFAULT_PROMPT_FILE } from './decoder/decoder.mjs';
+import { profileRules, lintLibrary, cyrillicBoundary } from './lib/lint.mjs';
+import { binCommand } from './lib/llm.mjs';
+import { trackerExport, exportNotes } from './lib/tracker.mjs';
+import { sourcesReport, sourcesReportCommand } from './lib/scorecard.mjs';
+import { trimSightings } from './lib/sightings.mjs';
+import { healthPing, notify, unitFiles } from './lib/ops.mjs';
+import { localeOk, LOCALES } from './lib/i18n.mjs';
+import { sendText, telegramOn } from './lib/telegram.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
-const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
+// Steps are scripts next to this file; ROOT (JOBPILOT_HOME) is where profile/ and settings live, which may be elsewhere.
+const CODE = path.dirname(fileURLToPath(import.meta.url));
+const node = (file, extra = []) => spawnSync(process.execPath, [path.join(CODE, file), ...extra], { stdio: 'inherit' }).status;
 // outcomes reads application results from Gmail; it runs with the sources, so the decoder already knows what closed
 // career_ops: reads a career-ops checkout, never writes to it
 // hh_alerts: hh.ru alert emails (Gmail + the public vacancy page); hirify: saved filters, read with the user's session cookie
@@ -55,6 +69,10 @@ function runSources() {
   return failed;
 }
 const failedLine = failed => failed.map(f => `${f.source} (exit ${f.exit ?? 'killed'})`).join(', ');
+// pack.mjs records a refused pack in packs.json ({ refused: [rule ids], at, company, role, ... }); a run lists the ones from its own pack step
+const refusedSince = at => Object.entries(readJson(STATE('packs.json'), {})).filter(([, v]) => v?.refused && String(v.at || '') >= at)
+  .map(([file, v]) => ({ file, company: v.company || null, role: v.role || null, rules: v.refused }));
+const refusedLine = refused => refused.map(r => `${r.company || r.file}, ${r.role || '?'} (${r.rules.join(', ')})`).join('; ');
 
 // One run at a time: the timer and a manual command must not decode the same files or write state twice.
 function lock() {
@@ -103,9 +121,8 @@ function timer(at) {
   let tz = SETTINGS.timezone || ''; try { if (tz) new Intl.DateTimeFormat('en', { timeZone: tz }); } catch { console.log(`Unknown timezone "${tz}" in settings.json; using the server's own`); tz = ''; }
   const dir = path.join(os.homedir(), '.config', 'systemd', 'user'); fs.mkdirSync(dir, { recursive: true });
   const envPath = `${path.join(os.homedir(), '.local', 'bin')}:${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}`;
-  fs.writeFileSync(path.join(dir, 'jobpilot.service'), `[Unit]\nDescription=jobpilot evening run: sources, decode, picks, application packs\n[Service]\nType=oneshot\nWorkingDirectory=${ROOT}\n` +
-    `# systemd user units get a minimal PATH; keep the one that finds claude/codex (~/.local/bin, npm globals)\nEnvironment="PATH=${envPath}"\nExecStart=${process.execPath} ${path.join(ROOT, 'cli.mjs')} run\nTimeoutStartSec=2h\n`);
-  fs.writeFileSync(path.join(dir, 'jobpilot.timer'), `[Unit]\nDescription=Run jobpilot every evening\n[Timer]\nOnCalendar=*-*-* ${time}:00${tz ? ` ${tz}` : ''}\nPersistent=true\n[Install]\nWantedBy=timers.target\n`);
+  // jobpilot.service names jobpilot-failure@.service in OnFailure=, so a failed run sends a Telegram alert (cli.mjs notify)
+  for (const [name, text] of Object.entries(unitFiles({ root: ROOT, node: process.execPath, time, tz, envPath }))) fs.writeFileSync(path.join(dir, name), text);
   for (const a of [['daemon-reload'], ['enable', '--now', 'jobpilot.timer']]) spawnSync('systemctl', ['--user', ...a], { stdio: 'inherit' });
   spawnSync('systemctl', ['--user', 'list-timers', 'jobpilot.timer', '--no-pager'], { stdio: 'inherit' });
   return 0;
@@ -113,7 +130,7 @@ function timer(at) {
 
 function doctor() {
   const ok = (good, text, fix = '') => console.log(`${good ? 'ok  ' : 'TODO'} ${text}${!good && fix ? `  ->  ${fix}` : ''}`);
-  const ver = bin => { const r = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 20000 }); return r.status === 0 ? (r.stdout || '').trim().split('\n')[0] : null; };
+  const ver = bin => { const [c, a] = binCommand(bin, ['--version']); const r = spawnSync(c, a, { encoding: 'utf8', timeout: 20000 }); return r.status === 0 ? (r.stdout || '').trim().split('\n')[0] : null; };
   ok(Number(process.versions.node.split('.')[0]) >= 20, `Node ${process.versions.node}`, 'install Node 20 or newer');
   const { provider, model, pack_model } = SETTINGS.llm; const llm = SETTINGS.llm.bin || provider; const v = ver(llm);
   ok(!!v, `${provider} CLI${v ? `: ${v}` : ' not found'}`, provider === 'claude' ? 'install Claude Code and run `claude` once to sign in' : 'install Codex CLI and run `codex login`');
@@ -132,6 +149,18 @@ function doctor() {
   ok(PROFILE.facts.trim().length > 200, `profile.md: ${PROFILE.facts.trim().length} characters`, 'profile/profile.md is missing or nearly empty; every decode would run without your facts');
   ok(!!PROFILE.cvLibrary, 'CV library (profile/cv-library.json)', 'needed for application packs');
   ok(!PROFILE.ruleErrors.length, `fact rules: ${PROFILE.factRules.length} loaded`, `broken rule(s) skipped: ${PROFILE.ruleErrors.join('; ')}`);
+  const lint = profileRules();
+  ok(!lint.problems.length, `lint rules: ${lint.present ? `${lint.banned.length} banned, ${lint.warn.length} warn` : 'none (optional: profile/lint-rules.json)'}`, `rule(s) skipped: ${lint.problems.join('; ')}`);
+  const warn = text => console.log(`warn ${text}`);
+  // \b only sees ASCII word edges in JavaScript, so "\bслово\b" never matches; patterns are not rewritten
+  const cyr = [...lint.banned, ...lint.warn, ...PROFILE.factRules].filter(r => cyrillicBoundary(r.pattern)).map(r => r.id);
+  if (cyr.length) warn(`\\b next to Cyrillic never matches a word edge: ${[...new Set(cyr)].join(', ')}  ->  use (?<!\\p{L}) and (?!\\p{L}) in lint rules, (?<![a-zа-яё]) and (?![a-zа-яё]) in fact rules`);
+  if (PROFILE.cvLibrary && lint.present) {
+    const lib = lintLibrary(PROFILE.cvLibrary, lint);
+    if (lint.banned.length) ok(!lib.errors.length, 'vetted CV text passes your lint rules', `vetted text breaks your own rule: ${lib.errors.map(b => `${b.item} (${b.id})`).join(', ')}; packs that use it are not built. Fix profile/cv-library.json or the rule`);
+    // warnings on vetted text are reported here, once, not in every pack
+    if (lib.warns.length) warn(`vetted CV text has ${lib.warns.length} lint warning(s): ${lib.warns.map(w => `${w.item} (${w.id}${w.id.endsWith('-length') ? `, ${w.match}` : ''})`).join(', ')}`);
+  }
   ok(!ENV_PROBLEMS.length, '.env lines', `these lines are not KEY=value and were ignored: ${ENV_PROBLEMS.join(', ')}`);
   const enabled = Object.keys(SOURCES).filter(k => k !== 'outcomes' && SETTINGS.sources[k]?.enabled);   // outcomes finds no jobs
   ok(enabled.length > 0, `sources enabled: ${enabled.join(', ') || 'none'}`, 'enable at least one source in settings.json');
@@ -152,23 +181,43 @@ function doctor() {
   ok(!gates.unknown.length, `gates: ${gates.active.join(', ') || 'none (settings.gates not set)'}`, `unknown key(s) under gates ignored: ${gates.unknown.join(', ')} (known: ${GATE_KEYS.join(', ')})`);
   const tg = SETTINGS.delivery.telegram;
   ok(!tg.enabled || (secret(tg.token_env) && secret(tg.chat_id_env)), `Telegram delivery: ${tg.enabled ? 'on' : 'off (digest is written to data/digests only)'}`, 'add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env');
+  ok(localeOk(), `locale: ${SETTINGS.locale || 'en'}`, `unknown locale "${SETTINGS.locale}"; use one of ${LOCALES.join(', ')} (English is used meanwhile)`);
+  ok(true, `health ping: ${SETTINGS.health?.ping_url ? 'set' : 'not set (optional: health.ping_url, so a run that never happens is noticed)'}`);
+  if (SETTINGS.tracker_export?.enabled) { const o = SETTINGS.tracker_export.out || 'tracker/pipeline.json'; ok(true, `tracker export: ${path.isAbsolute(o) ? o : path.posix.join(path.basename(DATA), o.replace(/\\/g, '/'))}`); }
+  if (SETTINGS.sources_report?.enabled) ok(true, `source scorecard: on, ${Object.keys(SETTINGS.sources_report.prices || {}).length} price(s)`);
   const so = ver(process.env.SOFFICE || SETTINGS.pack.soffice || 'soffice');
   ok(!!so || process.platform === 'win32', `PDF export: ${so ? 'LibreOffice' : process.platform === 'win32' ? 'Word (Windows)' : 'LibreOffice not found'}`, 'sudo apt install libreoffice-writer-nogui fonts-liberation');
   ok(!!spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['--version']).stdout, 'Python 3 (packs the DOCX files)', 'install python3');
 }
 
+async function optional(name, fn) {
+  // a step after the digest: a failure is logged, the run's exit code stays
+  try { await fn(); } catch (e) { console.log(`jobpilot: ${name} failed: ${e.message}`); }
+}
+async function evening() {
+  // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
+  if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
+  process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
+  const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
+  const t0 = Date.now(); runHook('before_run', { date: today() });
+  await optional('sightings trim', () => trimSightings());   // here only, before any source writes: no two writers race
+  const failed = runSources(); const decoder = node('decoder/decoder.mjs');
+  if (SETTINGS.sources_report?.enabled) await optional('sources-report', () => sourcesReport({ send: sendText, print: () => {} }));
+  const packStart = new Date().toISOString(); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
+  const refused = refusedSince(packStart);   // packs refused in this run (vetted CV text breaks a lint rule); not a failure
+  if (SETTINGS.tracker_export?.enabled) await optional('tracker-export', () => { const r = trackerExport(); for (const l of [...exportNotes(r), r.message]) console.log(`tracker-export: ${l}`); });
+  runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed, refused });
+  const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];
+  if (closing.length) console.log(`jobpilot: run finished; ${closing.join('; ')}`);
+  return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
+}
+
 const locked = fn => () => { const busy = lock(); if (busy) { console.log(busy); return 1; } return fn(); };
 const codes = {
-  run: locked(() => {
-    // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
-    if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
-    process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
-    const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
-    const t0 = Date.now(); runHook('before_run', { date: today() });
-    const failed = runSources(); const decoder = node('decoder/decoder.mjs'); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
-    runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed });
-    if (failed.length) console.log(`jobpilot: run finished; failed source(s): ${failedLine(failed)}`);
-    return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
+  // After the run, health.ping_url hears the exit code, whatever happened.
+  run: locked(async () => {
+    let code = 1;
+    try { code = await evening(); return code; } finally { await healthPing(code); }
   }),
   sources: locked(() => { const broken = appsBroken(); if (broken) { console.log(broken); return 2; } return runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0; }),
   decode: locked(() => node('decoder/decoder.mjs', rest)),
@@ -193,6 +242,18 @@ const codes = {
     const r = exportData({ out, withProfile: rest.includes('--with-profile'), withSettings: rest.includes('--with-settings') });
     console.log(`Exported ${r.files} file(s) to ${r.out}: ${Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join(', ')}`); return 0;
   }),
+  'tracker-export': () => {
+    const i = rest.indexOf('--out'); if (i >= 0 && !rest[i + 1]) { console.log('Usage: node cli.mjs tracker-export [--out <file>] [--dry-run]'); return 1; }
+    try {
+      const dryRun = rest.includes('--dry-run');
+      const r = trackerExport({ out: i >= 0 ? rest[i + 1] : undefined, dryRun });
+      if (dryRun) console.log(JSON.stringify(r.applications, null, 1));   // what the file would hold, to review before writing
+      for (const l of exportNotes(r)) console.log(l);
+      console.log(r.message); return 0;
+    } catch (e) { console.log(`tracker-export stopped: ${e.message}`); return 1; }
+  },
+  'sources-report': () => sourcesReportCommand({ send: rest.includes('--send') ? sendText : null }),
+  notify: () => notify(rest.join(' '), { send: sendText, on: telegramOn }),
   import: locked(() => {
     const i = rest.indexOf('--from'); if (i < 0 || !rest[i + 1]) { console.log('Usage: node cli.mjs import --from <folder|file.tar.gz> [--dry-run] [--force] [--with-profile] [--with-settings]'); return 1; }
     try {
@@ -205,4 +266,4 @@ const codes = {
   }),
 };
 if (!codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(cmd ? 1 : 0); }
-process.exitCode = codes[cmd]() || 0;
+process.exitCode = (await codes[cmd]()) || 0;

@@ -1,0 +1,16 @@
+{
+  "_comment": "Synthetic CV library for test/lint.test.mjs. nw-team breaks the big-team rule on purpose.",
+  "name": "JORDAN VALE",
+  "contact": "Example City  |  jordan.vale@example.com",
+  "taglines": [ { "id": "t-core", "text": "Product Manager  |  Clinic software" } ],
+  "summaries": [ { "id": "s-core", "text": "Product manager with six years in clinic software, close to engineers and support teams." } ],
+  "experience": [
+    { "key": "northwind", "company": "Northwind Clinics (fictional)  |  Remote", "dates": "Jan 2020 - present", "roles": [ { "title": "Product Manager", "bullets": [
+      { "id": "nw-launch", "text": "Launched the billing product for 300 small clinics." },
+      { "id": "nw-growth", "text": "Grew weekly active clinics from 40 to 260 in two years by rebuilding onboarding, the appointment reminders and the billing exports that front desks used every single day." },
+      { "id": "nw-team", "text": "Led a team of 40 engineers across three sites." }
+    ] } ] }
+  ],
+  "skills": [ { "id": "sk-product", "label": "Product", "text": "Discovery, pricing, SQL" } ],
+  "awards": []
+}
