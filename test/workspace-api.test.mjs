@@ -334,6 +334,11 @@ test('older pack folders named <date>--<company> are found when no <date>--<comp
   fs.rmSync(path.join(DATA, 'packs', exact), { recursive: true });
   assert.equal(ws.packDirFor(F.oldPick, null, {}), newest, 'an export without packs.json');
   assert.equal(ws.packDirFor(F.later), null, 'no folder at all');
+  const other = mk(`${DAY}--corvale`, '# Corvale: Data Analyst\n');
+  assert.equal(ws.packDirFor(F.oldPick, null, {}), newest, 'a newer company-only folder built for another role is passed over');
+  fs.writeFileSync(path.join(DATA, 'packs', other, 'answers.md'), '# Corvale: Senior Product Manager, Payments\n');
+  assert.equal(ws.packDirFor(F.oldPick, null, {}), other, 'the same role (with more words) is taken');
+  fs.rmSync(path.join(DATA, 'packs', other), { recursive: true });
 });
 
 const OLD_MD = ['# Corvale: Senior Product Manager', '', 'Link: https://jobs.example/corvale', '', '**CV leads with:** Payments platform work', '',

@@ -57,7 +57,7 @@ export function PackPane({ t, locale, item, job, pack, error, showPdf = true }) 
         <h4>${t('ws.pack.cover_letter')} ${cl.text && html`<${CopyButton} t=${t} text=${cl.text} />`}</h4>
         ${cl.text ? html`<p class="answer-text">${cl.text}</p>`
           : clFiles.length ? html`<p>${clFiles.map(f => html`<a key=${f.name} href=${f.url} target="_blank" rel="noopener">${f.name}</a> `)}</p>`
-          : html`<p class="muted">${cl.mode && cl.mode !== 'no' ? t('ws.pack.cl_file') : t('ws.pack.cl_none')}</p>`}
+          : html`<p class="muted">${cl.mode == null ? t('ws.pack.cl_unknown') : cl.mode !== 'no' ? t('ws.pack.cl_file') : t('ws.pack.cl_none')}</p>`}
       </section>
       <section class="block cv">
         <h4>${t('ws.pack.cv')} <span class="muted">${v.built ? t('ws.pack.built', { date: formatDate(v.built.slice(0, 10), locale) }) : ''}</span>
