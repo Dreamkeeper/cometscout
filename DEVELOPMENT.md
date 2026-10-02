@@ -15,7 +15,7 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
@@ -37,6 +37,7 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 | `sources/*.mjs` | One file per source; each writes job files with `writeJob()` |
 | `decoder/` | Verdicts, picks, digest (`digest.mjs` renders the text) |
 | `pack/` | Tailored CV, cover letter, form answers (`message.mjs` is the Telegram text) |
+| `lib/coach.mjs`, `deploy/modules/` | The interview coach module: installer (`coach.sh`, `coach.ps1` both run `node lib/coach.mjs install`), doctor lines, the hand-off file |
 | `tools/` | `gmail-auth.mjs`; `workspace-demo.mjs` (demo data for the workspace) and `text-pdf.mjs` (small text PDFs for it and the tests) |
 | `test/` | `node --test` unit tests; `test/fixtures/` synthetic inputs |
 | `ROADMAP.md` | Milestones and what is in progress |

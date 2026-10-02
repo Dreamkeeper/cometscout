@@ -11,6 +11,7 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 - ✅ Install script, `doctor`, systemd timer, run lock, run date pinned per run
 - ✅ Hooks (`settings.hooks`), `JOBPILOT_SETTINGS`, extra front-matter fields, export / import (`jobpilot-export-v1`), decoder context files, application `events[]`
 - ✅ Unit tests (`npm test`)
+- ✅ Interview coach as an optional onboarding step: installer from upstream (`deploy/modules/coach.sh`, `coach.ps1`), `cli.mjs coach-handoff`, doctor lines (`docs/tasks/13-coach-onboarding.md`)
 - ✅ Parity with the original pipeline (M2, the table below): every source, shared gates, aliases and dedupe, outcomes from Gmail, picks and decoder parity, pack lint, tracker export, scorecard, health ping, failure alert, Russian labels. Checked on its real data: identical tracker rows (95 of 95), gate replay with no unexplained hard-gate difference, outcome tracking agreeing on 28 of 30 events
 
 ## Parity (M2)
@@ -48,3 +49,5 @@ A web workspace instead of chat-only control, so nobody needs a Claude Code sess
 |---|---|---|
 | M5a probe: `cli.mjs serve` and the "Today" screen (picks, decode, pack review, applied / skip / later); a week of daily use on real data decides the rest | `docs/tasks/10-workspace-today-screen.md` | 🔨 |
 | PWA platform (manifest, service worker, Web Push, sign-in via Telegram launch data or a login link, HTTPS installer), the other screens, the bot, modules | later briefs | 💤 |
+| Interview coach, first step: installer and hand-off file, optional onboarding step | `docs/tasks/13-coach-onboarding.md` | ✅ |
+| Interview coach, deeper: automatic hand-offs from picks and outcome emails (a new interview starts a prep), a coach chat inside the bot or the workspace | later brief | 💤 |

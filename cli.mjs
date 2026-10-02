@@ -18,6 +18,8 @@
 //   node cli.mjs sources-report [--send]                     # which source earns its price (data/reports/source-scorecard.md)
 //   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
 //   node cli.mjs serve [--port 8787] [--host 127.0.0.1]      # the workspace (preview): today's picks, decode and pack in the browser
+//   node cli.mjs coach-handoff [--out <file>]                # profile, CV, voice and applications for the interview coach's kickoff
+//                                    # (default: materials/cometscout-handoff.md in the coach's folder; the run refreshes it when modules.coach.enabled)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -42,6 +44,7 @@ import { localeOk, LOCALES } from './lib/i18n.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
 import { startServer, vendorCheck } from './lib/server.mjs';
 import { takeLock } from './lib/lock.mjs';
+import { coachDoctor, coachHandoff, refreshHandoff } from './lib/coach.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (JOBPILOT_HOME) is where profile/ and settings live, which may be elsewhere.
@@ -166,6 +169,7 @@ function doctor() {
   ok(!!so || process.platform === 'win32', `PDF export: ${so ? 'LibreOffice' : process.platform === 'win32' ? 'Word (Windows)' : 'LibreOffice not found'}`, 'sudo apt install libreoffice-writer-nogui fonts-liberation');
   ok(!!spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['--version']).stdout, 'Python 3 (packs the DOCX files)', 'install python3');
   for (const b of backupDoctor()) if (b.level === 'warn') warn(`${b.text}  ->  ${b.fix}`); else ok(b.level === 'ok', b.text, b.fix);
+  for (const c of coachDoctor()) ok(c.level === 'ok', c.text, c.fix);   // modules.coach (optional)
 }
 
 async function optional(name, fn) {
@@ -183,6 +187,7 @@ async function evening() {
   if (SETTINGS.sources_report?.enabled) await optional('sources-report', () => sourcesReport({ send: sendText, print: () => {} }));
   const packStart = new Date().toISOString(); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
   const refused = refusedSince(packStart);   // packs refused in this run (vetted CV text breaks a lint rule); not a failure
+  if (SETTINGS.modules?.coach?.enabled && !PROFILE.isExample) await optional('coach-handoff', () => refreshHandoff());   // the interview coach's snapshot; no network
   if (SETTINGS.tracker_export?.enabled) await optional('tracker-export', () => { const r = trackerExport(); for (const l of [...exportNotes(r), r.message]) console.log(`tracker-export: ${l}`); });
   runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed, refused });
   const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];
@@ -247,6 +252,10 @@ const codes = {
   'sources-report': () => sourcesReportCommand({ send: rest.includes('--send') ? sendText : null }),
   notify: () => notify(rest.join(' '), { send: sendText, on: telegramOn }),
   serve: () => serve(),
+  'coach-handoff': () => {
+    const i = rest.indexOf('--out'); if (i >= 0 && (!rest[i + 1] || rest[i + 1].startsWith('--'))) { console.log('Usage: node cli.mjs coach-handoff [--out <file>]'); return 1; }
+    return coachHandoff({ out: i >= 0 ? rest[i + 1] : undefined });
+  },
   ...archiveCommands({ rest, locked }),
 };
 if (!codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(cmd ? 1 : 0); }

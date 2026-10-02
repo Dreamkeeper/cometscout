@@ -56,6 +56,7 @@ node cli.mjs import --from <file.zip> [--dry-run] [--on-conflict keep|theirs|bot
 node cli.mjs export-secrets --out <file> | import-secrets --from <file>
 node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]
 node cli.mjs serve [--port 8787]          # the workspace in your browser (preview), see below
+node cli.mjs coach-handoff [--out <file>] # your profile, CV, voice and applications for the interview coach, see below
 ```
 
 ## Workspace (preview)
@@ -433,6 +434,22 @@ node cli.mjs restore <file name>
 
 `restore` takes a name from `backups` or the path of any jobpilot export (a zip, a folder or a v1 `.tar.gz`). It unpacks and checks the archive once, then backs up the current state (label `pre-restore`), then imports with `--on-conflict theirs`: every file in the archive comes back as it was. Files made after the backup that are not in it stay, and one line says how many (`N file(s) here are not in the backup`). It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
 
+### Interview coach (optional)
+
+For interviews, jobpilot sets up [Interview Coach](https://github.com/noamseg/interview-coach-skill), an open-source Claude Code skill by Noam Segal (MIT license): company research and prep, practice and mock interviews with scoring, transcript analysis, and offer negotiation. It is a separate project: it is installed from its own repository and never copied into this one. The onboarding offers it as an optional step.
+
+```bash
+bash deploy/modules/coach.sh              # install, or update with git pull --ff-only (Windows: deploy\modules\coach.ps1)
+node cli.mjs coach-handoff                # write materials/cometscout-handoff.md in the coach's folder (--out <file> for another place)
+cd ../interview-coach && claude           # then say: kickoff, and give it materials/cometscout-handoff.md
+```
+
+- **Where it goes:** a folder next to the jobpilot home (`../interview-coach`), or `modules.coach.path`. The installer clones it the first time and only pulls after that, and only when the folder's `origin` is `modules.coach.repo`; what the coach writes there (`coaching_state.md`, `materials/`) is never deleted. git runs without prompts, so a private or mistyped address fails at once. The installer creates `CLAUDE.md` as a copy of the coach's `SKILL.md`, as the coach's README asks, and never overwrites an existing one (it says when `SKILL.md` has changed).
+- **Settings:** `"modules": { "coach": { "enabled": false, "path": null, "repo": "https://github.com/noamseg/interview-coach-skill.git" } }`. With `enabled`, `doctor` shows the installed commit and whether `claude` is on the PATH.
+- **The hand-off holds** your `profile/profile.md` as written (scope guards labelled "never claim"), the CV library as a plain resume (taglines, summaries, every role and bullet, skills, education, awards; no contact line), `profile/voice.md`, and where you stand: what is coming up (interviews and test tasks with a date ahead, and anything dated today or later, soonest first, then applications at screen, interview or offer, with the round when one is recorded), then your applications with status and last event. Scope guards also include the reasons from `profile/fact-rules.json`, each said once.
+- **When it is written:** `node cli.mjs coach-handoff` writes it now, into the coach's `materials/` folder, which the coach's git ignores. With `modules.coach.enabled`, the evening run writes a fresh one too (no network; a coach that is not installed is one log line and never fails the run).
+- **It leaves out** the contact line, `.env`, tokens and cookies, job postings, application packs, your status notes and the notes taken from emails. If a value from `.env` would end up in the file, nothing is written.
+
 ### Language of the messages
 
 `"locale": "ru"` in `settings.json` writes jobpilot's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram, the scorecard's Telegram text and the workspace. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
@@ -465,7 +482,7 @@ Planned, in order (details and task briefs in [ROADMAP.md](ROADMAP.md) and `docs
    - screens for the pack editor, your pipeline, sources, settings and gates ("wrong pick: why?" turns into a suggested setting), and a guided onboarding that replaces the setup session.
    - First piece being built: the "Today" screen.
 3. **Backups, export and updates (in progress).** One ZIP export you can open and read (your data, profile and settings), import with a preview and conflict choices, nightly backups with restore, an encrypted export for secrets. Updates are notify only: release notes in the bot and the app, one tap to update, a backup first, automatic rollback if anything fails, and a manual rollback.
-4. **Optional modules,** installed from their own projects: an interview coach, meeting transcription (on your own GPU or the server's CPU), OpenClaw and career-ops.
+4. **Optional modules,** installed from their own projects: an interview coach (the install and hand-off are done, see [Interview coach](#interview-coach-optional)), meeting transcription (on your own GPU or the server's CPU), OpenClaw and career-ops.
 5. **Later:** a hosted option for people who do not want to run a server, after the self-hosted version has been through testers.
 
 ## Install guides
