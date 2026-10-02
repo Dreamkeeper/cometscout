@@ -440,14 +440,15 @@ For interviews, jobpilot sets up [Interview Coach](https://github.com/noamseg/in
 
 ```bash
 bash deploy/modules/coach.sh              # install, or update with git pull --ff-only (Windows: deploy\modules\coach.ps1)
-node cli.mjs coach-handoff                # write cometscout-handoff.md in the coach's folder (--out <file> for another place)
-cd ../interview-coach && claude           # then say: kickoff, and give it cometscout-handoff.md
+node cli.mjs coach-handoff                # write materials/cometscout-handoff.md in the coach's folder (--out <file> for another place)
+cd ../interview-coach && claude           # then say: kickoff, and give it materials/cometscout-handoff.md
 ```
 
-- **Where it goes:** a folder next to the jobpilot home (`../interview-coach`), or `modules.coach.path`. The installer clones it the first time and only pulls after that; what the coach writes there (`coaching_state.md`, `materials/`) is never deleted. It copies the coach's `SKILL.md` to `CLAUDE.md`, as the coach's README asks, and leaves a `CLAUDE.md` you edited alone.
+- **Where it goes:** a folder next to the jobpilot home (`../interview-coach`), or `modules.coach.path`. The installer clones it the first time and only pulls after that, and only when the folder's `origin` is `modules.coach.repo`; what the coach writes there (`coaching_state.md`, `materials/`) is never deleted. git runs without prompts, so a private or mistyped address fails at once. The installer creates `CLAUDE.md` as a copy of the coach's `SKILL.md`, as the coach's README asks, and never overwrites an existing one (it says when `SKILL.md` has changed).
 - **Settings:** `"modules": { "coach": { "enabled": false, "path": null, "repo": "https://github.com/noamseg/interview-coach-skill.git" } }`. With `enabled`, `doctor` shows the installed commit and whether `claude` is on the PATH.
-- **The hand-off holds** your `profile/profile.md` as written (scope guards labelled "never claim"), the CV library as a plain resume (taglines, summaries, every role and bullet, skills, education, awards; no contact line), `profile/voice.md`, and where you stand: interviews with a date ahead first, then your applications with status and last event. It is a snapshot; run the command again for a fresh one.
-- **It leaves out** `.env`, tokens and cookies, job postings, application packs and the notes taken from emails. If a value from `.env` would end up in the file, nothing is written.
+- **The hand-off holds** your `profile/profile.md` as written (scope guards labelled "never claim"), the CV library as a plain resume (taglines, summaries, every role and bullet, skills, education, awards; no contact line), `profile/voice.md`, and where you stand: what is coming up (interviews and test tasks with a date ahead, and anything dated today or later, soonest first, then applications at screen, interview or offer, with the round when one is recorded), then your applications with status and last event. Scope guards also include the reasons from `profile/fact-rules.json`, each said once.
+- **When it is written:** `node cli.mjs coach-handoff` writes it now, into the coach's `materials/` folder, which the coach's git ignores. With `modules.coach.enabled`, the evening run writes a fresh one too (no network; a coach that is not installed is one log line and never fails the run).
+- **It leaves out** the contact line, `.env`, tokens and cookies, job postings, application packs, your status notes and the notes taken from emails. If a value from `.env` would end up in the file, nothing is written.
 
 ### Language of the messages
 

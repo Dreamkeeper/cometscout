@@ -75,16 +75,52 @@ test('upcoming interviews come first, soonest first; past ones, skipped roles an
   const { text } = coach.buildHandoff({ profileDir: EXAMPLE });
   const coming = text.slice(at(text, '### Coming up'), at(text, '### Applications'));
   const lines = coming.split('\n').filter(l => l.startsWith('- '));
-  assert.deepEqual(lines, ['- 2026-10-05: test task due, Quarry Systems, Product Manager', '- 2026-10-08: interview (round 2), Lumenfield, Product Owner']);
+  assert.deepEqual(lines, ['- 2026-10-05: test task due, Quarry Systems, Product Manager', '- 2026-10-08: interview (round 2), Lumenfield, Product Owner',
+    '- in progress: interview, Ridgeway Labs, Platform PM, last news 2026-09-20']);
   assert.ok(at(text, 'Lumenfield, Product Owner') < at(text, '| Lumenfield |'), 'the interview is listed before the applications table');
   const table = text.slice(at(text, '### Applications')).split('\n').filter(l => l.startsWith('| ') && !l.startsWith('| Company'));
   assert.deepEqual(table, [
-    '| Quarry Systems | Product Manager | applied | test task due | 2026-09-30 |',
+    '| Quarry Systems | Product Manager | applied | test task | 2026-09-30 |',
     '| Lumenfield | Product Owner | interview | interview | 2026-09-29 |',
     '| Ridgeway Labs | Platform PM | interview | interview | 2026-09-20 |',
-    '| Bluefjord | Data PM | rejected | rejection | 2026-09-18 |',
+    '| Bluefjord | Data PM | rejected | rejection email | 2026-09-18 |',
   ]);
   assert.ok(!text.includes('Northwind') && !text.includes('Copperline'));
+});
+
+test('imported records: in-progress statuses and events dated today or later are listed, dated items first', () => {
+  // round is free text in imported records; no event_date anywhere; a contact and a registry status sync come last
+  const apps = {
+    'imp:1': { company: 'Saltmarsh Analytics', role: 'Senior PM', status: 'interview', updated: '2026-09-26',
+      events: [ev('2026-09-02', 'applied'), ev('2026-09-26', 'interview', { round: 'final, with the CTO' }), ev('2026-09-27', 'contact'), ev('2026-09-28', 'registry-status')] },
+    'imp:2': { company: 'Orchard Freight', role: 'Product Owner', status: 'applied', updated: '2026-10-06',
+      events: [ev('2026-09-30', 'applied'), ev('2026-10-06', 'interview', { round: 'hiring manager' })] },
+    'imp:3': { company: 'Kestrel Grid', role: 'Platform PM', status: 'screen', updated: '2026-10-02', events: [ev('2026-09-29', 'applied'), ev('2026-10-02', 'screen')] },
+    'imp:4': { company: 'Larkspur Health', role: 'PM', status: 'offer', round: 'verbal', updated: '2026-09-30' },
+    'imp:5': { company: 'Fernway', role: 'PM', status: 'rejected', updated: '2026-10-02', events: [ev('2026-09-20', 'applied'), ev('2026-10-02', 'rejected')] },
+    'imp:6': { company: 'Gullwing', role: 'PM', status: 'interview', updated: '2026-10-01', events: [ev('2026-09-21', 'applied'), ev('2026-10-01', 'interview', { source: 'gmail', event_date: '2026-10-04', round: 1 })] },
+  };
+  const { text } = coach.buildHandoff({ profileDir: EXAMPLE, apps });
+  const coming = text.slice(at(text, '### Coming up'), at(text, '### Applications')).split('\n').filter(l => l.startsWith('- '));
+  assert.deepEqual(coming, [
+    '- 2026-10-02: screen, Kestrel Grid, Platform PM',
+    '- 2026-10-04: interview (round 1), Gullwing, PM',
+    '- 2026-10-06: interview (hiring manager), Orchard Freight, Product Owner',
+    '- in progress: offer (verbal), Larkspur Health, PM, last news 2026-09-30',
+    '- in progress: interview (final, with the CTO), Saltmarsh Analytics, Senior PM, last news 2026-09-26',
+  ]);
+  assert.ok(!coming.some(l => l.includes('Fernway')), 'a rejected application has nothing coming up');
+  // last event: contact and registry-status are skipped; statuses and Gmail types are named
+  const row = name => text.split('\n').find(l => l.startsWith(`| ${name} |`));
+  assert.equal(row('Saltmarsh Analytics'), '| Saltmarsh Analytics | Senior PM | interview | interview | 2026-09-26 |');
+  assert.equal(row('Fernway'), '| Fernway | PM | rejected | rejected | 2026-10-02 |');
+  assert.equal(row('Larkspur Health'), '| Larkspur Health | PM | offer |  | 2026-09-30 |');
+  assert.ok(!/contact|registry/.test(text.slice(at(text, '## Where I stand'))));
+  assert.deepEqual(coach.upcoming({}, '2026-10-02'), { dated: [], progress: [] });
+  // a malformed entry (events not a list) is shown without its events, never a crash
+  assert.deepEqual(coach.upcoming({ x: { company: 'Odd', role: 'PM', status: 'interview', events: { a: 1 }, updated: '2026-09-01' } }, '2026-10-02').progress,
+    [{ status: 'interview', round: '', since: '2026-09-01', company: 'Odd', role: 'PM' }]);
+  assert.match(coach.buildHandoff({ profileDir: EXAMPLE, apps: {} }).text, /Nothing with a date ahead or in progress is recorded\./);
 });
 
 test('no secret, job text, pack or email note ends up in the hand-off', () => {
@@ -105,6 +141,27 @@ test('a scope guard heading without "never claim" is labelled; without one, the 
   fs.writeFileSync(path.join(dir2, 'fact-rules.json'), JSON.stringify({ rules: [{ id: 'team', pattern: 'led a team', why: 'Sam never led a team.' }] }));
   ({ text } = coach.buildHandoff({ profileDir: dir2, apps: {} }));
   assert.match(text, /### Scope guards \(never claim\)\n\n- Sam never led a team\./);
+});
+
+test('scope guards: a bullet that mentions them is not a heading; fact-rule reasons are always listed, without repeats', () => {
+  // the bullet-only case: "scope guard" in a bullet, no heading, so the fact rules must still give the list
+  const dir = path.join(tmp, 'profile-c'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'profile.md'), '# Sam Example\n\n## Who I am\n- Careful with claims; my scope guard is the fact rules file.\n');
+  const rules = [{ id: 'team', pattern: 'led a team', why: 'Sam never led a team.' }, { id: 'ml', pattern: 'built models', why: 'Sam never built ML models.' },
+    { id: 'team2', pattern: 'managed a team', why: 'Sam never led a team.' }, { id: 'nowhy', pattern: 'x' }];
+  fs.writeFileSync(path.join(dir, 'fact-rules.json'), JSON.stringify({ rules }));
+  let { text } = coach.buildHandoff({ profileDir: dir, apps: {} });
+  assert.match(text, /### Scope guards \(never claim\)\n\n- Sam never led a team\.\n- Sam never built ML models\.\n/);
+  assert.match(text, /^- Careful with claims; my scope guard is the fact rules file\.$/m, 'the bullet is kept as written, not labelled');
+  // a labelled heading in the profile: fact-rule reasons it already says are not repeated, the others are added
+  fs.writeFileSync(path.join(dir, 'profile.md'), '# Sam Example\n\n## Scope guards\n- Sam never led a team.\n\n## What I want\n- PM roles.\n');
+  ({ text } = coach.buildHandoff({ profileDir: dir, apps: {} }));
+  assert.match(text, /^#### Scope guards \(never claim\)$/m);
+  assert.match(text, /### Scope guards from my fact rules \(never claim\)\n\n- Sam never built ML models\.\n/);
+  assert.equal(text.split('Sam never led a team.').length - 1, 1, 'listed once');
+  // the example profile: its own section plus the reasons from its fact rules
+  ({ text } = coach.buildHandoff({ profileDir: EXAMPLE, apps: {} }));
+  assert.match(text, /Scope guards from my fact rules \(never claim\)\n\n- Alex mentored two junior PMs/);
 });
 
 test('a value from .env in the profile stops the hand-off; nothing is written', () => {
@@ -135,8 +192,10 @@ test('cli coach-handoff: --out is honoured, the default goes into the coach fold
     fs.mkdirSync(COACH);
     r = cli(['coach-handoff']);
     assert.equal(r.status, 0, r.stdout);
-    assert.ok(fs.existsSync(path.join(COACH, 'cometscout-handoff.md')));
-    assert.match(r.stdout, /give it cometscout-handoff\.md/);
+    // the default is materials/ in the coach's folder (the coach's .gitignore covers it); materials/ is made when missing
+    assert.ok(fs.existsSync(path.join(COACH, 'materials', 'cometscout-handoff.md')));
+    assert.ok(!fs.existsSync(path.join(COACH, 'cometscout-handoff.md')));
+    assert.match(r.stdout, /give it materials\/cometscout-handoff\.md/);
   } finally { fs.rmSync(path.join(HOME, 'profile'), { recursive: true, force: true }); fs.rmSync(COACH, { recursive: true, force: true }); }
   // a home with no profile at all
   const bare = path.join(tmp, 'bare'); fs.mkdirSync(bare);
@@ -146,6 +205,46 @@ test('cli coach-handoff: --out is honoured, the default goes into the coach fold
   assert.ok(!fs.existsSync(path.join(tmp, 'bare-out.md')));
 });
 
+test('cli.mjs run refreshes the hand-off when the coach is enabled; a missing coach is logged and never fails the run', () => {
+  const home = path.join(tmp, 'run-home'); fs.mkdirSync(path.join(home, 'profile'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'profile', 'profile.md'), '# Sam Example\n\n## Who I am\n- Product manager, 5 years.\n');
+  const coachDir = path.join(tmp, 'run-coach');
+  const conf = coach => JSON.stringify({ timezone: 'UTC', sources: {}, pack: { enabled: false }, backup: { nightly: false }, modules: { coach } });
+  const env = { JOBPILOT_HOME: home, JOBPILOT_DATA: path.join(home, 'data'), JOBPILOT_SETTINGS: path.join(home, 'settings.json') };
+  const file = path.join(coachDir, 'materials', 'cometscout-handoff.md');
+  // enabled, not installed: one log line, exit 0, no folder made
+  fs.writeFileSync(env.JOBPILOT_SETTINGS, conf({ enabled: true, path: coachDir }));
+  let r = cli(['run'], env);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /coach-handoff: not refreshed: The coach is not installed at/);
+  assert.ok(!fs.existsSync(coachDir));
+  // installed: the file is written in materials/
+  fs.mkdirSync(coachDir);
+  r = cli(['run'], env);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /coach-handoff: refreshed .*cometscout-handoff\.md/);
+  assert.match(fs.readFileSync(file, 'utf8'), /- Product manager, 5 years\./);
+  // disabled: nothing is written or said
+  fs.rmSync(file);
+  fs.writeFileSync(env.JOBPILOT_SETTINGS, conf({ enabled: false, path: coachDir }));
+  r = cli(['run'], env);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /coach-handoff/);
+  assert.ok(!fs.existsSync(file));
+});
+
+test('refreshHandoff never throws: a hand-off that cannot be built is one log line', () => {
+  const dir = path.join(tmp, 'profile-refresh'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'profile.md'), `# Sam\n\nPasted by mistake: ${SECRET}\n`);
+  const lines = [];
+  const out = path.join(tmp, 'refresh-out', 'h.md');
+  assert.equal(coach.refreshHandoff({ settings: { modules: { coach: { enabled: true, path: COACH } } }, out, profileDir: dir, log: l => lines.push(l) }), 1);
+  assert.deepEqual(lines.length, 1); assert.match(lines[0], /^coach-handoff: not refreshed: .*value from \.env/);
+  assert.ok(!fs.existsSync(out));
+  assert.equal(coach.refreshHandoff({ settings: {}, log: l => lines.push(l) }), null);
+  assert.equal(lines.length, 1);
+});
+
 // ---------- installer ----------
 
 const FAKE_GIT = path.join(tmp, 'fake-git.mjs');
@@ -153,18 +252,24 @@ const GIT_LOG = path.join(tmp, 'git-calls.jsonl');
 fs.writeFileSync(FAKE_GIT, `import fs from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
-fs.appendFileSync(process.env.FAKE_GIT_LOG, JSON.stringify(args) + '\\n');
+fs.appendFileSync(process.env.FAKE_GIT_LOG, JSON.stringify({ args, prompt: process.env.GIT_TERMINAL_PROMPT ?? null, gcm: process.env.GCM_INTERACTIVE ?? null }) + '\\n');
 if (process.env.FAKE_GIT_FAIL && args.includes(process.env.FAKE_GIT_FAIL)) { console.error('fatal: synthetic failure'); process.exit(1); }
+const at = () => args[args.indexOf('-C') + 1];
 if (args[0] === 'clone') {
   const dir = args[args.length - 1];
   fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git', 'origin'), args[args.length - 2]);
   fs.writeFileSync(path.join(dir, 'SKILL.md'), 'skill v1\\n');
   fs.writeFileSync(path.join(dir, 'README.md'), 'readme\\n');
+} else if (args.includes('get-url')) {
+  try { console.log(fs.readFileSync(path.join(at(), '.git', 'origin'), 'utf8')); } catch { console.error("error: No such remote 'origin'"); process.exit(2); }
 } else if (args.includes('pull')) {
-  fs.writeFileSync(path.join(args[args.indexOf('-C') + 1], 'SKILL.md'), process.env.FAKE_GIT_SKILL || 'skill v2\\n');
+  fs.writeFileSync(path.join(at(), 'SKILL.md'), process.env.FAKE_GIT_SKILL || 'skill v2\\n');
 } else if (args.includes('log')) console.log('abc1234 2026-09-30');
 `);
-const calls = () => (fs.existsSync(GIT_LOG) ? fs.readFileSync(GIT_LOG, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : []);
+const records = () => (fs.existsSync(GIT_LOG) ? fs.readFileSync(GIT_LOG, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : []);
+const calls = () => records().map(r => r.args);
+const pulls = () => calls().filter(c => c.includes('pull'));
 const withGit = (env, fn) => {
   const keep = { GIT: process.env.GIT, FAKE_GIT_LOG: process.env.FAKE_GIT_LOG, FAKE_GIT_FAIL: process.env.FAKE_GIT_FAIL, FAKE_GIT_SKILL: process.env.FAKE_GIT_SKILL };
   Object.assign(process.env, { GIT: FAKE_GIT, FAKE_GIT_LOG: GIT_LOG }, env);
@@ -191,6 +296,8 @@ test('installer: the first install clones the upstream with depth 1 and activate
   assert.match(r.out, /Then say: kickoff/);
   assert.match(r.out, /Noam Segal, MIT license/);
   assert.match(r.out, /modules\.coach\.enabled/);
+  // git never waits for a username or password
+  assert.ok(records().length > 0 && records().every(x => x.prompt === '0' && x.gcm === 'never'), JSON.stringify(records()));
   // an empty folder counts as not installed; modules.coach.repo is honoured
   const empty = path.join(tmp, 'install-empty'); fs.mkdirSync(empty);
   assert.equal(install(empty, { repo: 'https://git.example/coach.git' }).code, 0);
@@ -208,23 +315,51 @@ test('installer: an update pulls fast-forward only and never deletes or changes 
   fs.rmSync(GIT_LOG, { force: true });
   const r = install(target);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(calls()[0], ['-C', target, 'pull', '--ff-only']);
+  assert.deepEqual(calls().slice(0, 2), [['-C', target, 'remote', 'get-url', 'origin'], ['-C', target, 'pull', '--ff-only']]);
   assert.ok(!calls().some(c => c[0] === 'clone'));
+  assert.ok(records().every(x => x.prompt === '0' && x.gcm === 'never'));
   const after = snapshot(target);
   for (const f of Object.keys(before)) assert.ok(f in after, `${f} still there`);
   for (const f of ['coaching_state.md', 'materials/acme/transcript.md', 'cometscout-handoff.md', 'README.md']) assert.equal(after[f], before[f], f);
-  // CLAUDE.md was the unedited copy of the old SKILL.md, so it follows the new one
-  assert.equal(after['CLAUDE.md'], 'skill v2\n');
-  assert.match(r.out, /CLAUDE\.md updated/);
+  // an existing CLAUDE.md is never overwritten, even an unedited copy of the old SKILL.md; the output says how to update it
+  assert.equal(after['SKILL.md'], 'skill v2\n');
+  assert.equal(after['CLAUDE.md'], 'skill v1\n');
+  assert.match(r.out, /CLAUDE\.md differs from SKILL\.md and was left as it is/);
 }));
 
-test('installer: a CLAUDE.md the user edited is left as it is', () => withGit({ FAKE_GIT_SKILL: 'skill v3\n' }, () => {
+test('installer: a CLAUDE.md the user edited is left as it is; a missing one is created again', () => withGit({ FAKE_GIT_SKILL: 'skill v3\n' }, () => {
   const target = path.join(tmp, 'install-2');
   fs.writeFileSync(path.join(target, 'CLAUDE.md'), 'my own edits\n');
-  const r = install(target);
+  let r = install(target);
   assert.equal(r.code, 0);
   assert.equal(fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf8'), 'my own edits\n');
   assert.match(r.out, /left as it is/);
+  const keep = fs.readFileSync(path.join(target, 'CLAUDE.md'));
+  fs.rmSync(path.join(target, 'CLAUDE.md'));
+  r = install(target);
+  assert.equal(fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf8'), 'skill v3\n');
+  assert.match(r.out, /Activated the coach/);
+  fs.writeFileSync(path.join(target, 'CLAUDE.md'), keep);
+}));
+
+test('installer: a checkout of another repository is never pulled', () => withGit({}, () => {
+  const target = path.join(tmp, 'install-2');
+  const before = snapshot(target);
+  let r = install(target, { repo: 'https://git.example/someone-else/coach.git' });
+  assert.equal(r.code, 1);
+  assert.match(r.out, /is a checkout of https:\/\/github\.com\/noamseg\/interview-coach-skill\.git, not of modules\.coach\.repo \(https:\/\/git\.example\/someone-else\/coach\.git\)/);
+  assert.deepEqual(pulls(), []);
+  assert.deepEqual(snapshot(target), before);
+  // the same address in another spelling (case, no .git, a trailing slash) is the same repository
+  fs.rmSync(GIT_LOG, { force: true });
+  r = install(target, { repo: 'https://GitHub.com/noamseg/interview-coach-skill/' });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(pulls().length, 1);
+  // a checkout with no origin at all is not updated either
+  const lone = path.join(tmp, 'no-origin'); fs.mkdirSync(path.join(lone, '.git'), { recursive: true });
+  fs.rmSync(GIT_LOG, { force: true });
+  r = install(lone);
+  assert.equal(r.code, 1); assert.match(r.out, /is a checkout of no origin/); assert.deepEqual(pulls(), []);
 }));
 
 test('installer: a failed pull and a folder that is not a checkout leave everything in place', () => withGit({ FAKE_GIT_FAIL: 'pull' }, () => {
@@ -233,6 +368,10 @@ test('installer: a failed pull and a folder that is not a checkout leave everyth
   let r = install(target);
   assert.equal(r.code, 1);
   assert.match(r.out, /git pull --ff-only failed: fatal: synthetic failure/);
+  // the advice never destroys edits: git status to see what differs, a copy kept elsewhere; never git checkout
+  assert.ok(r.out.includes(`git -C "${target}" status`), r.out);
+  assert.match(r.out, /keep a copy of your edits somewhere else/);
+  assert.doesNotMatch(r.out.split(target).join('<dir>'), /checkout --|reset|clean|stash/);   // the folder's own path may hold any word
   assert.deepEqual(snapshot(target), before);
   const other = path.join(tmp, 'not-a-checkout'); fs.mkdirSync(other);
   fs.writeFileSync(path.join(other, 'notes.md'), 'someone else\'s notes\n');
@@ -274,6 +413,7 @@ test('deploy/modules/coach.sh runs the installer with GIT honoured', { skip: pro
   let r = spawnSync('bash', [path.join(ROOT, 'deploy', 'modules', 'coach.sh')], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(calls()[0], ['clone', '--depth', '1', '--', coach.COACH_REPO, target]);
+  assert.ok(records().every(x => x.prompt === '0' && x.gcm === 'never'));
   fs.writeFileSync(path.join(target, 'coaching_state.md'), 'keep me\n');
   r = spawnSync('bash', [path.join(ROOT, 'deploy', 'modules', 'coach.sh')], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stdout + r.stderr);

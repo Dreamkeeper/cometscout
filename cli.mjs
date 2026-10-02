@@ -19,6 +19,7 @@
 //   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
 //   node cli.mjs serve [--port 8787] [--host 127.0.0.1]      # the workspace (preview): today's picks, decode and pack in the browser
 //   node cli.mjs coach-handoff [--out <file>]                # profile, CV, voice and applications for the interview coach's kickoff
+//                                    # (default: materials/cometscout-handoff.md in the coach's folder; the run refreshes it when modules.coach.enabled)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,7 +44,7 @@ import { localeOk, LOCALES } from './lib/i18n.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
 import { startServer, vendorCheck } from './lib/server.mjs';
 import { takeLock } from './lib/lock.mjs';
-import { coachDoctor, coachHandoff } from './lib/coach.mjs';
+import { coachDoctor, coachHandoff, refreshHandoff } from './lib/coach.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (JOBPILOT_HOME) is where profile/ and settings live, which may be elsewhere.
@@ -186,6 +187,7 @@ async function evening() {
   if (SETTINGS.sources_report?.enabled) await optional('sources-report', () => sourcesReport({ send: sendText, print: () => {} }));
   const packStart = new Date().toISOString(); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
   const refused = refusedSince(packStart);   // packs refused in this run (vetted CV text breaks a lint rule); not a failure
+  if (SETTINGS.modules?.coach?.enabled && !PROFILE.isExample) await optional('coach-handoff', () => refreshHandoff());   // the interview coach's snapshot; no network
   if (SETTINGS.tracker_export?.enabled) await optional('tracker-export', () => { const r = trackerExport(); for (const l of [...exportNotes(r), r.message]) console.log(`tracker-export: ${l}`); });
   runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed, refused });
   const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];

@@ -180,7 +180,7 @@ Hirify (вакансии на удалёнку и с релокацией) чи�
 
 ## 10. По желанию: тренер для собеседований
 
-jobpilot умеет поставить рядом с собой [Interview Coach](https://github.com/noamseg/interview-coach-skill), открытый навык для Claude Code от Noam Segal (лицензия MIT): подготовка к компании, тренировка ответов, разбор записи собеседования, переговоры об оффере. Это отдельный проект, он ставится из своего репозитория. Установить или обновить: `bash deploy/modules/coach.sh`. Передать ему ваш профиль, резюме, стиль письма и отклики: `node cli.mjs coach-handoff` (токены, тексты вакансий и пакеты в файл не попадают). Затем `cd ../interview-coach && claude`, скажите `kickoff` и дайте ему файл `cometscout-handoff.md`. Подробности: раздел [Interview coach](README.md#interview-coach-optional) в README.
+jobpilot умеет поставить рядом с собой [Interview Coach](https://github.com/noamseg/interview-coach-skill), открытый навык для Claude Code от Noam Segal (лицензия MIT): подготовка к компании, тренировка ответов, разбор записи собеседования, переговоры об оффере. Это отдельный проект, он ставится из своего репозитория. Установить или обновить: `bash deploy/modules/coach.sh`. Передать ему ваш профиль, резюме, стиль письма и отклики: `node cli.mjs coach-handoff` (файл появится в папке тренера, в `materials/cometscout-handoff.md`; токены, тексты вакансий и пакеты в него не попадают). Когда в настройках `modules.coach.enabled` равно `true`, вечерний запуск обновляет этот файл сам. Затем `cd ../interview-coach && claude`, скажите `kickoff` и дайте ему файл `materials/cometscout-handoff.md`. Подробности: раздел [Interview coach](README.md#interview-coach-optional) в README.
 
 ## Если что-то не работает
 
