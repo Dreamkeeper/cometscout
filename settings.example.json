@@ -31,6 +31,17 @@
       "max_fetch": 40, "delay_ms": 3000,
       "title_exclude": ["intern", "junior"], "location_exclude_regex": ""
     },
+    "hh_alerts": {
+      "enabled": false,
+      "sender": "noreply@hh.ru",
+      "first_run_hours": 72, "overlap_hours": 24, "max_lookback_hours": 168,
+      "max_fetch": 40, "delay_ms": 3000,
+      "title_include": [], "title_exclude": ["стажер", "стажёр", "intern", "junior"],
+      "must_reside_phrases": [],
+      "abroad_signals": [],
+      "tax_residency_phrases": [],
+      "city_countries": {}
+    },
     "outcomes": {
       "enabled": false,
       "query": "newer_than:3d -category:promotions -category:social",
@@ -43,6 +54,17 @@
       "settle_sec": 60,
       "move_processed_to": "/home/youruser/jobpilot-drop/processed",
       "max_fetches_per_run": 40
+    },
+    "hirify": {
+      "enabled": false,
+      "cookie_env": "HIRIFY_COOKIE",
+      "filters": [
+        { "name": "product remote", "query": "search=product%20manager&work_format=remote" }
+      ],
+      "max_pages_per_filter": 3,
+      "max_age_days": 14,
+      "delay_ms": 1500,
+      "title_exclude": ["intern", "junior"]
     },
     "career_ops": {
       "enabled": false,

@@ -7,8 +7,8 @@ without network access and without anyone's personal data.
 | Folder | Mirrors |
 |---|---|
 | `rtj/` | RealtimeJobs `POST /api/jobs/search` items (`position` + `employer`); `_expect` notes the intended gate result |
-| `hh/` | hh.ru subscription email HTML and public vacancy pages (`data-qa` markers); `expected.json` |
-| `hirify/` | Hirify `/api/vacancies` list and detail responses, `/auth/user`; `expected.json` |
+| `hh/` | hh.ru subscription email HTML and public vacancy pages as of 2026-10 (`data-qa` markers, the archive label inside the title, the page state as HTML-escaped JSON); `expected.json` |
+| `hirify/` | Hirify `/api/vacancies` list and detail responses, `/auth/user`; `expected.json`. `vacancies-real-page-1.json`, `vacancy-9200*.json` and `expected-real.json` follow shapes seen in production (slugs that start with the id, `allowed_locations` such as `anywhere`, `europe`, `european_union`, `united_kingdom`, fields masked as `%...%`); `vacancies-masked-percent.json` is a page seen without a working session; `auth-user-login-page.html` is the login page a dead session gets instead of JSON |
 | `linkedin/` | LinkedIn job-alert email (text part) and the public guest job page |
 | `openclaw/` | A `synthesis-queue.json` with page titles in the formats seen from ATSs and job aggregators |
 | `fetch-detail/` | Canned Greenhouse, Ashby, Lever, Workable and Recruitee API responses and job-posting pages (with and without JSON-LD), for `lib/fetch-detail.mjs` |
