@@ -143,3 +143,55 @@ test('a name without the UTF-8 flag is read as UTF-8 when valid, else as code pa
   fs.writeFileSync(f, raw);
   assert.deepEqual(readZip(f).entries.map(e => e.name), ['xü.txt', 'я.txt']);
 });
+
+// Zips from other tools: rawZip writes raw name bytes with a chosen "made by" host and no UTF-8 flag
+const { rawZip, cp866 } = await import('./fixtures/raw-zip.mjs');
+const { normalizeSeparators, windowsNameProblem, parseChcp, codepageDecoder } = await import('../lib/zip.mjs');
+
+test('Windows PowerShell 5.1 style names ("\\", host 0 FAT/NTFS) are read as "/"; Unix zips with "\\" are still refused', async () => {
+  for (const host of [0, 10, 11, 14]) {
+    const f = rawZip(at(`ps51-${host}.zip`), [{ name: 'data\\decoded\\a.md', data: 'one' }, { name: 'manifest.json', data: '{}' }], { host });
+    assert.deepEqual(readZip(f).entries.map(e => e.name), ['data/decoded/a.md', 'manifest.json'], `host ${host}`);
+    const out = at(`ps51-out-${host}`); await extractZip(f, out);
+    assert.equal(fs.readFileSync(path.join(out, 'data', 'decoded', 'a.md'), 'utf8'), 'one');
+  }
+  // the safety checks still apply after the separator is turned
+  for (const [evil, why] of [['..\\evil.txt', /"\.\."/], ['\\abs\\evil.txt', /absolute/], ['C:\\evil.txt', /drive letter/], ['a\\..\\..\\evil.txt', /"\.\."/]]) {
+    assert.throws(() => readZip(rawZip(at('ps51-evil.zip'), [{ name: evil, data: 'x' }], { host: 0 })), why, evil);
+  }
+  assert.throws(() => readZip(rawZip(at('unix-bs.zip'), [{ name: 'data\\a.md', data: 'x' }], { host: 3 })), /backslash/, 'Unix host');
+  assert.throws(() => readZip(rawZip(at('mixed-bs.zip'), [{ name: 'data/b\\a.md', data: 'x' }], { host: 0 })), /backslash/, 'a name with "/" keeps its "\\"');
+  assert.equal(normalizeSeparators('a\\b', 3), 'a\\b');
+  assert.equal(normalizeSeparators('a\\b', 10), 'a/b');
+});
+
+test('names in the OEM code page (Explorer, tar.exe on a Russian Windows) decode with the code page; CP437 otherwise', () => {
+  const name = cp866('Резюме/письмо.md');
+  assert.equal(new TextDecoder('ibm866').decode(name), 'Резюме/письмо.md', 'the helper writes real CP866');
+  const f = rawZip(at('cp866.zip'), [{ name, data: 'x' }, { name: 'plain.txt', data: 'y' }], { host: 0 });
+  assert.deepEqual(readZip(f, { codepage: 866 }).entries.map(e => e.name), ['Резюме/письмо.md', 'plain.txt']);
+  const asCp437 = [...name].map(b => (b < 0x80 ? String.fromCharCode(b) : CP437_HIGH[b - 0x80])).join('');
+  assert.equal(asCp437.slice(0, 6), 'ÉÑºε¼Ñ');
+  if (process.platform !== 'win32') assert.equal(readZip(f).entries[0].name, asCp437, 'no OEM code page off Windows: CP437');
+  // a code page TextDecoder does not know falls back to CP437; so does 437 itself
+  assert.equal(codepageDecoder(437), null); assert.equal(codepageDecoder(850), null); assert.ok(codepageDecoder(1251));
+  assert.equal(readZip(f, { codepage: 850 }).entries[0].name[0], CP437_HIGH[0x90 - 0x80]);
+});
+
+test('chcp output gives the code page in any language', () => {
+  assert.equal(parseChcp('Active code page: 866\r\n'), 866);
+  assert.equal(parseChcp('Текущая кодовая страница: 866\r\n'), 866);
+  assert.equal(parseChcp('Page de codes active : 850.\r\n'), 850);
+  assert.equal(parseChcp('現在のコード ページ: 932'), 932);
+  assert.equal(parseChcp(''), null);
+});
+
+test('windowsNameProblem names what Windows does not allow', () => {
+  for (const ok of ['data/decoded/a.md', 'profile/Резюме.pdf', 'a.b/c', 'console.md']) assert.equal(windowsNameProblem(ok), null, ok);
+  assert.match(windowsNameProblem('data/what?.md'), /"what\?\.md" contains "\?"/);
+  assert.match(windowsNameProblem('data/a:b/c.md'), /contains ":"/);
+  assert.match(windowsNameProblem('data/tab\there.md'), /control character/);
+  assert.match(windowsNameProblem('data/dot./x'), /ends with a dot or a space/);
+  assert.match(windowsNameProblem('data/NUL.txt'), /reserved name/);
+  assert.match(windowsNameProblem('com1'), /reserved name/);
+});

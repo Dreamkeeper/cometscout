@@ -48,6 +48,15 @@ test('a wrong passphrase fails cleanly and writes nothing', () => {
   const doc = JSON.parse(fs.readFileSync(out, 'utf8')); doc.data = Buffer.from('x'.repeat(40)).toString('base64');
   assert.throws(() => S.decrypt(doc, PASS), /wrong passphrase, or the secrets file is damaged/);
   doc.kdf.N = 2 ** 30; assert.throws(() => S.decrypt(doc, PASS), /unsupported key settings/);
+  // scrypt memory is about 128 * N * r: over 256 MiB is refused before any key is derived (fast, no allocation)
+  const t0 = Date.now();
+  for (const [N, r] of [[2 ** 20, 8], [2 ** 18, 16], [2 ** 14, 2 ** 20], [3000, 8], [2 ** 15, 0.5]]) {
+    Object.assign(doc.kdf, { N, r }); assert.throws(() => S.decrypt(doc, PASS), /unsupported key settings/, `N=${N} r=${r}`);
+  }
+  assert.ok(Date.now() - t0 < 1000, 'refused without running scrypt');
+  assert.equal(S.MAX_SCRYPT_MEM, 256 * 1024 * 1024);
+  Object.assign(doc.kdf, { N: 2 ** 14, r: 8 });   // 16 MiB: allowed, and fails only on the tag
+  assert.throws(() => S.decrypt(doc, PASS), /wrong passphrase, or the secrets file is damaged/);
   fs.writeFileSync(path.join(home, '.env'), ENV);
 });
 

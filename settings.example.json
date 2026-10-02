@@ -103,5 +103,5 @@
     }
   },
   "health": { "ping_url": "" },
-  "backup": { "nightly": true, "copy_to": "" }
+  "backup": { "nightly": true, "copy_to": "", "zip_codepage": null }
 }
