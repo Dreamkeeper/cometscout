@@ -11,7 +11,7 @@
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
 //   node cli.mjs export [--out file.tar.gz|folder] [--with-profile] [--with-settings]   # .env is never exported
 //   node cli.mjs import --from <file.tar.gz|folder> [--dry-run] [--force] [--with-profile] [--with-settings]
-//   node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file (--dry-run prints the rows)
+//   node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file (--dry-run: the rows on stdout, notes on stderr)
 //   node cli.mjs sources-report [--send]                     # which source earns its price (data/reports/source-scorecard.md)
 //   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
 import fs from 'node:fs';
@@ -122,7 +122,7 @@ function timer(at) {
   const dir = path.join(os.homedir(), '.config', 'systemd', 'user'); fs.mkdirSync(dir, { recursive: true });
   const envPath = `${path.join(os.homedir(), '.local', 'bin')}:${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}`;
   // jobpilot.service names jobpilot-failure@.service in OnFailure=, so a failed run sends a Telegram alert (cli.mjs notify)
-  for (const [name, text] of Object.entries(unitFiles({ root: ROOT, node: process.execPath, time, tz, envPath }))) fs.writeFileSync(path.join(dir, name), text);
+  for (const [name, text] of Object.entries(unitFiles({ root: ROOT, code: CODE, node: process.execPath, time, tz, envPath }))) fs.writeFileSync(path.join(dir, name), text);
   for (const a of [['daemon-reload'], ['enable', '--now', 'jobpilot.timer']]) spawnSync('systemctl', ['--user', ...a], { stdio: 'inherit' });
   spawnSync('systemctl', ['--user', 'list-timers', 'jobpilot.timer', '--no-pager'], { stdio: 'inherit' });
   return 0;
@@ -247,9 +247,11 @@ const codes = {
     try {
       const dryRun = rest.includes('--dry-run');
       const r = trackerExport({ out: i >= 0 ? rest[i + 1] : undefined, dryRun });
-      if (dryRun) console.log(JSON.stringify(r.applications, null, 1));   // what the file would hold, to review before writing
-      for (const l of exportNotes(r)) console.log(l);
-      console.log(r.message); return 0;
+      // a dry run prints what the file would hold on stdout, alone, so it can be piped (jq); notes and the summary go to stderr
+      const say = dryRun ? console.error : console.log;
+      if (dryRun) console.log(JSON.stringify(r.applications, null, 1));
+      for (const l of exportNotes(r)) say(l);
+      say(r.message); return 0;
     } catch (e) { console.log(`tracker-export stopped: ${e.message}`); return 1; }
   },
   'sources-report': () => sourcesReportCommand({ send: rest.includes('--send') ? sendText : null }),

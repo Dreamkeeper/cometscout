@@ -6,4 +6,4 @@ Description=jobpilot failure alert for %i
 [Service]
 Type=oneshot
 WorkingDirectory=@ROOT@
-ExecStart=@NODE@ @ROOT@/cli.mjs notify "jobpilot: %i failed, see journalctl --user -u %i"
+ExecStart=@NODE@ @CODE@/cli.mjs notify "jobpilot: %i failed, see journalctl --user -u %i"
