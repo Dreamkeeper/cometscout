@@ -16,3 +16,6 @@ How to work on one:
 | 04 | `04-fetch-detail-and-drop-dir.md` full-text fetcher + external producer intake | none |
 | 05 | `05-career-ops-source.md` career-ops source | 04 |
 | 06 | `06-outcomes.md` outcome tracking from Gmail | none |
+| 07 | `07-decoder-picks-parity.md` company aliases, dedupe against applications, decoder history and fact guard, picks parity | 01-06 merged |
+| 08 | `08-pack-lint.md` lint rules from the profile for packs | none |
+| 09 | `09-reports-and-ops.md` tracker export, source scorecard, health ping, failure alerts, Russian labels | none (uses 07 helpers when merged) |
