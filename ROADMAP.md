@@ -26,6 +26,15 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 | Company alias families, dedupe against the user's applications, alias-aware decoder history with a cutoff for evals, fact-rule negation guard, `decoder.prompt_file`, picks parity (closed roles by alias and role overlap, band, shape bonus, on-site exclusion, archived links), `screen` status | `docs/tasks/07-decoder-picks-parity.md` | ✅ |
 | Pack lint rules from the profile (`profile/lint-rules.json`), vetted fallback, refuse a CV that still breaks a rule | `docs/tasks/08-pack-lint.md` | ✅ |
 
+## Updates, backups, export (self-hosted)
+
+Updates are notify only: a daily check, release notes in the bot and the workspace, one tap to update. Every update makes a backup, installs side by side, migrates data with expand-then-contract rules, verifies itself and rolls back automatically on failure. Export and backups use one ZIP format (`jobpilot-export` v2) the user can open and read.
+
+| Piece | Brief | Status |
+|---|---|---|
+| Export v2 (ZIP), import with conflict modes, encrypted secrets export, nightly backups, restore | `docs/tasks/11-export-v2-and-backups.md` | ⏳ |
+| Releases, update notifications, update and rollback, What is new | `docs/tasks/12-releases-and-updates.md` | ⏳ (after 11) |
+
 ## Evals (M3)
 
 `evals/decode.mjs` (verdicts against human labels: confusion table, surfaced precision/recall, gate correctness, paired comparison of two systems, no history leakage), `evals/pack.mjs` (blind A/B judge for CVs and answers), `evals/voice.mjs` (does it sound like the user), `evals/shadow-diff.mjs` (two systems on the same days). 💤 after M2 starts.
