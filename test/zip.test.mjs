@@ -141,7 +141,7 @@ test('a name without the UTF-8 flag is read as UTF-8 when valid, else as code pa
   for (let i = 0; (i = raw.indexOf(Buffer.from('x_.txt'), i)) >= 0; i++) raw[i + 1] = 0x81;      // 0x81 alone is not UTF-8
   for (const sig of [[0x50, 0x4b, 0x01, 0x02]]) for (let i = 0; (i = raw.indexOf(Buffer.from(sig), i)) >= 0; i++) raw.writeUInt16LE(raw.readUInt16LE(i + 8) & ~0x0800, i + 8);
   fs.writeFileSync(f, raw);
-  assert.deepEqual(readZip(f).entries.map(e => e.name), ['xü.txt', 'я.txt']);
+  assert.deepEqual(readZip(f, { codepage: 437 }).entries.map(e => e.name), ['xü.txt', 'я.txt']);   // pinned: on Windows the OEM page (866 on a Russian machine) is tried first
 });
 
 // Zips from other tools: rawZip writes raw name bytes with a chosen "made by" host and no UTF-8 flag
