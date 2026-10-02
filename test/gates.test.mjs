@@ -72,6 +72,16 @@ test('company gate: excluded and agency, whole words', () => {
   assert.equal(checkGates(job({ company: 'Рога и Копыта' }), { companies: { exclude: ['рога'] } }).gate, 'company', 'Cyrillic');
 });
 
+test('industry combos: every term must match an industry tag; one tag alone passes', () => {
+  const g = { industries: { exclude_combos: [['gaming', 'mobile']] } };
+  assert.equal(checkGates(job({ industries: ['Gaming', 'Mobile', 'AI/ML'] }), g).gate, 'industry');
+  assert.equal(checkGates(job({ industries: ['Gaming', 'Hardware Companies'] }), g).decision, 'pass');
+  assert.equal(checkGates(job({ industries: ['Mobile'] }), g).decision, 'pass');
+  assert.equal(checkGates(job({ title: 'PM, mobile gaming', industries: [] }), g).decision, 'pass', 'combos read industry tags only');
+  assert.equal(checkGates(job({ industries: ['Gaming', 'Mobile'] }), { industries: { exclude_combos: [['gaming']] } }).decision, 'pass', 'a one-term combo is ignored');
+  assert.ok(describeGates(g).active.includes('industry'));
+});
+
 test('industry gate: industries, company or title', () => {
   const g = { industries: { exclude: ['gambling', 'crypto*'] } };
   assert.equal(checkGates(job({ industries: ['Online Gambling'] }), g).gate, 'industry');

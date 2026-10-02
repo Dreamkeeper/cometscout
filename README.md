@@ -74,14 +74,14 @@ Gates are hard rules every source applies before a job is queued, so a job you c
   "must_reside_phrases": [],
   "headcount": { "demote_over": null, "reject_over": null, "demote_unless": ["remote_worldwide", "remote_region", "sponsorship"] },
   "companies": { "exclude": [], "agencies": [] },
-  "industries": { "exclude": [] }
+  "industries": { "exclude": [], "exclude_combos": [] }
 }
 ```
 
 Checks run in this order, and the first one that rejects wins:
 
 1. **company:** the company is in `companies.exclude` or `companies.agencies`.
-2. **industry:** an industry, the company or the title matches `industries.exclude`.
+2. **industry:** an industry, the company or the title matches `industries.exclude`; or the job's industry tags match every term of one entry in `industries.exclude_combos` (e.g. `[["gaming", "mobile"]]` rejects a mobile-gaming studio but not a gaming-hardware maker or a mobile app).
 3. **language:** the posting is in none of your `languages`, or it needs another language at B2 or higher (a lower level is only flagged). Codes compare by language only, so `en-US` counts as `en`; names and 3-letter codes (`English`, `eng`, `spa`, `ger`) count as the 2-letter code.
 4. **legal:** your citizenship is not accepted, or a work permit is required (or sponsorship refused) for an on-site job outside `user.work_authorization`. When the source says sponsorship is available, this is a flag, not a reject. For jobs that are not on-site only (remote, or attendance unknown) it is a flag too.
 5. **geo:** an on-site or hybrid job with no country in `onsite_countries`, or a job that excludes a country you can work in.
