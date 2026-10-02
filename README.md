@@ -50,8 +50,6 @@ node cli.mjs timer [HH:MM]                # reinstall the daily timer from setti
 node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
 node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
 node cli.mjs sources-report [--send]      # which source earns its price
-node cli.mjs export --out <file.tar.gz|folder>   # your data (and with --with-profile --with-settings, profile and settings)
-node cli.mjs import --from <file.tar.gz|folder> [--dry-run]   # bring an export into this install
 node cli.mjs notify <text>                # one Telegram message (the failure alert uses it)
 node cli.mjs export [--out <file.zip>] [--data-only] | export --csv <file.csv>
 node cli.mjs import --from <file.zip> [--dry-run] [--on-conflict keep|theirs|both] [--data-only]
@@ -350,7 +348,7 @@ The daily timer also installs a failure alert: the run unit has `OnFailure=jobpi
 
 One archive format serves downloading your data, nightly backups, moving to a new server and restoring: a ZIP you can open with a double click on any computer and read your own files.
 
-**What is in it.** `manifest.json` (format `jobpilot-export` version 2, the jobpilot version, the data schema, when and on which machine it was made, and a SHA-256 hash of every file), `data/` (`inbox`, `decoded`, `rejected`, `digests`, `packs`, `state`), `profile/` and `settings.json`. **What is never in it:** `.env`, saved login sessions (`data/state/hirify-cookies.json`), the run lock, temporary files and `backups/`. The example profile and example settings are not exported.
+**What is in it.** `manifest.json` (format `jobpilot-export` version 2, the jobpilot version, the data schema, when and on which machine it was made, and a SHA-256 hash of every file), `data/` (`inbox`, `decoded`, `rejected`, `digests`, `packs`, `state`), `profile/` and `settings.json`. **What is never in it:** `.env`, saved login sessions (`data/state/hirify-cookies.json`), the run lock, temporary files, `backups/`, `data/runs`, `data/reports` and `data/tracker` (the next run rebuilds them), and `data/imported` (copies from `--on-conflict both`). The example profile and example settings are not exported.
 
 ```bash
 node cli.mjs export                        # jobpilot-export-<date>-v<version>.zip in the current folder
@@ -361,7 +359,7 @@ node cli.mjs export --csv applications.csv # your applications as a spreadsheet 
 
 The CSV has Company, Role, Status, Applied, Last activity, Source, Link and Notes, one row per entry in `applications.json`. It is UTF-8 with a BOM, so Excel shows Cyrillic and other scripts correctly; a cell that starts with `=`, `+`, `-` or `@` gets a leading `'` so a spreadsheet never runs it as a formula.
 
-**Import** reads a v2 zip or folder, and the older v1 format (a folder or a `.tar.gz`, read with the system `tar`). Every file's hash is checked before anything is written; a damaged archive, an unsafe file name, or an archive made by a newer jobpilot (a newer format or data schema) is refused and nothing changes. `--dry-run` prints the plan: new files, identical files and conflicts (a file you have with other content).
+**Import** reads a v2 zip or folder, and the older v1 format (a folder or a `.tar.gz`, read with the system `tar`). A zip is unpacked into `backups/` in the jobpilot home (on the same disk as your data, not `/tmp`, which is memory on some systems) and that folder is removed afterwards. Every file's hash is checked before anything is written; a damaged archive, an unsafe file name, or an archive made by a newer jobpilot (a newer format or data schema) is refused and nothing changes. On Windows, a file whose name Windows does not allow (a `?` or `:` from a Linux machine, say) is listed as left out with the reason, and the rest is imported. `--dry-run` prints the plan: new files, identical files, conflicts (a file you have with other content) and files left out.
 
 ```bash
 node cli.mjs import --from my-data.zip --dry-run
@@ -370,8 +368,10 @@ node cli.mjs import --from my-data.zip --on-conflict keep     # or theirs, or bo
 
 - `keep` leaves your file as it is. Without `--on-conflict`, data conflicts are kept this way.
 - `theirs` replaces your file with the archived one. The files it replaces are first saved to `backups/` (a partial backup labelled `pre-import`).
-- `both` keeps yours and writes the archived copy next to it as `<name>.imported-<date><ext>`, for you to compare. A copy written into `decoded/` or `inbox/` is a queue file like any other, so delete it when you are done.
+- `both` keeps yours and writes the archived copy to `data/imported/<its path in the archive>` (for example `data/imported/data/state/applications.json`), never into the queue folders, for you to compare. A name already taken there gets `-2`, `-3` and so on. Delete `data/imported` when you are done; it is not exported.
 - A conflict in `profile/` or `settings.json` always needs an explicit `--on-conflict`; until you give one, nothing is imported. `--data-only` leaves profile and settings alone.
+
+**Zips made by other tools.** If you unpack an export and zip it again yourself, the file names must survive. 7-Zip, PowerShell `Compress-Archive` and `Expand-Archive` (5.1 and 7) and `jobpilot export` keep non-Latin names (Cyrillic, Japanese). Windows Explorer and `tar.exe` write names in the machine's old code page (CP866 on a Russian Windows) and can mangle them for other tools. jobpilot reads such names in this Windows machine's code page; on another machine, set `backup.zip_codepage` (for example `866`). Windows PowerShell 5.1 `Compress-Archive` writes `\` instead of `/` in names; jobpilot reads those as folders too. With `tar.exe`, name the top-level entries (`tar -a -cf out.zip manifest.json data profile settings.json`): `-C folder .` stores every name under `./`, and the archive is then not recognised as an export.
 
 **Secrets** travel separately and encrypted (scrypt and AES-256-GCM): `.env` and the saved Hirify session. The passphrase is asked in the terminal (twice on export) or read from `JOBPILOT_SECRETS_PASSPHRASE`, never from an argument. A wrong passphrase fails without writing anything. On import, a secret file you already have with other content is replaced only with `--force`, and the old one is kept as `<name>.replaced-<date>`.
 
@@ -391,7 +391,7 @@ node cli.mjs import --from jobpilot.zip                     # on the new server,
 **Backups.** `node cli.mjs run` makes one after every evening run (not while you try jobpilot on the example profile), and `node cli.mjs backup` makes one now. They go to `backups/` in the jobpilot home as `jobpilot-backup-<date>-<time>-v<version>.zip` (the same format as an export, complete: data, profile and settings). A failed nightly backup is logged and sent to Telegram as an alert; it never fails the run. After each backup old ones are pruned: the newest backup of each of the last 7 days, 4 weeks and 6 months that have one is kept, and the newest three are never removed. `--label <text>` adds a label to the name (updates use `pre-update-...`, restores `pre-restore`); a labelled backup is removed only after 90 days.
 
 ```json
-"backup": { "nightly": true, "copy_to": "" }
+"backup": { "nightly": true, "copy_to": "", "zip_codepage": null }
 ```
 
 `copy_to` copies every new backup offsite: a folder (a Syncthing folder, a mounted disk), or a command with `{file}` in it, such as `"rclone copy {file} remote:jobpilot"` or `"rsync -a {file} backup-host:jobpilot/"`. A failed copy is logged and never stops anything. `doctor` shows the age of the last backup (a warning after 2 days while `nightly` is on) and the free disk space (a warning below three times the last backup).
@@ -404,7 +404,7 @@ node cli.mjs restore <file name> --dry-run              # what would change
 node cli.mjs restore <file name>
 ```
 
-`restore` checks the backup first, then backs up the current state (label `pre-restore`), then imports the backup with `--on-conflict theirs`: every file in the backup comes back as it was. Files made after the backup that are not in it stay. It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
+`restore` takes a name from `backups` or the path of any jobpilot export (a zip, a folder or a v1 `.tar.gz`). It unpacks and checks the archive once, then backs up the current state (label `pre-restore`), then imports with `--on-conflict theirs`: every file in the archive comes back as it was. Files made after the backup that are not in it stay, and one line says how many (`N file(s) here are not in the backup`). It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
 
 ### Language of the messages
 

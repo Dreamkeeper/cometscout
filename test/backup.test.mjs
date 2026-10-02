@@ -172,6 +172,7 @@ test('restore: refused while the run lock is held; dry run changes nothing; it b
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /Dry run, nothing written/);
   assert.match(r.stdout, /data\/decoded\/2026-09-01--acme--pm\.md: replace with the archived copy/);
+  assert.match(r.stdout, /^1 file\(s\) here are not in the backup/m);
   assert.equal(fs.readFileSync(JOB, 'utf8'), 'changed after the backup\n');
   assert.equal(fs.readdirSync(dir).length, before);
 
@@ -179,6 +180,7 @@ test('restore: refused while the run lock is held; dry run changes nothing; it b
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(fs.readFileSync(JOB, 'utf8'), 'original\n');
   assert.ok(fs.existsSync(NEW), 'files that are not in the backup stay');
+  assert.match(r.stdout, /^1 file\(s\) here are not in the backup; they stay as they are\.$/m, 'the new decoded file');
   const pre = r.stdout.match(/The state before the restore is in (.+)$/m)[1].trim();
   assert.match(path.basename(pre), /--pre-restore\.zip$/);
   const z = readZip(pre); const e = z.entries.find(x => x.name === 'data/decoded/2026-09-01--acme--pm.md');
@@ -195,4 +197,13 @@ test('a damaged backup is refused before the pre-restore backup is made; an unkn
   assert.equal(fs.readdirSync(dir).length, before);
   await assert.rejects(B.restore({ ref: 'nope.zip' }), /no backup "nope\.zip"; node cli\.mjs backups lists them/);
   fs.rmSync(f);
+});
+
+test('restore also takes the path of any jobpilot export, such as a folder', async () => {
+  const { exportArchive } = await import('../lib/archive.mjs');
+  const dir = path.join(tmp, 'export-folder'); await exportArchive({ out: dir, dataOnly: true });
+  const r = await B.restore({ ref: dir, dryRun: true });
+  assert.equal(r.from, dir); assert.equal(r.pre, null);
+  assert.ok(r.result.plan.same.includes('data/decoded/2026-09-01--acme--pm.md'));
+  assert.equal(typeof r.notInBackup, 'number');
 });

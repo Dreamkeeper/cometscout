@@ -166,6 +166,18 @@ Hirify (вакансии на удалёнку и с релокацией) чи�
 - Все отклики: `node cli.mjs list`.
 - Очистить данные после пробы на примере: `node cli.mjs reset --yes`.
 
+## 9. Выгрузка данных и резервные копии
+
+- Каждый вечер после запуска jobpilot сам делает резервную копию в папку `backups/` (ZIP-файл). Старые копии удаляются сами: остаются копии за последние 7 дней, 4 недели и 6 месяцев. Выключить: `"backup": { "nightly": false }` в `settings.json`.
+- Сделать копию сейчас: `node cli.mjs backup`. Список копий: `node cli.mjs backups`.
+- Вернуть данные из копии: `node cli.mjs restore <имя файла> --dry-run` покажет, что изменится; та же команда без `--dry-run` восстановит данные. Перед этим jobpilot сам сохранит текущее состояние.
+- Выгрузить всё в один ZIP (его можно открыть двойным щелчком): `node cli.mjs export`. Только отклики в таблицу для Excel: `node cli.mjs export --csv отклики.csv`.
+- Перенести на новый сервер: `node cli.mjs export --out jobpilot.zip` на старом, скопировать файл, `node cli.mjs import --from jobpilot.zip` на новом.
+- Токены из `.env` в выгрузку и копии не попадают. Их переносят отдельно, в зашифрованном файле: `node cli.mjs export-secrets --out secrets.enc` и `node cli.mjs import-secrets --from secrets.enc` (пароль спросят).
+- Если будете сами перепаковывать выгрузку на Windows, берите 7-Zip или PowerShell (`Compress-Archive`). Проводник и `tar.exe` пишут имена в старой кодировке; если такой архив потом загружается на сервер, укажите там в `settings.json` `"backup": { "zip_codepage": 866 }`.
+
+Подробности: раздел [Export, import and backups](README.md#export-import-and-backups) в README.
+
 ## Если что-то не работает
 
 - `node cli.mjs doctor` показывает, чего не хватает, и как это исправить.

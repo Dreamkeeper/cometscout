@@ -150,14 +150,18 @@ test('conflict modes: keep, theirs (the replaced file is backed up first), both'
   assert.deepEqual(r.plan.conflict.map(c => [c.rel, c.action]), [['data/decoded/2026-09-01--acme--pm.md', 'keep']]);
   assert.equal(fs.readFileSync(JOB, 'utf8'), 'local edit\n');
 
-  r = await importArchive({ from: out, onConflict: 'both', date: '2026-10-02' });
-  const copy = path.join(DATA, 'decoded', '2026-09-01--acme--pm.imported-2026-10-02.md');
-  assert.equal(r.plan.conflict[0].as, copy);
+  const queueBefore = fs.readdirSync(path.join(DATA, 'decoded')).sort();
+  r = await importArchive({ from: out, onConflict: 'both' });
+  const copy = path.join(DATA, 'imported', 'data', 'decoded', '2026-09-01--acme--pm.md');
+  assert.equal(r.plan.conflict[0].as, copy, 'the archived copy goes under data/imported/<path in the archive>');
   assert.equal(fs.readFileSync(copy, 'utf8'), ORIGINAL);
   assert.equal(fs.readFileSync(JOB, 'utf8'), 'local edit\n');
-  r = await importArchive({ from: out, onConflict: 'both', date: '2026-10-02', dryRun: true });
-  assert.match(r.plan.conflict[0].as, /\.imported-2026-10-02-2\.md$/, 'an existing .imported copy is never overwritten');
-  fs.rmSync(copy);
+  assert.deepEqual(fs.readdirSync(path.join(DATA, 'decoded')).sort(), queueBefore, 'nothing new in the queue folder');
+  r = await importArchive({ from: out, onConflict: 'both', dryRun: true });
+  assert.equal(r.plan.conflict[0].as, path.join(DATA, 'imported', 'data', 'decoded', '2026-09-01--acme--pm-2.md'), 'an earlier imported copy is never overwritten');
+  const again = await exportArchive({ out: path.join(tmp, 'after-both.zip'), dataOnly: true });
+  assert.ok(!Object.keys(again.manifest.files).some(f => f.includes('imported')), 'data/imported is not exported');
+  fs.rmSync(path.join(DATA, 'imported'), { recursive: true });
 
   r = await importArchive({ from: out, onConflict: 'theirs' });
   assert.equal(fs.readFileSync(JOB, 'utf8'), ORIGINAL);
@@ -184,7 +188,7 @@ test('profile and settings conflicts need an explicit choice; without one nothin
   assert.equal(fs.readFileSync(path.join(other.home, 'profile', 'profile.md'), 'utf8'), '# Someone else\n');
   assert.ok(fs.existsSync(path.join(other.home, 'data', 'decoded', '2026-09-01--acme--pm.md')));
   const d = cli(['import', '--from', out, '--data-only'], freshHome('choice-data-only').env);
-  assert.equal(d.status, 0, d.stdout); assert.match(d.stdout, /left out/);
+  assert.equal(d.status, 0, d.stdout); assert.match(d.stdout, /Left out:\n\s+profile\/profile\.md: --data-only/);
 });
 
 test('a newer schema or format is refused, and so is a damaged archive or an unsafe name, before anything is written', async () => {
@@ -218,4 +222,57 @@ test('export refuses a .tar.gz name and a non-empty folder; a folder export impo
   const a = await openArchive(dir); a.cleanup();
   assert.equal(a.version, 2); assert.deepEqual(a.bad, []);
   assert.ok(fs.readFileSync(path.join(dir, 'data', 'packs', '2026-09-01--acme--pm', 'Резюме.pdf')).equals(PDF));
+});
+
+const { ZipWriter } = await import('../lib/zip.mjs');
+const { rawZip, cp866 } = await import('./fixtures/raw-zip.mjs');
+const workDirs = () => (fs.existsSync(path.join(home, 'backups')) ? fs.readdirSync(path.join(home, 'backups')).filter(f => f.startsWith('.import-')) : []);
+
+test('on Windows a name that cannot be a file there is skipped with the reason; the rest imports', async () => {
+  const z = path.join(tmp, 'linux-names.zip'); const w = await ZipWriter.open(z);
+  const files = { 'data/decoded/what?.md': 'question mark\n', 'data/decoded/2026-09-20--fine--pm.md': 'fine\n', 'data/packs/a:b/cv.md': 'colon\n' };
+  for (const [rel, body] of Object.entries(files)) w.addBuffer(rel, body);
+  w.addBuffer('manifest.json', JSON.stringify({ format: 'jobpilot-export', version: 2, schema_version: SCHEMA_VERSION, contents: ['data'], files: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, sha(Buffer.from(v))])) }));
+  await w.close();
+  const r = await importArchive({ from: z, platform: 'win32' });
+  assert.deepEqual(r.plan.add, ['data/decoded/2026-09-20--fine--pm.md']);
+  assert.deepEqual(r.plan.skipped.map(x => x.rel), ['data/decoded/what?.md', 'data/packs/a:b/cv.md']);
+  assert.match(r.plan.skipped[0].why, /contains "\?", which Windows does not allow/);
+  assert.equal(fs.readFileSync(path.join(DATA, 'decoded', '2026-09-20--fine--pm.md'), 'utf8'), 'fine\n');
+  fs.rmSync(path.join(DATA, 'decoded', '2026-09-20--fine--pm.md'));
+});
+
+test('a zip is unpacked under backups/ in the home (not /tmp) and the folder is gone afterwards, also after a refusal', async () => {
+  const z = path.join(tmp, 'work.zip'); await exportArchive({ out: z, dataOnly: true });
+  const stale = path.join(home, 'backups', '.import-1-stale'); fs.mkdirSync(stale, { recursive: true });
+  const old = new Date(Date.now() - 2 * 3600000); fs.utimesSync(stale, old, old);
+  const a = await openArchive(z);
+  assert.equal(path.dirname(a.dir), path.join(home, 'backups'));
+  assert.ok(path.basename(a.dir).startsWith(`.import-${process.pid}-`));
+  assert.ok(!fs.existsSync(stale), 'a stale work folder from a killed process is removed');
+  // reused: a dry run and the real import read the same unpacked copy; the caller cleans up
+  const dry = await importArchive({ archive: a, dryRun: true, onConflict: 'keep' });
+  assert.ok(fs.existsSync(a.dir));
+  const real = await importArchive({ archive: a, onConflict: 'keep' });
+  assert.deepEqual(real.plan.same, dry.plan.same);
+  a.cleanup();
+  assert.deepEqual(workDirs(), []);
+  await importArchive({ from: z, dryRun: true });
+  assert.deepEqual(workDirs(), [], 'importArchive cleans up what it opened');
+  const raw = fs.readFileSync(z); const i = raw.indexOf(Buffer.from(ORIGINAL)); assert.ok(i > 0, 'stored'); raw[i + 3] ^= 0x20; fs.writeFileSync(path.join(tmp, 'work-bad.zip'), raw);
+  await assert.rejects(importArchive({ from: path.join(tmp, 'work-bad.zip') }), /CRC mismatch/);
+  assert.deepEqual(workDirs(), [], 'cleaned up after a refusal too');
+});
+
+test('an export zipped again by Explorer or PowerShell 5.1 (OEM code page names, "\\") imports with the code page', async () => {
+  const dir = path.join(tmp, 'for-explorer'); await exportArchive({ out: dir, dataOnly: true });
+  const names = filesIn(dir).map(f => f.split(path.sep).join('/'));
+  const z = rawZip(path.join(tmp, 'explorer.zip'), names.map(n => ({ name: cp866(n.replace(/\//g, '\\')), data: fs.readFileSync(path.join(dir, ...n.split('/'))) })), { host: 0 });
+  const a = await openArchive(z, { codepage: 866 });
+  try {
+    assert.deepEqual(a.bad, []);
+    assert.ok(Object.keys(a.manifest.files).includes('data/packs/2026-09-01--acme--pm/Резюме.pdf'));
+    const r = await importArchive({ archive: a, dryRun: true });
+    assert.equal(r.plan.add.length + r.plan.same.length + r.plan.conflict.length, Object.keys(a.manifest.files).length);
+  } finally { a.cleanup(); }
 });
