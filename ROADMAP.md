@@ -32,4 +32,9 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 
 ## Workspace (M5)
 
-One private Telegram supergroup with topics (Picks, Packs, Outcomes, Alerts, Sources, Interview coach, Transcription, OpenClaw, career-ops), created by the bot; jobpilot posts to topics; Claude Code bridge bots answer only in their topic; optional modules installed from upstream (`deploy/modules/*.sh`): OpenClaw, career-ops, an interview-coach skill, meeting transcription (GPU worker or CPU fallback). Recommended server for the full workspace: 4 vCPU / 8 GB RAM. 💤
+A web workspace instead of chat-only control, so nobody needs a Claude Code session: a PWA that is fullscreen and dense on the desktop, installable on the phone with offline access and Web Push, and opens as a Telegram Mini App (same code, same URL). One Telegram bot in a private chat for picks with buttons, outcome cards and alerts (a topics group stays optional). UI: Preact + htm with no build step; the Node server stays dependency-free; self-hosted with HTTPS set up by the installer. Optional modules installed from upstream (`deploy/modules/*.sh`): OpenClaw, career-ops, an interview-coach skill, meeting transcription (GPU worker or CPU fallback). Recommended server for the full workspace: 4 vCPU / 8 GB RAM.
+
+| Piece | Brief | Status |
+|---|---|---|
+| Probe: `cli.mjs serve` and the "Today" screen (picks, decode, pack review, applied / skip / later) | `docs/tasks/10-workspace-today-screen.md` | ⏳ |
+| PWA platform (manifest, service worker, Web Push, sign-in via Telegram launch data or a login link, HTTPS installer), the other screens, the bot, modules | later briefs | 💤 |

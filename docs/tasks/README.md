@@ -19,3 +19,4 @@ How to work on one:
 | 07 | `07-decoder-picks-parity.md` company aliases, dedupe against applications, decoder history and fact guard, picks parity | 01-06 merged |
 | 08 | `08-pack-lint.md` lint rules from the profile for packs | none |
 | 09 | `09-reports-and-ops.md` tracker export, source scorecard, health ping, failure alerts, Russian labels | none (uses 07 helpers when merged) |
+| 10 | `10-workspace-today-screen.md` workspace probe: `cli.mjs serve` and the Today screen (Preact + htm, no build) | 01-09 merged |
