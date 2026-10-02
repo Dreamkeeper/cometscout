@@ -153,6 +153,8 @@ node sources/linkedin-alerts.mjs --dry-run --max-fetch 3
 
 Hirify (вакансии на удалёнку и с релокацией) читается через вашу сессию на сайте: скопируйте из браузера значение заголовка `Cookie` в строку `HIRIFY_COOKIE="..."` в `.env` (сами, не в чат), добавьте свои сохранённые фильтры в блок `"hirify"` в `settings.json` и проверьте `node sources/hirify.mjs --dry-run`. Подробности, в том числе что делать, когда сессия истекла: раздел [Hirify](README.md#hirify) в README.
 
+Если у вас уже работает [career-ops](https://github.com/career-ops-hq/career-ops), jobpilot может забирать его находки: впишите путь к папке career-ops в `sources.career_ops.path` и включите источник. jobpilot только читает `data/pipeline.md` и `data/scan-history.tsv` и ничего не пишет в папку career-ops. Подробности в разделе «career-ops» файла `README.md`.
+
 ## 8. Каждый день
 
 - Вечером в Telegram приходят до двух лучших вакансий дня, к каждой пакет: резюме в PDF, сопроводительное письмо, если форма его просит, и черновики ответов.

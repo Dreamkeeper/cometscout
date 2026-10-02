@@ -20,13 +20,15 @@ import { frontMatter, norm } from './lib/queue.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { exportData, importData } from './lib/archive.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
+import { checkSetup as careerOpsSetup } from './sources/career-ops.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
 // outcomes reads application results from Gmail; it runs with the sources, so the decoder already knows what closed
+// career_ops: reads a career-ops checkout, never writes to it
 // hh_alerts: hh.ru alert emails (Gmail + the public vacancy page); hirify: saved filters, read with the user's session cookie
 const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs',
-  hh_alerts: 'sources/hh-alerts.mjs', hirify: 'sources/hirify.mjs', drop_dir: 'sources/drop-dir.mjs', outcomes: 'sources/outcomes.mjs' };
+  hh_alerts: 'sources/hh-alerts.mjs', hirify: 'sources/hirify.mjs', career_ops: 'sources/career-ops.mjs', drop_dir: 'sources/drop-dir.mjs', outcomes: 'sources/outcomes.mjs' };
 const APPS = STATE('applications.json');
 const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 
@@ -128,6 +130,7 @@ function doctor() {
   const gmailUsers = [['linkedin_alerts', 'LinkedIn alerts'], ['outcomes', 'outcomes'], ['hh_alerts', 'hh.ru alerts']].filter(([k]) => SETTINGS.sources[k]?.enabled).map(([, n]) => n);
   if (gmailUsers.length) ok(['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'].every(k => secret(k)), `Gmail read-only access (${gmailUsers.join(', ')})`, 'add GMAIL_CLIENT_ID/SECRET to .env, then run `node tools/gmail-auth.mjs`');
   if (SETTINGS.sources.hh_alerts?.enabled) { const l = [].concat(SETTINGS.gates?.languages ?? []).map(x => String(x).toLowerCase()); ok(!l.length || l.some(x => /^(ru|rus|russian)([-_].*)?$/.test(x)), 'hh.ru alerts: language gate', 'gates.languages has no "ru", so every Russian posting from hh.ru is rejected; add "ru"'); }
+  if (SETTINGS.sources.career_ops?.enabled) { const c = careerOpsSetup(); ok(c.good, c.text, c.fix); }
   if (SETTINGS.sources.drop_dir?.enabled) { const d = SETTINGS.sources.drop_dir.dir; ok(!!d && fs.existsSync(d), `drop-dir folder: ${d || 'not set'}`, d ? `create ${d} or fix sources.drop_dir.dir in settings.json` : 'set sources.drop_dir.dir in settings.json'); }
   if (SETTINGS.sources.hirify?.enabled) {
     const h = SETTINGS.sources.hirify, env = h.cookie_env || 'HIRIFY_COOKIE';

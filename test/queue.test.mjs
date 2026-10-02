@@ -65,6 +65,26 @@ test('duplicates: URL first, then the same title at the same company', () => {
   assert.equal(w('OldCo', 'Product Manager', 'https://old.example/2').written, true, 'repost after dedupe_days');
 });
 
+test('an unknown company never dedupes on the title alone; the URL still does', () => {
+  const w = (company, role, url) => q.writeJob({ company, role, url, source: 'test', text: 'x' });
+  assert.equal(w('Unknown', 'Product Manager Platform', 'https://u.example/1').written, true);
+  assert.equal(w('Unknown', 'Product Manager Platform', 'https://u.example/2').written, true, 'two unknown companies are not one job');
+  assert.equal(w('', 'Product Manager Platform', 'https://u.example/3').written, true, 'an empty company neither');
+  assert.equal(w('unknown', 'Something Else', 'https://u.example/1/').written, false, 'the same URL is still a duplicate');
+});
+
+test('URL dedupe keeps job-id query parameters (gh_jid, jobId, id) and drops the rest', () => {
+  const w = (company, url) => q.writeJob({ company, role: `Role at ${url}`, url, source: 'test', text: 'x' });
+  assert.equal(w('Embedco', 'https://careers.embedco.example/jobs?gh_jid=111&utm_source=x').written, true);
+  assert.equal(w('Embedco', 'https://careers.embedco.example/jobs?gh_jid=222').written, true, 'another Greenhouse-embed job');
+  assert.equal(w('Embedco', 'https://careers.embedco.example/jobs?utm_source=y&gh_jid=111').written, false, 'same job id, other tracking');
+  assert.equal(w('Idco', 'https://idco.example/job?jobId=7').written, true);
+  assert.equal(w('Idco', 'https://idco.example/job?jobId=8').written, true);
+  assert.equal(w('Idco', 'https://idco.example/view?id=1').written, true);
+  assert.equal(w('Idco', 'https://idco.example/view?id=2').written, true);
+  assert.equal(w('Idco', 'https://idco.example/view?id=2#apply').written, false);
+});
+
 test('a name collision on the same day gets a numeric suffix', () => {
   const a = q.writeJob({ company: 'Gamma', role: 'Engineer 2', url: 'https://g.example/1', location: 'Paris', source: 'test', text: 'x' });
   const b = q.writeJob({ company: 'Gamma', role: 'Engineer 2', url: 'https://g.example/2', location: 'Lyon', source: 'test', text: 'x' });

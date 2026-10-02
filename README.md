@@ -16,7 +16,7 @@ sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack 
                                          skipped)           form answers)
 ```
 
-- **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session).
+- **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans.
 - **Decode:** each job is judged against `profile/profile.md`: your experience, what you want, location and work permit, hard gates, and scope guards (what you must never claim). Verdicts: strong fit, investable stretch, long shot (with the reason it was held), weak fit, gate.
 - **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you already applied to excluded.
 - **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
@@ -196,13 +196,37 @@ Requests look like the site's own (a normal browser User-Agent, with Origin and 
 
 Each new vacancy gets one detail call, unless the list already says it is a scam or archived; scams (marked by Hirify) and archived vacancies are skipped. A company Hirify still hides with a working session is queued as "Confidential (Hirify)" with a flag; a hidden apply link is replaced by the vacancy's Hirify page, also with a flag. The gates apply to the rest: the posting language and `language_requirements` (language gate), office locations (geo), allowed locations (remote regions; country names count, so "Spain" or "spain" is accepted when you may work in Spain, and Hirify's snake_case names such as `united_kingdom` and `european_union` are read as words), excluded locations (a job that excludes a country you can work in is rejected), tags and a "(Domain)" at the end of the title (industries). Remote counts as worldwide when there are no allowed locations, when they are only worldwide words (`anywhere`, `worldwide`, `global`, `everywhere`), or when Hirify's `remote_type` is `global`. A field that is missing or written in a form jobpilot does not know is flagged, never a reason to reject. The vacancy ids jobpilot has handled are kept in `data/state/hirify.json` for 120 days; a vacancy that could not be read, or was demoted, is tried again on the next run. Try it with `node sources/hirify.mjs --dry-run` (writes nothing).
 
+### career-ops
+
+If you also run [career-ops](https://github.com/career-ops-hq/career-ops), jobpilot can pick up what its scans find, so those jobs get decoded and picked like any other. jobpilot only reads two files in your career-ops checkout and never writes into that folder.
+
+```json
+"sources": {
+  "career_ops": {
+    "enabled": true,
+    "path": "/home/youruser/career-ops",
+    "include_evaluated": false,
+    "max_per_run": 30
+  }
+}
+```
+
+`pipeline_file` and `scan_history_file` (optional, relative to `path` or absolute) name the two files when they are not `data/pipeline.md` and `data/scan-history.tsv`. Both are read in the format career-ops writes:
+
+- **Pipeline** (required). Rows look like `- [ ] <url> | <company> | <title> | <location> | <compensation>`; only the link is required, and the trailing cells are there when the board gave them. Any row may also carry labeled segments: `posted: YYYY-MM-DD`, `trust: 60 flag,flag`, `note: ...` and `rank: 4.1/5 ...`. A labeled segment is never read as a company, role or location; all of them go into the job's notes, `posted:` also sets the posting date, and `trust:` also becomes a flag. Every `[ ]` row is a candidate. Rows marked `[!]` (career-ops could not read them), `[x] #-- | <url> | skipped (...)` (dropped by its pre-screen) and struck-through `[x] ~~...~~` rows (expired) are left out. Other `[x]` rows were already evaluated by career-ops; they are taken only with `include_evaluated: true`, and the career-ops number and score (`3.8/5`, `**8.5/10**`) go into the notes. A row with any other mark is listed in the log and not taken.
+- **Scan history** (optional). The tab-separated file with a header row (`url`, `first_seen`, `portal`, `title`, `company`, `status`, `location`, ... up to 12 columns; older files without a header or with 7 columns work too). When a link has several rows, the last one counts. A link whose last status is `added` and that is not in the pipeline is a candidate; `skipped_expired`, `skipped_location` and every other status are left out.
+
+Before anything is fetched, a link you already have in `data/state/applications.json` (the same link, or the same company and role) is skipped, and the [gates](#gates) run on the company, role and location career-ops wrote, so an excluded company or an on-site job in the wrong country costs nothing. jobpilot then fetches the full text (from the ATS API for Greenhouse, Ashby, Lever, Workable and Recruitee links, otherwise the page), checks applications and the gates again on what the posting says, and queues the job with `source: "career-ops"`, the location and the compensation (as salary). Closed postings are skipped. The company is the one career-ops wrote, else the one the posting names, else the board in the link; it is never guessed from the title. A job with no company anywhere is queued as "Unknown" with a flag, so the decoder sees it.
+
+`max_per_run` caps the jobs handled per run, shared out one per company in turn (the company as written, else the board in the link); the rest wait for the next run. Every link is remembered in `data/state/career-ops.json`, so nothing is fetched twice. A gate reject is remembered too, but one made before the fetch is checked again on every run without any network, so changing `gates` brings it back. A link that could not be fetched (a rate limit, a server error, a network hiccup) is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job given up on is still queued without text when its company and role are known. Try it with `node sources/career-ops.mjs --dry-run` (fetches and logs, writes nothing). `node cli.mjs doctor` checks that the folder has the pipeline file and that jobpilot can read it.
+
 ### Tests
 
 `npm test` runs the unit tests (no network, no model calls).
 
 ## Status
 
-v0.1, first testers. Working: ATS boards, RealtimeJobs, LinkedIn-alerts, hh.ru-alerts and Hirify sources, outcomes from Gmail, decode, picks, packs (Claude and Codex), Telegram, installer. Next: guided onboarding polish from tester sessions, evals for your own voice and CV quality.
+v0.1, first testers. Working: ATS boards, RealtimeJobs, LinkedIn-alerts, hh.ru-alerts, Hirify and career-ops sources, outcomes from Gmail, decode, picks, packs (Claude and Codex), Telegram, installer. Next: guided onboarding polish from tester sessions, evals for your own voice and CV quality.
 
 ## License
 

@@ -65,6 +65,12 @@
       "max_age_days": 14,
       "delay_ms": 1500,
       "title_exclude": ["intern", "junior"]
+    },
+    "career_ops": {
+      "enabled": false,
+      "path": "/home/youruser/career-ops",
+      "include_evaluated": false,
+      "max_per_run": 30
     }
   },
   "gates": {
