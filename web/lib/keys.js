@@ -24,3 +24,10 @@ export function keyAction(e, mode = 'main', { reasons = 8, laterDays = [1, 3, 7]
   const action = KEYMAP[key] ?? KEYMAP[String(key).toLowerCase()];
   return action ? { action } : null;
 }
+
+/** Tab inside a dialog: the index of the element to focus next among `count`, wrapping at both ends (-1: none focused yet). */
+export function trapTab(count, index, shift = false) {
+  if (count <= 0) return -1;
+  if (index < 0 || index >= count) return shift ? count - 1 : 0;
+  return shift ? (index - 1 + count) % count : (index + 1) % count;
+}

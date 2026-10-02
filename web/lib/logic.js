@@ -122,3 +122,42 @@ export function lintHits(pack) {
 
 /** The job text without its "# Company - Role" first line (the header already shows it). */
 export const bodyText = text => String(text || '').replace(/^#[^\n]*\n+/, '').trim();
+
+/** The picks group title: "Today's picks (n)", or "Picks of Oct 1 (n)" when the latest picks are not today's (a run failed). */
+export function picksTitle(today, n, t, locale = 'en') {
+  const day = today?.picks_date;
+  return day && day !== today?.date ? t('ws.picks_of', { date: formatDate(day, locale), n }) : t('ws.picks', { n });
+}
+
+// Filters are remembered between visits; the search text is not.
+const KEPT = ['source', 'verdict', 'hasPack', 'hideLater'];
+/** What to store: the filters without the search text. */
+export const filtersToSave = f => Object.fromEntries(KEPT.map(k => [k, (f || {})[k] ?? DEFAULT_FILTERS[k]]));
+/** Filters from what was stored: known keys of the right type only, the search always empty. */
+export function filtersFromSaved(saved) {
+  const out = { ...DEFAULT_FILTERS };
+  if (saved && typeof saved === 'object') for (const k of KEPT) if (typeof saved[k] === typeof DEFAULT_FILTERS[k]) out[k] = saved[k];
+  return out;
+}
+
+/**
+ * What to fetch for the selected job: { job, pack } true when it is neither loaded nor loading. After an action the
+ * job's decode is dropped from the cache, and when the same job stays selected this asks for it again.
+ */
+export function toLoad(file, jobs, packs, inflight = new Set()) {
+  if (!file) return { job: false, pack: false };
+  return { job: !(jobs || {})[file] && !inflight.has(`job:${file}`), pack: !(packs || {})[file] && !inflight.has(`pack:${file}`) };
+}
+
+/**
+ * The pack pane's content from an /api/pack answer. With pack.json: its flags, lint hits and answers. Without it
+ * (an older pack): what answers.md says, and null where answers.md says nothing, so the pane never claims
+ * "nothing flagged" or "no lint hits" that no file recorded. Returns null when the job has no pack.
+ */
+export function packView(pack) {
+  if (!pack || !pack.dir) return null;
+  const p = pack.pack;
+  if (p) return { fromMd: false, flags: p.flags || [], hits: lintHits(p), answers: p.answers || [], positioning: p.raw?.positioning || p.positioning || null, built: p.built || null };
+  const md = pack.from_answers || {};
+  return { fromMd: true, flags: md.flags ?? null, hits: null, answers: md.answers ?? null, positioning: md.positioning || null, built: null };
+}

@@ -61,6 +61,9 @@ test('writeDemo: decodes, two picks for today, packs with valid PDFs; refuses a 
     assert.match(pdf, /^Alex Rivera CV - /, 'the example candidate, from profile.example');
     assert.match(checkPdf(fs.readFileSync(path.join(out, 'packs', dir, pdf))), /\(ALEX RIVERA\) Tj/);
   }
+  const old = r.packs.find(d => d.endsWith('--meshwork-systems'));
+  assert.ok(old, 'an older-style pack: <date>--<company>');
+  assert.deepEqual(fs.readdirSync(path.join(out, 'packs', old)), ['answers.md'], 'answers.md only, no pack.json');
   const apps = JSON.parse(fs.readFileSync(path.join(out, 'state', 'applications.json'), 'utf8'));
   assert.equal(apps[r.files.tidewater].events[0].until, '2026-10-05');
   await assert.rejects(writeDemo(out, { now }), /is not empty/);

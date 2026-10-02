@@ -1,7 +1,7 @@
 // Left pane: search, filters, today's picks, then the pool grouped by verdict.
 import { useEffect, useRef } from 'preact/hooks';
 import { html } from '../lib/html.js';
-import { verdictName, verdictTone, statusName, formatDate, isLater, optionsOf } from '../lib/logic.js';
+import { verdictName, verdictTone, statusName, formatDate, isLater, optionsOf, picksTitle } from '../lib/logic.js';
 
 function Filters({ t, today, filters, setFilters, searchRef }) {
   const set = patch => setFilters({ ...filters, ...patch });
@@ -62,7 +62,7 @@ export function List({ t, locale, today, groups, selected, onSelect, filters, se
       ${today && total > 0 && shown === 0 && html`<p class="empty">${t('ws.no_match')}</p>`}
       ${groups.map(g => html`
         <section key=${g.key} class="group">
-          <h3 class="group-title">${g.kind === 'picks' ? t('ws.picks', { n: g.items.length }) : `${verdictName(g.verdict, t)} (${g.items.length})`}</h3>
+          <h3 class="group-title">${g.kind === 'picks' ? picksTitle(today, g.items.length, t, locale) : `${verdictName(g.verdict, t)} (${g.items.length})`}</h3>
           <ul>
             ${g.items.map(i => html`<${Item} key=${i.file} t=${t} locale=${locale} item=${i} date=${date} selected=${i.file === selected} onSelect=${onSelect} />`)}
           </ul>

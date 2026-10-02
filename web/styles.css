@@ -105,7 +105,9 @@ kbd { font: 12px var(--mono); border: 1px solid var(--line); border-bottom-width
 .text { white-space: pre-wrap; margin-top: 8px; font-size: 13px; }
 
 /* pack */
-.pdf { width: 100%; height: 72vh; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; margin: 6px 0; }
+.pdf { width: 100%; height: calc((100vh - var(--top)) / 2); border: 1px solid var(--line); border-radius: var(--radius); background: #fff; margin: 6px 0; }
+.pdf-big { height: calc(100vh - var(--top) - 60px); }
+.raw summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 6px; }
 .answer { padding: 8px 0; border-top: 1px dashed var(--line); }
 .answer:first-of-type { border-top: 0; }
 .answer-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

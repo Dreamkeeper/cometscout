@@ -41,6 +41,7 @@ import { healthPing, notify, unitFiles } from './lib/ops.mjs';
 import { localeOk, LOCALES } from './lib/i18n.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
 import { startServer, vendorCheck } from './lib/server.mjs';
+import { takeLock } from './lib/lock.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (JOBPILOT_HOME) is where profile/ and settings live, which may be elsewhere.
@@ -80,12 +81,7 @@ const refusedSince = at => Object.entries(readJson(STATE('packs.json'), {})).fil
 const refusedLine = refused => refused.map(r => `${r.company || r.file}, ${r.role || '?'} (${r.rules.join(', ')})`).join('; ');
 
 // One run at a time: the timer and a manual command must not decode the same files or write state twice.
-function lock() {
-  const f = STATE('run.lock');
-  try { const pid = Number(fs.readFileSync(f, 'utf8')); if (pid && pid !== process.pid) { process.kill(pid, 0); return `another jobpilot run is in progress (pid ${pid}); try again when it finishes`; } } catch { /* no lock, or a stale one */ }
-  fs.writeFileSync(f, String(process.pid)); process.on('exit', () => { try { fs.rmSync(f); } catch { /* already gone */ } });
-  return null;
-}
+const lock = () => takeLock();
 
 // The body lives in lib/applications.mjs, shared with the workspace server (POST /api/status).
 function setStatus(company, status, words, note, manual) {
@@ -197,14 +193,14 @@ async function evening() {
 
 // The workspace (lib/server.mjs). Loopback only until sign-in exists; --unsafe-no-auth is the explicit way around it.
 async function serve() {
-  const opt = n => { const i = rest.indexOf(`--${n}`); return i >= 0 ? rest[i + 1] : undefined; };
+  // a flag given without a value ("--port" last, or followed by another flag) is an error, never the default
+  const opt = n => { const i = rest.indexOf(`--${n}`); if (i < 0) return undefined; const v = rest[i + 1]; return v === undefined || v.startsWith('--') ? '' : v; };
   const port = opt('port') ?? '8787', host = opt('host') ?? '127.0.0.1', unsafeNoAuth = rest.includes('--unsafe-no-auth');
+  if (port === '') { console.log('--port needs a number, e.g. --port 8787'); return 1; }
   if (!/^\d{1,5}$/.test(port) || Number(port) > 65535) { console.log(`--port must be a number from 0 to 65535, got "${port}"`); return 1; }
-  if (!host || host.startsWith('--')) { console.log('--host needs an address, e.g. --host 127.0.0.1'); return 1; }
-  if (unsafeNoAuth) console.log(`WARNING: --unsafe-no-auth: the workspace has no sign-in; anyone who can reach ${host}:${port} can read your queue and packs and record statuses.`);
-  // The Host check answers only the bound address, so a wildcard bind is reachable by no name at all.
-  if (unsafeNoAuth && ['0.0.0.0', '::', '[::]'].includes(host)) console.log(`Note: requests are answered only when they name ${host}:${port}; bind the address you will open instead (e.g. --host 192.168.1.5).`);
+  if (host === '') { console.log('--host needs an address, e.g. --host 127.0.0.1'); return 1; }
   let s; try { s = await startServer({ host, port: Number(port), unsafeNoAuth }); } catch (e) { console.log(`jobpilot serve: ${e.code === 'EADDRINUSE' ? `port ${port} is in use; try --port ${Number(port) + 1}` : e.message}`); return 1; }
+  if (unsafeNoAuth) console.log(`WARNING: --unsafe-no-auth: the workspace has no sign-in; anyone who can reach ${host}:${s.port} can read your queue and packs and record statuses.`);
   console.log(`jobpilot workspace: ${s.url}  (data: ${DATA}; Ctrl+C stops it)`);
   const stop = () => { s.close().then(() => process.exit(0)); };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);

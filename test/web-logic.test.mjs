@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as L from '../web/lib/logic.js';
-import { keyAction, KEYMAP, KEY_HELP } from '../web/lib/keys.js';
+import { keyAction, KEYMAP, KEY_HELP, trapTab } from '../web/lib/keys.js';
 import { makeT } from '../web/lib/labels.js';
 import { createApi, ApiError } from '../web/lib/api.js';
 
@@ -115,11 +115,12 @@ test('formatting: dates, tones, skip notes, lint hits, job text', () => {
   assert.equal(L.findItem(today, 'zz'), null);
 });
 
-test('the API client: JSON, the X-Jobpilot header on writes, errors with the server\'s message, 404 pack as null', async () => {
+test('the API client: JSON, the X-Jobpilot header on writes, errors with the server\'s message, a job without a pack', async () => {
   const calls = [];
   const fake = async (url, opt = {}) => {
     calls.push({ url, opt });
-    if (url.startsWith('/api/pack')) return { ok: false, status: 404, json: async () => ({ error: 'no pack for this job' }) };
+    if (url === '/api/pack?file=x.md') return { ok: true, status: 200, json: async () => ({ file: 'x.md', dir: null, pack: null }) };
+    if (url.startsWith('/api/pack')) return { ok: false, status: 404, json: async () => ({ error: 'no such job' }) };
     if (url === '/api/status') return { ok: false, status: 409, json: async () => ({ error: 'applications.json is not valid JSON' }) };
     if (url === '/api/broken') return { ok: false, status: 500, json: async () => { throw new Error('not json'); } };
     return { ok: true, status: 200, json: async () => ({ url }) };
@@ -127,7 +128,8 @@ test('the API client: JSON, the X-Jobpilot header on writes, errors with the ser
   const api = createApi({ fetch: fake });
   assert.deepEqual(await api.today(), { url: '/api/today' });
   assert.deepEqual(await api.job('2026-10-02--a b.md'), { url: '/api/job?file=2026-10-02--a%20b.md' });
-  assert.equal(await api.pack('x.md'), null);
+  assert.deepEqual(await api.pack('x.md'), { file: 'x.md', dir: null, pack: null }, 'no pack is an answer, not an error');
+  await assert.rejects(api.pack('gone.md'), e => e.status === 404 && /no such job/.test(e.message), 'an unknown job is an error');
   await assert.rejects(api.status('x.md', 'skipped', 'too senior'), e => e instanceof ApiError && e.status === 409 && /not valid JSON/.test(e.message));
   const w = calls.find(c => c.url === '/api/status');
   assert.equal(w.opt.method, 'POST');
@@ -141,4 +143,52 @@ test('the API client: JSON, the X-Jobpilot header on writes, errors with the ser
   await assert.rejects(down.today(), e => e.status === 0 && e.message === 'Failed to fetch');
   const odd = createApi({ fetch: async () => ({ ok: false, status: 502, json: async () => { throw new Error('html'); } }) });
   await assert.rejects(odd.labels(), /HTTP 502/);
+});
+
+test('after an action on the only listed job, that job stays selected and its decode is fetched again', () => {
+  assert.equal(L.nextAfterAction(['x'], 'x', ['x']), 'x');
+  const jobs = { x: { data: { file: 'x' } } }, packs = { x: { data: { dir: null, pack: null } } };
+  assert.deepEqual(L.toLoad('x', jobs, packs), { job: false, pack: false }, 'loaded: nothing to fetch');
+  const { x: _dropped, ...afterAction } = jobs;   // act() drops the acted-on job's decode
+  assert.deepEqual(L.toLoad('x', afterAction, packs), { job: true, pack: false }, 'the same selection asks for the decode again');
+  assert.deepEqual(L.toLoad('x', afterAction, packs, new Set(['job:x'])), { job: false, pack: false }, 'not twice while it loads');
+  assert.deepEqual(L.toLoad('y', jobs, packs), { job: true, pack: true });
+  assert.deepEqual(L.toLoad(null, {}, {}), { job: false, pack: false });
+});
+
+test('the picks title names the picks date when it is not today', () => {
+  const t = makeT({ 'ws.picks': "Today's picks ({n})", 'ws.picks_of': 'Picks of {date} ({n})' });
+  assert.equal(L.picksTitle({ date: '2026-10-02', picks_date: '2026-10-02' }, 2, t), "Today's picks (2)");
+  assert.equal(L.picksTitle({ date: '2026-10-02', picks_date: '2026-10-01' }, 2, t, 'en'), 'Picks of Oct 1 (2)');
+  assert.equal(L.picksTitle({ date: '2026-10-02', picks_date: null }, 0, t), "Today's picks (0)");
+});
+
+test('filters are remembered without the search text', () => {
+  const f = { q: 'acme', source: 'rtj', verdict: 'strong-fit', hasPack: true, hideLater: false };
+  assert.deepEqual(L.filtersToSave(f), { source: 'rtj', verdict: 'strong-fit', hasPack: true, hideLater: false });
+  assert.deepEqual(L.filtersFromSaved(L.filtersToSave(f)), { ...f, q: '' });
+  assert.deepEqual(L.filtersFromSaved({ q: 'old search', source: 5, hideLater: 'yes', extra: 1 }), L.DEFAULT_FILTERS, 'wrong types and the search are ignored');
+  assert.deepEqual(L.filtersFromSaved(null), L.DEFAULT_FILTERS);
+});
+
+test('the pack view: pack.json when there is one; answers.md otherwise, never claiming what no file recorded', () => {
+  assert.equal(L.packView({ file: 'x', dir: null, pack: null }), null);
+  const full = L.packView({ dir: 'd', pack: { flags: [], answers: [{ field: 'Why?', answer: 'A' }], lint: { cv: { errors: [], warns: [] } }, raw: { positioning: 'P' }, built: '2026-10-02T18:00:00Z' } });
+  assert.deepEqual(full, { fromMd: false, flags: [], hits: [], answers: [{ field: 'Why?', answer: 'A' }], positioning: 'P', built: '2026-10-02T18:00:00Z' }, 'with pack.json an empty list means nothing was flagged');
+  const md = L.packView({ dir: 'd', pack: null, from_answers: { flags: ['Check the dates.'], answers: [{ field: 'Why?', answer: 'B', own_words: true }], positioning: null } });
+  assert.equal(md.fromMd, true);
+  assert.deepEqual(md.flags, ['Check the dates.']);
+  assert.equal(md.hits, null, 'no lint record: unknown, not clean');
+  const bare = L.packView({ dir: 'd', pack: null, from_answers: { flags: null, answers: null } });
+  assert.equal(bare.flags, null, 'no "Check before sending" section: unknown, not "nothing flagged"');
+  assert.equal(bare.answers, null);
+});
+
+test('Tab inside a dialog wraps at both ends', () => {
+  assert.equal(trapTab(3, 0), 1);
+  assert.equal(trapTab(3, 2), 0, 'Tab on the last goes to the first');
+  assert.equal(trapTab(3, 0, true), 2, 'Shift+Tab on the first goes to the last');
+  assert.equal(trapTab(3, -1), 0, 'focus outside the dialog comes back in');
+  assert.equal(trapTab(3, -1, true), 2);
+  assert.equal(trapTab(0, 0), -1);
 });

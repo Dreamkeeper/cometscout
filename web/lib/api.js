@@ -19,8 +19,8 @@ export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
     today: () => call('GET', '/api/today'),
     labels: () => call('GET', '/api/labels'),
     job: file => call('GET', `/api/job${q(file)}`),
-    /** The job's pack, or null when it has none (404). */
-    pack: file => call('GET', `/api/pack${q(file)}`).catch(e => { if (e.status === 404) return null; throw e; }),
+    /** The job's pack: { dir: null, pack: null } when it has none; an unknown job is an error (404). */
+    pack: file => call('GET', `/api/pack${q(file)}`),
     status: (file, status, note) => call('POST', '/api/status', { file, status, ...(note ? { note } : {}) }),
     later: (file, days) => call('POST', '/api/later', { file, days }),
   };

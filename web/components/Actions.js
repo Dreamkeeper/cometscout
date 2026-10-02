@@ -1,8 +1,12 @@
 // The action bar (Applied, Skip, Later, Open job link) and its dialogs, plus the keyboard help.
-import { useState } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from '../lib/html.js';
 import { SKIP_REASONS, LATER_CHOICES } from '../lib/logic.js';
-import { KEY_HELP } from '../lib/keys.js';
+import { KEY_HELP, trapTab } from '../lib/keys.js';
+
+// The longest note a skip can carry: the 500-character limit (lib/applications.mjs) less the longest reason prefix.
+const NOTE_ROOM = 500 - Math.max(...SKIP_REASONS.map(r => r.note.length + 2));
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function ActionBar({ t, item, busy, onApplied, onSkip, onLater, onOpen }) {
   const off = !item || busy;
@@ -15,10 +19,24 @@ export function ActionBar({ t, item, busy, onApplied, onSkip, onLater, onOpen })
     </div>`;
 }
 
+// A dialog takes focus when it opens, keeps Tab and Shift+Tab inside, and gives focus back when it closes.
+// Escape closes it (the screen's keyboard handler, web/app.js).
 function Modal({ title, onClose, children }) {
+  const ref = useRef(null);
+  const focusable = () => (ref.current ? [...ref.current.querySelectorAll(FOCUSABLE)].filter(el => !el.disabled) : []);
+  useEffect(() => {
+    const before = document.activeElement;
+    focusable()[0]?.focus();
+    return () => { if (before && document.contains(before) && before.focus) before.focus(); };
+  }, []);
+  const onKeyDown = e => {
+    if (e.key !== 'Tab') return;
+    const list = focusable(); e.preventDefault();
+    list[trapTab(list.length, list.indexOf(document.activeElement), e.shiftKey)]?.focus();
+  };
   return html`
     <div class="overlay" onClick=${e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div class="dialog" role="dialog" aria-modal="true" aria-label=${title}>
+      <div class="dialog" role="dialog" aria-modal="true" aria-label=${title} ref=${ref} onKeyDown=${onKeyDown}>
         <h3>${title}</h3>
         ${children}
       </div>
@@ -32,7 +50,7 @@ export function SkipDialog({ t, onPick, onClose }) {
       <ol class="choices">
         ${SKIP_REASONS.map((r, i) => html`<li key=${r.id}><button type="button" class="btn choice" onClick=${() => onPick(r.id, note)}><kbd>${i + 1}</kbd> ${t(`ws.skip.${r.id}`)}</button></li>`)}
       </ol>
-      <label class="note">${t('ws.skip.note')}<textarea rows="2" value=${note} onInput=${e => setNote(e.currentTarget.value)}></textarea></label>
+      <label class="note">${t('ws.skip.note')}<textarea rows="2" maxlength=${NOTE_ROOM} value=${note} onInput=${e => setNote(e.currentTarget.value)}></textarea></label>
       <p><button type="button" class="btn" onClick=${onClose}>${t('ws.act.cancel')}</button></p>
     <//>`;
 }

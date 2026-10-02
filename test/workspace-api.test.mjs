@@ -132,7 +132,7 @@ test('/api/job: front matter, text without the decode block, the parsed decode w
   assert.equal(rej.status, 200, 'rejected/ is readable too');
 });
 
-test('/api/job and /api/pack answer 404 for anything that is not a decoded or rejected job', async () => {
+test('/api/job and /api/pack answer 404 for anything that is not a decoded or rejected job; a job without a pack is { pack: null }', async () => {
   for (const f of [F.inbox, 'nope.md', '../state/applications.json', '..%2Fstate%2Fapplications.json', `decoded/${F.pickA}`, `decoded\\${F.pickA}`, '', 'x.json']) {
     for (const api of ['job', 'pack']) {
       const r = await request('GET', `/api/${api}?file=${encodeURIComponent(f)}`);
@@ -140,7 +140,9 @@ test('/api/job and /api/pack answer 404 for anything that is not a decoded or re
       assert.ok(r.json.error);
     }
   }
-  assert.equal((await request('GET', `/api/pack?file=${encodeURIComponent(F.pool)}`)).status, 404, 'no pack');
+  const none = await request('GET', `/api/pack?file=${encodeURIComponent(F.pool)}`);
+  assert.equal(none.status, 200, 'a job that exists but has no pack');
+  assert.deepEqual(none.json, { file: F.pool, dir: null, pack: null });
   assert.equal((await request('GET', '/api/nothing')).status, 404);
 });
 
@@ -317,4 +319,80 @@ test('the page has a CSP that allows only its import map inline; static files st
   const js = await request('GET', '/web/lib/logic.js');
   assert.equal(js.status, 200);
   assert.match(js.headers['content-type'], /^text\/javascript/);
+});
+
+test('older pack folders named <date>--<company> are found when no <date>--<company>--<role> folder exists', async () => {
+  const mk = (dir, md) => { fs.mkdirSync(path.join(DATA, 'packs', dir), { recursive: true }); if (md != null) fs.writeFileSync(path.join(DATA, 'packs', dir, 'answers.md'), md); return dir; };
+  mk(`${addDays(-6)}--corvale`, '# old\n');
+  const newest = mk(`${addDays(-1)}--corvale`, '# newer\n');
+  mk(`${DAY}--corvalex`, '# another company\n');
+  mk(`${DAY}--corvale--data-analyst`, '# another role at the same company\n');
+  assert.equal(ws.packDirFor(F.oldPick), newest, 'the newest company-only folder; not another company, not another role');
+  assert.equal((await request('GET', '/api/today')).json.pool.find(p => p.file === F.oldPick).pack, newest);
+  const exact = mk(`${addDays(-3)}--corvale--senior-product-manager`, '# exact\n');
+  assert.equal(ws.packDirFor(F.oldPick), exact, 'a folder for the role wins over a newer company-only one');
+  fs.rmSync(path.join(DATA, 'packs', exact), { recursive: true });
+  assert.equal(ws.packDirFor(F.oldPick, null, {}), newest, 'an export without packs.json');
+  assert.equal(ws.packDirFor(F.later), null, 'no folder at all');
+});
+
+const OLD_MD = ['# Corvale: Senior Product Manager', '', 'Link: https://jobs.example/corvale', '', '**CV leads with:** Payments platform work', '',
+  '## Check before sending', '- Salary expectation is yours to set.', '- The form asks for a start date.', '', '## Form answers (drafts)',
+  '### Why Corvale? (rewrite in your own words)', '', 'Because of the synthetic reasons.', 'Two lines of them.', '_Keep it short._', '', '### Notice period', '', 'Four weeks.', '',
+  '## Lint', 'CV: no lint hits.', ''].join('\n');
+
+test('a pack without pack.json: answers.md is read for the checks and the answers; nothing is assumed for what it lacks', async () => {
+  const dir = `${addDays(-1)}--corvale`;
+  fs.writeFileSync(path.join(DATA, 'packs', dir, 'answers.md'), OLD_MD);
+  fs.writeFileSync(path.join(DATA, 'packs', dir, 'Sam Example CV - Corvale.pdf'), PDF);
+  const r = await request('GET', `/api/pack?file=${encodeURIComponent(F.oldPick)}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.dir, dir);
+  assert.equal(r.json.pack, null);
+  assert.deepEqual(r.json.from_answers, {
+    flags: ['Salary expectation is yours to set.', 'The form asks for a start date.'],
+    answers: [{ field: 'Why Corvale?', answer: 'Because of the synthetic reasons.\nTwo lines of them.', own_words: true, note: 'Keep it short.' }, { field: 'Notice period', answer: 'Four weeks.', own_words: false }],
+    positioning: 'Payments platform work',
+  });
+  assert.match(r.json.cv_pdf, /Corvale\.pdf$/);
+  assert.deepEqual(ws.parseAnswersMd('# Only a title\n\nSome text.\n'), { flags: null, answers: null, positioning: null }, 'missing sections stay unknown');
+  assert.deepEqual(ws.parseAnswersMd('## Check before sending\n- nothing flagged\n\n## Form answers (drafts)\nFree text without fields.\n').answers, [{ field: '', answer: 'Free text without fields.' }]);
+  assert.equal(ws.parseAnswersMd('## Check before sending\r\n- A\r\n').flags[0], 'A', 'Windows line ends');
+  const full = await request('GET', `/api/pack?file=${encodeURIComponent(F.pickA)}`);
+  assert.equal(full.json.from_answers, null, 'with pack.json, answers.md is not parsed');
+});
+
+test('a note over 500 characters is refused by the command line and the API alike; nothing is written', async () => {
+  resetApps();
+  const before = fs.readFileSync(APPS, 'utf8');
+  const long = 'x'.repeat(501);
+  const cli = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'status', 'Dunmore', 'skipped', 'Platform', '--note', long], { encoding: 'utf8', env: process.env, timeout: 60000 });
+  assert.equal(cli.status, 1);
+  assert.match(cli.stdout, /^The note is 501 characters; keep it to 500 or fewer\. Nothing was recorded\.$/m);
+  const api = await post('/api/status', { file: F.pool, status: 'skipped', note: long });
+  assert.equal(api.status, 400);
+  assert.match(api.json.error, /The note is 501 characters/);
+  assert.equal(fs.readFileSync(APPS, 'utf8'), before);
+  const ok = await post('/api/status', { file: F.pool, status: 'skipped', note: 'y'.repeat(500) });
+  assert.equal(ok.status, 200, 'exactly 500 is fine');
+  assert.equal(ok.json.application.note.length, 500);
+  resetApps();
+});
+
+test('while the run lock is held, writes answer 409 "busy" and applications.json is untouched; reads still work', async () => {
+  resetApps();
+  const LOCK = path.join(DATA, 'state', 'run.lock'), before = fs.readFileSync(APPS, 'utf8');
+  fs.writeFileSync(LOCK, String(process.ppid));   // a live process that is not this one (the test runner)
+  try {
+    for (const r of [await post('/api/status', { file: F.pool, status: 'applied' }), await post('/api/later', { file: F.pool, days: 1 })]) {
+      assert.equal(r.status, 409);
+      assert.equal(r.json.error, 'jobpilot is busy, try again in a minute');
+    }
+    assert.equal(fs.readFileSync(APPS, 'utf8'), before);
+    assert.equal((await request('GET', '/api/today')).status, 200);
+    const cli = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'decode', '--no-telegram'], { encoding: 'utf8', env: process.env, timeout: 60000 });
+    assert.match(cli.stdout, /another jobpilot run is in progress/, 'the command line sees the same lock');
+    fs.writeFileSync(LOCK, '999999999');   // a pid that is not running: a stale lock
+    assert.equal((await post('/api/later', { file: F.pool, days: 1 })).status, 200);
+  } finally { fs.rmSync(LOCK, { force: true }); resetApps(); }
 });

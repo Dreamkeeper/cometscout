@@ -6,7 +6,7 @@ import { html } from './lib/html.js';
 import { createApi } from './lib/api.js';
 import { makeT } from './lib/labels.js';
 import { keyAction } from './lib/keys.js';
-import { DEFAULT_FILTERS, groupItems, order, stepFile, nextAfterAction, findItem, skipNote, statusName, formatDate, SKIP_REASONS } from './lib/logic.js';
+import { groupItems, order, stepFile, nextAfterAction, findItem, skipNote, statusName, formatDate, SKIP_REASONS, filtersToSave, filtersFromSaved, toLoad } from './lib/logic.js';
 import { List } from './components/List.js';
 import { JobPane, JobHeader } from './components/JobPane.js';
 import { PackPane } from './components/PackPane.js';
@@ -14,7 +14,7 @@ import { ActionBar, SkipDialog, LaterDialog, HelpDialog } from './components/Act
 
 const api = createApi();
 const FILTERS_KEY = 'jobpilot.workspace.filters';
-const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v && typeof v === 'object' ? { ...d, ...v } : d; } catch { return d; } };
+const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode: not remembered */ } };
 
 function useLayout() {
@@ -36,8 +36,9 @@ function App() {
   const locale = labels.locale;
   const [today, setToday] = useState(null);
   const [error, setError] = useState(null);
-  const [filters, setFiltersState] = useState(() => load(FILTERS_KEY, DEFAULT_FILTERS));
-  const setFilters = f => { setFiltersState(f); save(FILTERS_KEY, f); };
+  // the filters are remembered, the search text is not
+  const [filters, setFiltersState] = useState(() => filtersFromSaved(load(FILTERS_KEY)));
+  const setFilters = f => { setFiltersState(f); save(FILTERS_KEY, filtersToSave(f)); };
   const [selected, setSelected] = useState(null);
   const [jobs, setJobs] = useState({});      // file -> { data } | { error }
   const [packs, setPacks] = useState({});    // file -> { data: pack | null } | { error }
@@ -65,12 +66,18 @@ function App() {
   // The first job opens by itself where there is room for it.
   useEffect(() => { if (layout !== 'narrow' && !selected && files.length) setSelected(files[0]); }, [layout, files, selected]);
 
-  // Load the selected job's decode and pack once; an action clears them so they load fresh.
+  // Load the selected job's decode and pack once. An action drops the decode from the cache, and the effect runs
+  // again when the cache changes, so a job that stays selected after an action loads fresh; inflight stops repeats.
+  const inflight = useRef(new Set());
   useEffect(() => {
-    if (!selected) return;
-    if (!jobs[selected]) api.job(selected).then(d => setJobs(j => ({ ...j, [selected]: { data: d } }))).catch(e => setJobs(j => ({ ...j, [selected]: { error: e.message } })));
-    if (!packs[selected]) api.pack(selected).then(d => setPacks(p => ({ ...p, [selected]: { data: d } }))).catch(e => setPacks(p => ({ ...p, [selected]: { error: e.message } })));
-  }, [selected]);
+    const need = toLoad(selected, jobs, packs, inflight.current);
+    const fetchInto = (kind, call, set) => {
+      const file = selected, key = `${kind}:${file}`; inflight.current.add(key);
+      call(file).then(d => set(c => ({ ...c, [file]: { data: d } }))).catch(e => set(c => ({ ...c, [file]: { error: e.message } }))).finally(() => inflight.current.delete(key));
+    };
+    if (need.job) fetchInto('job', api.job, setJobs);
+    if (need.pack) fetchInto('pack', api.pack, setPacks);
+  }, [selected, jobs, packs]);
 
   const select = file => { setSelected(file); setTab('job'); if (layout === 'narrow') { setDetail(true); window.scrollTo(0, 0); } };
 

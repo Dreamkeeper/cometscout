@@ -147,7 +147,14 @@ export async function writeDemo(out, { now = new Date(), force = false } = {}) {
     packsJson[files[key]] = { built: today, dir };
   }
   fs.writeFileSync(path.join(out, 'state', 'packs.json'), JSON.stringify(packsJson, null, 2));
-  return { files, picks: Object.keys(picks).filter(f => picks[f].last === today), packs: Object.values(packsJson).map(p => p.dir) };
+  // A pack as the older pipeline wrote it: "<date>--<company>", answers.md only, not in packs.json.
+  const old = `${day(-2, now)}--meshwork-systems`;
+  fs.mkdirSync(path.join(out, 'packs', old), { recursive: true });
+  fs.writeFileSync(path.join(out, 'packs', old, 'answers.md'), ['# Meshwork Systems: Senior PM, IoT Device Platform', '', '**CV leads with:** Connected-devices data work', '',
+    '## Check before sending', '- The posting asks for OTA update experience; the CV does not claim it.', '- Be precise about the Parcelpoint scope (carrier integrations only).', '',
+    '## Form answers (drafts)', '### What draws you to device platforms? (rewrite in your own words)', '', 'I have worked on connected devices and their data for seven years, and fleet health is where product decisions show up fastest.', '',
+    '### Earliest start date', '', 'Four weeks after an offer.', ''].join('\n'));
+  return { files, picks: Object.keys(picks).filter(f => picks[f].last === today), packs: [...Object.values(packsJson).map(p => p.dir), old] };
 }
 
 const isMain = (() => { try { return fs.realpathSync(process.argv[1] || '') === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })();

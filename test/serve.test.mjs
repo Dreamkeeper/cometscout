@@ -67,17 +67,41 @@ test('serve answers GET / with the import map, and every module it references wi
   } finally { await stop(s.child); }
 });
 
-test('a non-loopback --host is refused; --unsafe-no-auth starts it with a warning', async () => {
-  const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'serve', '--host', '0.0.0.0', '--port', '0'], { env, encoding: 'utf8', timeout: 30000 });
+const cli = (...args) => spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'serve', ...args], { env, encoding: 'utf8', timeout: 30000 });
+
+test('a non-loopback --host is refused without --unsafe-no-auth; wildcard binds are refused even with it', () => {
+  const r = cli('--host', '192.0.2.10', '--port', '0');
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stdout, /refusing to listen on 0\.0\.0\.0: the workspace has no sign-in yet/);
-  assert.match(spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'serve', '--port', 'x'], { env, encoding: 'utf8', timeout: 30000 }).stdout, /--port must be a number/);
-  const s = serve(['--host', '0.0.0.0', '--port', '0', '--unsafe-no-auth']);
+  assert.match(r.stdout, /refusing to listen on 192\.0\.2\.10: the workspace has no sign-in yet/);
+  for (const host of ['0.0.0.0', '::', '[::]']) {
+    for (const extra of [[], ['--unsafe-no-auth']]) {
+      const w = cli('--host', host, '--port', '0', ...extra);
+      assert.equal(w.status, 1, `${host} ${extra}: ${w.stdout}`);
+      assert.match(w.stdout, /refusing to listen on .*: bind the address you will open/, `${host} ${extra}`);
+      assert.doesNotMatch(w.stdout, /jobpilot workspace:/);
+    }
+  }
+});
+
+test('--port and --host without a value are errors, not the defaults', () => {
+  for (const [args, msg] of [[['--port'], /^--port needs a number, e\.g\. --port 8787$/m], [['--port', '--host', '127.0.0.1'], /^--port needs a number/m],
+    [['--host'], /^--host needs an address/m], [['--host', '--port', '0'], /^--host needs an address/m], [['--port', 'x'], /--port must be a number from 0 to 65535, got "x"/],
+    [['--port', '70000'], /--port must be a number/]]) {
+    const r = cli(...args);
+    assert.equal(r.status, 1, `${args.join(' ')}: ${r.stdout}`);
+    assert.match(r.stdout, msg, args.join(' '));
+  }
+});
+
+test('--unsafe-no-auth on a real non-loopback address starts with a warning and answers that address', async t => {
+  const ip = Object.values(os.networkInterfaces()).flat().find(a => a && a.family === 'IPv4' && !a.internal)?.address;
+  if (!ip) { t.skip('no non-loopback IPv4 address on this machine'); return; }
+  const s = serve(['--host', ip, '--port', '0', '--unsafe-no-auth']);
   try {
     const base = await s.ready;
     assert.match(s.output(), /^WARNING: --unsafe-no-auth: the workspace has no sign-in/m);
-    const r2 = await fetch(base.replace('0.0.0.0', '127.0.0.1'));
-    assert.equal(r2.status, 421, 'bound to 0.0.0.0, it still answers only Host: 0.0.0.0:<port>');
+    assert.equal(base, `http://${ip}:${new URL(base).port}/`);
+    assert.equal((await fetch(new URL('/api/today', base))).status, 200);
   } finally { await stop(s.child); }
 });
 
