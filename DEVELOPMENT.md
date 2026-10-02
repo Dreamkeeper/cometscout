@@ -15,13 +15,16 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `tracker-export`, `sources-report`, `notify`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
 | `lib/hooks.mjs` | `runHook(event, payload)` |
 | `lib/lint.mjs` | Lint rules from `profile/lint-rules.json`: paragraphs from a DOCX, hits, report, CLI |
-| `lib/archive.mjs` | Export / import (`jobpilot-export-v1`) |
+| `lib/archive.mjs` | Export / import (`jobpilot-export` v2 zip or folder; reads v1 folders and tar.gz), conflict modes |
+| `lib/zip.mjs` | ZIP reader and writer on `node:zlib` (DEFLATE/STORE, UTF-8 names, CRC-32, ZIP64, zip-slip refusals) |
+| `lib/backup.mjs`, `lib/secrets.mjs`, `lib/csv.mjs` | Backups (prune, restore, offsite copy, doctor lines), encrypted `.env` export, applications as CSV |
+| `lib/archive-cli.mjs` | The export, import, secrets and backup commands of `cli.mjs` |
 | `lib/telegram.mjs`, `lib/gmail.mjs` | Delivery, read-only Gmail |
 | `lib/i18n.mjs` | `settings.locale` label tables (`en`, `ru`) for the digest, picks, pack messages and the scorecard's Telegram text |
 | `lib/tracker.mjs`, `lib/scorecard.mjs`, `lib/sightings.mjs` | Tracker export, source scorecard, the sightings log `writeJob` keeps for it |

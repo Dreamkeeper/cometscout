@@ -102,5 +102,6 @@
       "some-premium-plan": { "feed": false, "price_month": 20, "currency": "EUR" }
     }
   },
-  "health": { "ping_url": "" }
+  "health": { "ping_url": "" },
+  "backup": { "nightly": true, "copy_to": "" }
 }
