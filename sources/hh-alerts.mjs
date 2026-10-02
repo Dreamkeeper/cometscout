@@ -105,6 +105,8 @@ export function pageArea(html) {
   }
   return { country: null, city: '' };
 }
+// "(в архиве)" or the label text "В архиве с 28 сентября"; a role like "Специалист по работе в архиве" is not archived
+const ARCHIVED_TITLE = /\(\s*в\s+архиве\s*\)|в\s+архиве\s+с\s+\d/i;
 /** Fields of a public vacancy page, read by data-qa markers and the page state. Anything missing is '' (country null). */
 export function parseVacancy(html) {
   const h = String(html || ''), titleHtml = element(h, 'vacancy-title') || '';
@@ -114,7 +116,7 @@ export function parseVacancy(html) {
   const place = field(h, 'vacancy-address-with-map') || field(h, 'vacancy-view-raw-address') || field(h, 'vacancy-view-location');
   return {
     title: oneLine(label ? `${titleHtml.slice(0, label.start)} ${titleHtml.slice(label.end)}` : titleHtml),
-    archived: !!label || /в\s+архиве/i.test(oneLine(titleHtml)) || ARCHIVED_JSON.test(h),
+    archived: !!label || ARCHIVED_TITLE.test(oneLine(titleHtml)) || ARCHIVED_JSON.test(h),
     company: field(h, 'vacancy-company-name'),
     city: area.city || place.split(',')[0].trim(),
     country: area.country,

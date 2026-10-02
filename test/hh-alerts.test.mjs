@@ -222,6 +222,7 @@ test('archived pages: the label inside the title, the escaped page state, or "в
   assert.equal(hh.parseVacancy(open.replace('archived&#34;:false', 'archived&#34;:true')).archived, true);
   assert.equal(hh.parseVacancy(open.replace('archived&#34;:false', 'archived&quot;:true')).archived, true);
   assert.equal(hh.parseVacancy(open.replace('<span>Менеджер продукта</span>', '<span>Менеджер продукта (в архиве)</span>')).archived, true);
+  assert.equal(hh.parseVacancy(open.replace('<span>Менеджер продукта</span>', '<span>Специалист по работе в архиве</span>')).archived, false, 'archive work is a role, not a label');
 });
 
 test('city and country: the escaped page state first, then vacancy-address-with-map, then the old markers', () => {
