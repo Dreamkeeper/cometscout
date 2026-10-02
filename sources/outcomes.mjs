@@ -17,10 +17,13 @@
 // Usage: node sources/outcomes.mjs [--dry-run] [--no-telegram] [--since YYYY-MM-DD]
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { SETTINGS, DIRS, STATE, read, readJson, log, num } from '../lib/config.mjs';
-import { frontMatter, norm } from '../lib/queue.mjs';
+import { fileURLToPath } from 'node:url';
+import { SETTINGS, DIRS, STATE, read, readJson, log, num, isMain } from '../lib/config.mjs';
+import { frontMatter, norm, applications } from '../lib/queue.mjs';
 import { runHook } from '../lib/hooks.mjs';
+import { aliasFamilies, companyKind, ROLE_STOPWORDS } from '../lib/companies.mjs';
+
+export { ROLE_STOPWORDS };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const PROMPT_FILE = path.join(HERE, 'outcomes-prompt.md');
@@ -39,7 +42,8 @@ export const SCHEMA = {
   },
 };
 const STATUS_FOR = { rejection: 'rejected', offer: 'offer', interview: 'interview', test_task: 'interview' };
-const RANK = { applied: 0, skipped: 0, closed: 0, interview: 1, rejected: 2, offer: 2 };
+// Same-day order: a weaker status never replaces a stronger one (a recruiter screen never downgrades an interview).
+export const RANK = { applied: 0, skipped: 0, closed: 0, screen: 0.5, interview: 1, rejected: 2, offer: 2 };
 const settings = () => ({ query: 'newer_than:3d -category:promotions -category:social', max_emails: 50, overlap_hours: 24, account_index: 0, model: null, ...(SETTINGS.sources.outcomes || {}) });
 
 // ---------- 1. reading emails ----------
@@ -95,24 +99,10 @@ function clean(v) {
 }
 
 // ---------- 4. match to an application ----------
-function aliasFamilies() {
-  const a = SETTINGS.queue?.aliases; if (!a) return [];
-  const fams = Array.isArray(a) ? a.filter(Array.isArray) : Object.entries(a).map(([k, v]) => [k, ...[].concat(v)]);
-  return fams.map(f => new Set(f.map(norm).filter(Boolean)));
-}
-/** 'exact' when equal after normalising or in one alias family, 'prefix' when one name is the other plus extra words
- *  ("Ridgeway" / "Ridgeway Labs"), else null. */
-export function companyMatch(a, b, families = aliasFamilies()) {
-  const x = norm(a), y = norm(b); if (!x || !y) return null;
-  if (x === y || families.some(f => f.has(x) && f.has(y))) return 'exact';
-  const [short, long] = x.length < y.length ? [x, y] : [y, x];
-  return long.startsWith(`${short} `) ? 'prefix' : null;
-}
-export const sameCompany = (a, b, families) => !!companyMatch(a, b, families);
+// Alias families and the exact/prefix company match live in lib/companies.mjs (shared with the queue and the decoder).
+export const companyMatch = companyKind;
+export const sameCompany = (a, b, families) => !!companyKind(a, b, families);
 const words = s => new Set(norm(s).split(' ').filter(w => w.length > 1));
-// Seniority, generic job words and filler never make two roles the same ("Senior Data Analyst" is not "Senior Product Manager").
-export const ROLE_STOPWORDS = new Set(['senior', 'sr', 'junior', 'jr', 'middle', 'mid', 'lead', 'head', 'principal', 'staff', 'chief', 'manager', 'engineer', 'developer', 'specialist', 'associate', 'of', 'the', 'and', 'for', 'in', 'at', 'to', 'with',
-  'старший', 'младший', 'ведущий', 'главный', 'руководитель', 'менеджер', 'инженер', 'разработчик', 'специалист', 'по']);
 const roleWords = s => new Set([...words(s)].filter(w => !ROLE_STOPWORDS.has(w)));
 /** Role words two roles share, not counting ROLE_STOPWORDS. */
 export const overlap = (a, b) => { const x = roleWords(a); let n = 0; for (const w of roleWords(b)) if (x.has(w)) n++; return n; };
@@ -227,6 +217,7 @@ const hookPayload = (r, email, o) => ({
  * gmail { list(q, max) -> [{ id }] newest first, get(id) }, classify(input, email) -> schema value, send(text), messageText(payload).
  */
 export async function runOutcomes({ gmail, classify = modelClassify, send = null, messageText, dryRun = false, since = null, now = new Date() } = {}) {
+  applications();   // a broken applications.json stops the source before it marks anything seen
   const cfg = settings();
   const cap = num(cfg.max_emails, 50, 1, 500), account = Math.floor(num(cfg.account_index, 0, 0, 99));
   const stateFile = STATE('outcomes.json'), appsFile = STATE('applications.json');
@@ -301,7 +292,7 @@ export async function runOutcomes({ gmail, classify = modelClassify, send = null
 }
 
 // ---------- command line ----------
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = n => (i => (i >= 0 ? args[i + 1] : null))(args.indexOf(`--${n}`));
   const dryRun = args.includes('--dry-run'), since = opt('since');

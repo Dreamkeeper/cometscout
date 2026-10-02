@@ -43,8 +43,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { SETTINGS, STATE, ROOT, DIRS, read, log, num } from '../lib/config.mjs';
+import { SETTINGS, STATE, ROOT, DIRS, read, log, num, isMain } from '../lib/config.mjs';
 import { writeJob, norm, normUrl, frontMatter } from '../lib/queue.mjs';
 import { fetchDetail as realFetchDetail, companyFromUrl, isListingPage } from '../lib/fetch-detail.mjs';
 import { checkGates, fromText, gateTally, settle } from '../lib/gates.mjs';
@@ -451,4 +450,4 @@ export async function run({ fetch: fetchFn, fetchDetail = realFetchDetail, dryRu
   return { ran: true, written, held, unknown: unknownCompany, report, counts };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await run({ dryRun: process.argv.includes('--dry-run') });
+if (isMain(import.meta.url)) await run({ dryRun: process.argv.includes('--dry-run') });

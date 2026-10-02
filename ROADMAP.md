@@ -23,7 +23,7 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 | career-ops source (its pipeline and scan history) | `docs/tasks/05-career-ops-source.md` | ✅ |
 | Outcome tracking from Gmail (rejection, interview, test task, offer, application received → `applications.json` events) | `docs/tasks/06-outcomes.md` | ✅ |
 | Tracker export (job-pipeline-tracker JSON), source scorecard, health ping URL, failure alert unit, `locale: ru` labels | `docs/tasks/09-reports-and-ops.md` | ✅ |
-| Company alias families, dedupe against the user's applications, alias-aware decoder history with a cutoff for evals, fact-rule negation guard, `decoder.prompt_file`, picks parity (closed roles by alias and role overlap, band, shape bonus, on-site exclusion, archived links), `screen` status | `docs/tasks/07-decoder-picks-parity.md` | 🔨 |
+| Company alias families, dedupe against the user's applications, alias-aware decoder history with a cutoff for evals, fact-rule negation guard, `decoder.prompt_file`, picks parity (closed roles by alias and role overlap, band, shape bonus, on-site exclusion, archived links), `screen` status | `docs/tasks/07-decoder-picks-parity.md` | ✅ |
 | Pack lint rules from the profile (`profile/lint-rules.json`), vetted fallback, refuse a CV that still breaks a rule | `docs/tasks/08-pack-lint.md` | ✅ |
 
 ## Evals (M3)

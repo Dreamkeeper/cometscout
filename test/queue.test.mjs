@@ -10,7 +10,7 @@ process.env.JOBPILOT_HOME = tmp;
 process.env.JOBPILOT_DATA = path.join(tmp, 'data');
 process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
 process.env.JOBPILOT_RUN_DATE = '2026-10-01';
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', queue: { dedupe_days: 60 } }));
+fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', queue: { dedupe_days: 60, aliases: [['Acme Robotics', 'Acme']] } }));
 // An old decode of the same title, written before the dedupe index is first built (the index is built once per process).
 fs.mkdirSync(path.join(tmp, 'data', 'decoded'), { recursive: true });
 fs.writeFileSync(path.join(tmp, 'data', 'decoded', '2026-07-01--oldco--product-manager.md'),
@@ -105,4 +105,65 @@ test('htmlText decodes numeric and common named entities, once', () => {
     "Caf\u00e9 \u00e9t\u00e9 \u2019quoted\u2018 a\u2013b c\u2014d wait\u2026 x y 's'");
   assert.equal(q.htmlText('5 &amp;lt; 6 &amp; R&amp;D'), '5 &lt; 6 & R&D', 'one pass: an escaped entity stays escaped');
   assert.equal(q.htmlText('&bogus; &#0; &#xD800; &Eacute;'), '&bogus; &#0; &#xD800; &Eacute;', 'unknown or invalid entities are kept as written');
+});
+
+// ---------- dedupe against the user's applications (data/state/applications.json) ----------
+const APPS = path.join(tmp, 'data', 'state', 'applications.json');
+const writeApps = (apps, mtime) => { fs.writeFileSync(APPS, JSON.stringify(apps, null, 1)); if (mtime) fs.utimesSync(APPS, mtime, mtime); };
+const job = (company, role, url, opts) => q.writeJob({ company, role, url, source: 'test', text: 'x' }, opts);
+
+test('a role close to one in applications is a duplicate: alias family and half the role words', () => {
+  writeApps({
+    '2026-09-01--acme--senior-pm-robotics.md': { company: 'Acme', role: 'Senior PM, Robotics', status: 'applied', updated: '2026-09-02' },
+    'manual:quarry systems|data analyst': { company: 'Quarry Systems', role: 'Data Analyst', status: 'rejected', updated: '2026-09-05' },
+    'manual:lumenfield|platform product owner': { company: 'Lumenfield', role: 'Platform Product Owner', status: 'withdrawn', updated: '2026-09-06' },
+  });
+  const r = job('Acme Robotics', 'Product Manager, Robotics', 'https://acme.example/jobs/1');
+  assert.equal(r.written, false);
+  assert.equal(r.reason, 'already in applications: Acme: Senior PM, Robotics (applied)');
+  assert.equal(job('Quarry Systems', 'Hardware Product Manager', 'https://quarry.example/1').written, true, 'same company, another role');
+  assert.equal(job('Lumenfield', 'Product Owner, Platform', 'https://lumen.example/1').reason, 'already in applications: Lumenfield: Platform Product Owner (withdrawn)', 'any status counts');
+  assert.equal(job('Acme Robotics', 'Robotics Product Lead', 'https://acme.example/jobs/2', { titleDedupe: false }).written, true, 'a placeholder company is matched by URL only');
+  assert.equal(job('Unknown', 'Senior PM, Robotics', 'https://u.example/robotics').written, true, 'an unknown company never matches an application');
+});
+
+test('a plain decode at the company still uses the exact-title rule only', () => {
+  fs.writeFileSync(path.join(tmp, 'data', 'decoded', '2026-09-28--driftwood--product-manager-payments.md'),
+    '---\ncompany: "Driftwood"\nrole: "Product Manager, Payments"\nurl: "https://drift.example/1"\nfound: 2026-09-28\n---\n\n# Driftwood\n');
+  assert.equal(job('Driftwood', 'Senior Product Manager, Payments', 'https://drift.example/2').written, true);
+});
+
+test('applications.json is read again when it changes in the same process', () => {
+  assert.equal(job('Harborline', 'Growth Product Manager', 'https://harbor.example/1').written, true);
+  writeApps({ 'manual:harborline|growth pm': { company: 'Harborline', role: 'Growth Analytics', status: 'screen', updated: '2026-09-30' } }, new Date('2026-09-30T10:00:00Z'));
+  assert.equal(job('Harborline', 'Growth Analytics Lead', 'https://harbor.example/2').reason, 'already in applications: Harborline: Growth Analytics (screen)');
+  writeApps({}, new Date('2026-09-30T11:00:00Z'));
+  assert.equal(job('Harborline', 'Growth Analytics Lead', 'https://harbor.example/3').written, true, 'the record was removed');
+});
+
+test('dedupe against applications never merges roles whose distinguishing words differ', () => {
+  writeApps({
+    'manual:fenwick|senior product manager': { company: 'Fenwick', role: 'Senior Product Manager', status: 'applied', updated: '2026-09-20' },
+    'manual:galloway|product manager': { company: 'Galloway', role: 'Product Manager', status: 'applied', updated: '2026-09-20' },
+    'manual:hollis|senior product manager growth': { company: 'Hollis', role: 'Senior Product Manager, Growth', status: 'interview', updated: '2026-09-20' },
+    'manual:inkwell|software engineer backend': { company: 'Inkwell', role: 'Software Engineer, Backend', status: 'rejected', updated: '2026-09-20' },
+  }, new Date('2026-09-30T12:00:00Z'));
+  assert.equal(job('Fenwick', 'Product Manager, Payments', 'https://fenwick.example/1').written, true);
+  assert.equal(job('Galloway', 'Product Marketing Manager', 'https://galloway.example/1').written, true);
+  assert.equal(job('Hollis', 'Product Manager, Hardware', 'https://hollis.example/1').written, true);
+  assert.equal(job('Inkwell', 'Software Engineer, Mobile', 'https://inkwell.example/1').written, true);
+  assert.equal(job('Inkwell', 'Senior Software Engineer, Backend', 'https://inkwell.example/2').written, false, 'the same role still dedupes');
+});
+
+test('the duplicate check reads the alias families once per job, not once per application', async () => {
+  const { SETTINGS } = await import('../lib/config.mjs');
+  const apps = {};
+  for (let i = 0; i < 6; i++) apps[`manual:co${i}|robotics`] = { company: `Company ${i}`, role: 'Robotics Analytics', status: 'applied', updated: '2026-09-20' };
+  writeApps(apps, new Date('2026-09-30T13:00:00Z'));
+  const value = SETTINGS.queue.aliases; let reads = 0;
+  Object.defineProperty(SETTINGS.queue, 'aliases', { configurable: true, enumerable: true, get: () => { reads++; return value; } });
+  try {
+    assert.equal(job('Elsewhere', 'Robotics Analytics Lead', 'https://elsewhere.example/1').written, true);
+    assert.ok(reads <= 1, `aliases read ${reads} times`);
+  } finally { Object.defineProperty(SETTINGS.queue, 'aliases', { configurable: true, enumerable: true, writable: true, value }); }
 });

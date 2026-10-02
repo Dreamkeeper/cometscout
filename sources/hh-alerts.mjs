@@ -32,9 +32,8 @@
 // Usage: node sources/hh-alerts.mjs [--dry-run] [--hours 96] [--max-fetch 10] [--ids 123456789,987654321]
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { SETTINGS, STATE, read, log, num } from '../lib/config.mjs';
-import { writeJob, htmlText, matchesAny, decodeEntities } from '../lib/queue.mjs';
+import { SETTINGS, STATE, read, log, num, isMain } from '../lib/config.mjs';
+import { writeJob, htmlText, matchesAny, decodeEntities, applications } from '../lib/queue.mjs';
 import { checkGates, countriesIn, gateTally, settle } from '../lib/gates.mjs';
 
 export const MIN_DELAY_MS = 2000;
@@ -230,6 +229,7 @@ export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetc
   ids = null, hours = null, maxFetch = null, check = checkGates } = {}) {
   const cfg = settings();
   if (!cfg.enabled) { log('hh-alerts: disabled in settings.json'); return { ran: false }; }
+  applications();   // a broken applications.json stops the source before it marks anything seen
   const look = dryRun || !!ids;   // --dry-run and --ids write nothing
   const MAX = num(maxFetch ?? cfg.max_fetch, 40, 0), DELAY = Math.max(MIN_DELAY_MS, num(cfg.delay_ms, 3000, 0));   // a typo never removes the limit or the delay
   const stateFile = STATE('hh-alerts.json'), state = loadState(stateFile), nowMs = now.getTime(), today = day(now);
@@ -361,7 +361,7 @@ export async function run({ gmail, messageHtml, fetch: fetchFn = globalThis.fetc
   return { ran: true, emails, emailErrors, searchFailed, windowHours, fetched, written, stopped, results, skipped };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2), opt = n => (i => (i >= 0 ? args[i + 1] : null))(args.indexOf(`--${n}`));
   const ids = opt('ids') ? opt('ids').split(',').map(s => s.trim()).filter(Boolean) : null;
   if (ids && (!ids.length || ids.some(id => !/^\d{6,}$/.test(id)))) { log('hh-alerts: --ids takes vacancy numbers, e.g. --ids 123456789,987654321'); process.exit(1); }

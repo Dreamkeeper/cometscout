@@ -27,9 +27,8 @@
 // Usage: node sources/drop-dir.mjs [--dry-run]
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { SETTINGS, STATE, read, log, num } from '../lib/config.mjs';
-import { writeJob, frontMatter, norm } from '../lib/queue.mjs';
+import { SETTINGS, STATE, read, log, num, isMain } from '../lib/config.mjs';
+import { writeJob, frontMatter, norm, applications } from '../lib/queue.mjs';
 import { fetchDetail, parseSearchTitleRule, HEURISTIC_RULES, companyFromUrl, isListingPage } from '../lib/fetch-detail.mjs';
 
 export const MAX_ATTEMPTS = 3;          // runs a URL (or a whole file) is tried before it is given up
@@ -205,6 +204,7 @@ function saveState(stateFile, state) {
 export async function run({ fetch: fetchFn, dryRun = false, pageDelayMs = PAGE_DELAY_MS, sleep = defaultSleep } = {}) {
   const cfg = SETTINGS.sources.drop_dir || {};
   if (!cfg.enabled) { log('drop-dir: disabled in settings.json'); return { ran: false, report: [] }; }
+  applications();   // a broken applications.json stops the source before it marks anything seen
   if (!cfg.dir) { log('drop-dir: enabled but no "dir" set in settings.json'); return { ran: false, report: [] }; }
   if (!fs.existsSync(cfg.dir)) { log(`drop-dir: the folder ${cfg.dir} does not exist; create it or fix sources.drop_dir.dir in settings.json`); return { ran: false, report: [] }; }
   const settleMs = num(cfg.settle_sec, 60, 0) * 1000;
@@ -254,4 +254,4 @@ export async function run({ fetch: fetchFn, dryRun = false, pageDelayMs = PAGE_D
   return { ran: true, report };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await run({ dryRun: process.argv.includes('--dry-run') });
+if (isMain(import.meta.url)) await run({ dryRun: process.argv.includes('--dry-run') });

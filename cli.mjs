@@ -3,7 +3,7 @@
 //   node cli.mjs run                 # the evening run: every enabled source (and outcomes from Gmail), then decode + picks + digest, then packs
 //   node cli.mjs sources|decode|pack|picks
 //   node cli.mjs applied <company> [role words]   # record an application (picks stop showing it)
-//   node cli.mjs status <company> <applied|interview|offer|rejected|skipped|closed> [role words] [--note "..."]
+//   node cli.mjs status <company> <applied|screen|interview|offer|rejected|skipped|closed> [role words] [--note "..."]
 //                                    # add --manual to record a role that is not in the queue (it does not affect picks)
 //   node cli.mjs list                # what is recorded
 //   node cli.mjs doctor              # check the setup, one line per item
@@ -20,11 +20,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
-import { frontMatter, norm } from './lib/queue.mjs';
+import { frontMatter, norm, readApplications } from './lib/queue.mjs';
+import { pickRoleWords } from './lib/companies.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { exportData, importData } from './lib/archive.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 import { checkSetup as careerOpsSetup } from './sources/career-ops.mjs';
+import { promptFile, DEFAULT_PROMPT_FILE } from './decoder/decoder.mjs';
 import { profileRules, lintLibrary, cyrillicBoundary } from './lib/lint.mjs';
 import { binCommand } from './lib/llm.mjs';
 import { trackerExport, exportNotes } from './lib/tracker.mjs';
@@ -44,13 +46,17 @@ const node = (file, extra = []) => spawnSync(process.execPath, [path.join(CODE, 
 const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs',
   hh_alerts: 'sources/hh-alerts.mjs', hirify: 'sources/hirify.mjs', career_ops: 'sources/career-ops.mjs', drop_dir: 'sources/drop-dir.mjs', outcomes: 'sources/outcomes.mjs' };
 const APPS = STATE('applications.json');
-const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
+const STATUSES = ['applied', 'screen', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 
 // A source that exits non-zero is logged by name and listed in the run's result (the closing log line and run_done's
 // sources_failed), so a dead source is never silent. Exit 3 means it cannot work until the user acts (an expired
 // login): the run still decodes and packs what it has, then exits 3 too, so the timer's status and health alerts
 // show it. Other exit codes do not change the run's own exit code.
 const NEEDS_USER = 3;
+// A broken applications.json would make every source stop half-way; check it once, before any source runs.
+function appsBroken() {
+  try { readApplications(APPS); return null; } catch (e) { return `jobpilot: ${e.message}`; }
+}
 function runSources() {
   const failed = [];
   for (const [k, f] of Object.entries(SOURCES)) {
@@ -91,7 +97,8 @@ function findRole(company, words) {
 function setStatus(company, status, words, note, manual) {
   if (!company) { console.log('Say which company: node cli.mjs applied <company> [role words]'); return 1; }
   if (!STATUSES.includes(status)) { console.log(`Unknown status "${status ?? ''}". Use one of: ${STATUSES.join(', ')}`); return 1; }
-  const { atCompany, hits } = findRole(company, words); const apps = readJson(APPS, {});
+  let apps; try { apps = readApplications(APPS); } catch (e) { console.log(`${e.message}. Nothing was recorded.`); return 1; }
+  const { atCompany, hits } = findRole(company, words);
   if (hits.length > 1) { console.log(`Several roles match; add role words:\n${hits.map(h => `  ${h.company}: ${h.role}`).join('\n')}`); return 1; }
   if (!hits.length && !manual) {
     console.log(atCompany.length ? `No role at "${company}" matches "${words}". Roles there:\n${atCompany.map(h => `  ${h.company}: ${h.role}`).join('\n')}`
@@ -103,7 +110,9 @@ function setStatus(company, status, words, note, manual) {
   const prev = apps[key] || {};
   apps[key] = { ...prev, company: hits[0]?.company || prev.company || company, role: hits[0]?.role || prev.role || words || '', status, updated: today(), ...(note ? { note } : {}),
     events: [...(prev.events || []), { date: today(), type: status, ...(note ? { note } : {}), source: 'cli' }] };
-  fs.writeFileSync(APPS, JSON.stringify(apps, null, 1)); console.log(`${apps[key].company}: ${apps[key].role || '(role not given)'} -> ${status}${hits.length ? '' : ' (manual record)'}`); return 0;
+  fs.writeFileSync(APPS, JSON.stringify(apps, null, 1)); console.log(`${apps[key].company}: ${apps[key].role || '(role not given)'} -> ${status}${hits.length ? '' : ' (manual record)'}`);
+  if (!pickRoleWords(apps[key].role).size) console.log(`Note: no role words recorded, so every pick at ${apps[key].company} is now treated as closed. Add role words to record one role only.`);
+  return 0;
 }
 
 function timer(at) {
@@ -132,6 +141,8 @@ function doctor() {
   const unknownHooks = Object.keys(SETTINGS.hooks || {}).filter(k => k !== 'timeout_sec' && !HOOK_EVENTS.includes(k));
   const hookCount = HOOK_EVENTS.reduce((n, e) => n + hooksFor(e).length, 0);
   const ctx = (SETTINGS.decoder?.context_files || []).filter(e => !/\*\.md$/.test(e) && !fs.existsSync(path.isAbsolute(e) ? e : path.join(PROFILE.dir, e)));
+  const prompt = promptFile(), builtIn = prompt === DEFAULT_PROMPT_FILE;
+  ok(fs.existsSync(prompt), `decoder prompt: ${builtIn ? 'built-in (decoder/prompt.md)' : prompt}`, `decoder.prompt_file not found; fix the path in settings.json (absolute, or relative to ${PROFILE.dir}) or remove it to use the built-in prompt`);
   ok(!ctx.length, `decoder context files: ${(SETTINGS.decoder?.context_files || []).length}`, `not found: ${ctx.join(', ')}`);
   ok(!unknownHooks.length, `hooks: ${hookCount} configured`, `unknown hook event(s) ignored: ${unknownHooks.join(', ')} (known: ${HOOK_EVENTS.join(', ')})`);
   ok(!PROFILE.isExample, `profile: ${path.basename(PROFILE.dir)}`, 'create profile/ with your own facts (the onboarding does this); the evening run waits until then');
@@ -187,6 +198,7 @@ async function evening() {
   // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
   if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
   process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
+  const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
   const t0 = Date.now(); runHook('before_run', { date: today() });
   await optional('sightings trim', () => trimSightings());   // here only, before any source writes: no two writers race
   const failed = runSources(); const decoder = node('decoder/decoder.mjs');
@@ -207,7 +219,7 @@ const codes = {
     let code = 1;
     try { code = await evening(); return code; } finally { await healthPing(code); }
   }),
-  sources: locked(() => (runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0)),
+  sources: locked(() => { const broken = appsBroken(); if (broken) { console.log(broken); return 2; } return runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0; }),
   decode: locked(() => node('decoder/decoder.mjs', rest)),
   picks: () => node('decoder/decoder.mjs', ['--picks']),
   pack: locked(() => node('pack/pack.mjs', rest)),
