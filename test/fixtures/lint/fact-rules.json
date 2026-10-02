@@ -1,0 +1,5 @@
+{
+  "rules": [
+    { "id": "no-cto", "pattern": "\\bcto\\b", "why": "Never a CTO" }
+  ]
+}

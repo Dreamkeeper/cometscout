@@ -21,6 +21,7 @@ import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { exportData, importData } from './lib/archive.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 import { checkSetup as careerOpsSetup } from './sources/career-ops.mjs';
+import { profileRules, libraryErrors } from './lib/lint.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
@@ -121,6 +122,12 @@ function doctor() {
   ok(PROFILE.facts.trim().length > 200, `profile.md: ${PROFILE.facts.trim().length} characters`, 'profile/profile.md is missing or nearly empty; every decode would run without your facts');
   ok(!!PROFILE.cvLibrary, 'CV library (profile/cv-library.json)', 'needed for application packs');
   ok(!PROFILE.ruleErrors.length, `fact rules: ${PROFILE.factRules.length} loaded`, `broken rule(s) skipped: ${PROFILE.ruleErrors.join('; ')}`);
+  const lint = profileRules();
+  ok(!lint.problems.length, `lint rules: ${lint.present ? `${lint.banned.length} banned, ${lint.warn.length} warn` : 'none (optional: profile/lint-rules.json)'}`, `rule(s) skipped: ${lint.problems.join('; ')}`);
+  if (PROFILE.cvLibrary && lint.banned.length) {
+    const bad = libraryErrors(PROFILE.cvLibrary, lint);
+    ok(!bad.length, 'vetted CV text passes your lint rules', `vetted text breaks your own rule: ${bad.map(b => `${b.item} (${b.id})`).join(', ')}; packs that use it are not built. Fix profile/cv-library.json or the rule`);
+  }
   ok(!ENV_PROBLEMS.length, '.env lines', `these lines are not KEY=value and were ignored: ${ENV_PROBLEMS.join(', ')}`);
   const enabled = Object.keys(SOURCES).filter(k => k !== 'outcomes' && SETTINGS.sources[k]?.enabled);   // outcomes finds no jobs
   ok(enabled.length > 0, `sources enabled: ${enabled.join(', ') || 'none'}`, 'enable at least one source in settings.json');

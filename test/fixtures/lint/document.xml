@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:pPr><w:spacing w:after="40"/></w:pPr><w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">PROFESSIONAL SUMMARY</w:t></w:r></w:p>
+<w:p><w:pPr><w:spacing w:after="60"/></w:pPr><w:r><w:t xml:space="preserve">Product manager with six years in clinic software. I took a billing product from a pilot with four clinics to a business that 300 clinics pay for every month, and I rebuilt onboarding so a front desk could start in one afternoon instead of a week. I work closest to engineers and support teams, I write the specs myself, and I measure my work by adoption, churn and the number of support tickets that never get written because the product explained itself.</w:t></w:r></w:p>
+<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Billing: </w:t></w:r><w:r><w:t>Launched billing for 300 clinics &amp; their &lt;front desks&gt;, the &#8220;first&#8221; clinic&#x2019;s</w:t></w:r><w:r><w:t xml:space="preserve"> in   two</w:t></w:r><w:r><w:t xml:space="preserve"> regions.</w:t></w:r></w:p>
+<w:p><w:pPr><w:spacing w:after="30"/></w:pPr></w:p>
+<w:p><w:pPr><w:spacing w:after="30"/></w:pPr><w:r><w:t xml:space="preserve">   </w:t></w:r></w:p>
+<w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="10512"/></w:tabs></w:pPr><w:r><w:t>Northwind Clinics</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>Jan 2020 - present</w:t></w:r></w:p>
+<w:p><w:pPr><w:spacing w:after="30"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">This bold paragraph is far too long to be a heading because it keeps going on and on past the limit of one hundred and forty characters, which is the line between a heading and a line.</w:t></w:r></w:p>
+<w:sectPr/></w:body></w:document>
