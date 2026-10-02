@@ -1,10 +1,14 @@
-// Source scorecard: sightings from writeJob (duplicates too, trimmed once a day), the per-source table, "only here",
+// Source scorecard: sightings from writeJob (duplicates too, trimmed by cli.mjs run only), the per-source table, "only here",
 // prices, the short Telegram text and when it is sent. Synthetic queue files and applications; Telegram is injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-scorecard-'));
 process.env.JOBPILOT_HOME = tmp;
@@ -43,21 +47,33 @@ const decode = (file, verdict) => {
   fs.writeFileSync(path.join(DATA, ['weak-fit', 'gate-reject'].includes(verdict) ? 'rejected' : 'decoded', file), `${t}\n## Decode Result\nDecoded 2026-10-01 by jobpilot (test).\nverdict: ${verdict}\n`);
 };
 
-test('writeJob records a sighting per call, duplicates included, and trims old lines once a day', () => {
+test('writeJob records a sighting per call, duplicates included, and only appends', () => {
   const acme = writeJob({ company: 'Acme', role: 'Product Manager', url: 'https://jobs.example/acme/1', source: 'rtj', text: 'x' });
   const dup = writeJob({ company: 'Acme', role: 'Product Manager', url: 'https://www.linkedin.example/jobs/view/42', source: 'linkedin', text: 'x' });
+  writeJob({ company: 'Beta', role: 'Product Owner', url: 'https://jobs.example/beta/1', source: 'rtj', text: 'x' });
   assert.equal(acme.written, true); assert.equal(dup.written, false);
   const s = sightings.readSightings();
-  assert.deepEqual(s.map(x => x.company), ['Recent', 'Acme', 'Acme'], 'the 2026-05-01 line is past 120 days and gone');
-  assert.deepEqual(s.slice(1).map(x => [x.source, x.result, x.where]), [['rtj', 'written', `inbox/${acme.file}`], ['linkedin', 'duplicate', `inbox/${acme.file}`]]);
-  assert.deepEqual(Object.keys(s[1]), ['date', 'source', 'company', 'role', 'url', 'result', 'where']);
-  assert.equal(s[1].date, '2026-10-01');
-  // a second trim the same day does nothing
-  fs.appendFileSync(SIGHTINGS, JSON.stringify({ date: '2026-01-01', source: 'rtj', company: 'Older', role: 'x', result: 'written' }) + '\n');
-  writeJob({ company: 'Beta', role: 'Product Owner', url: 'https://jobs.example/beta/1', source: 'rtj', text: 'x' });
-  assert.ok(sightings.readSightings().some(x => x.company === 'Older'), 'trimmed at most once a day');
-  assert.equal(sightings.trimSightings({ date: '2026-10-02' }), true);
-  assert.ok(!sightings.readSightings().some(x => x.company === 'Older'), 'the next day trims again');
+  assert.deepEqual(s.map(x => x.company), ['Old', 'Recent', 'Acme', 'Acme', 'Beta'], 'writeJob never rewrites the file, so the old line is still there');
+  assert.deepEqual(s.slice(2, 4).map(x => [x.source, x.result, x.where]), [['rtj', 'written', `inbox/${acme.file}`], ['linkedin', 'duplicate', `inbox/${acme.file}`]]);
+  assert.deepEqual(Object.keys(s[2]), ['date', 'source', 'company', 'role', 'url', 'result', 'where']);
+  assert.equal(s[2].date, '2026-10-01');
+  assert.ok(!fs.existsSync(STATE('sightings-trim.json')));
+  assert.equal(sightings.trimSightings({ date: '2026-10-01' }), 1, 'the 2026-05-01 line is past 120 days');
+  assert.deepEqual(sightings.readSightings().map(x => x.company), ['Recent', 'Acme', 'Acme', 'Beta']);
+  assert.equal(sightings.trimSightings({ date: '2026-10-01' }), 0);
+});
+
+test('cli.mjs run trims sightings once, before the sources start', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-scorecard-run-'));
+  fs.mkdirSync(path.join(home, 'profile')); fs.writeFileSync(path.join(home, 'profile', 'profile.md'), '# Test Person\n\nSynthetic profile.\n');
+  fs.mkdirSync(path.join(home, 'data', 'state'), { recursive: true });
+  const file = path.join(home, 'data', 'state', 'sightings.jsonl');
+  fs.writeFileSync(file, [{ date: '2026-01-01', source: 'rtj', company: 'Old' }, { date: '2026-09-30', source: 'rtj', company: 'Kept' }].map(x => JSON.stringify(x)).join('\n') + '\n');
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ timezone: 'UTC', pack: { enabled: false } }));
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'run'], { encoding: 'utf8',
+    env: { ...process.env, JOBPILOT_HOME: home, JOBPILOT_DATA: path.join(home, 'data'), JOBPILOT_SETTINGS: path.join(home, 'settings.json') } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l).company), ['Kept']);
 });
 
 test('the table counts queued, worth applying, only here, picks, applied and past application per source', () => {
@@ -144,4 +160,30 @@ test('--send: on the 1st and within 7 days of a renewal, once per occasion', asy
   const none = await sc.sourcesReport({ date: '2026-10-15', print: quiet });
   assert.equal(none.sent, false, 'without --send nothing is sent');
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(STATE('sources-report.json'), 'utf8')).sent).sort(), ['month:2026-10', 'month:2026-11', 'renews:rtj:2026-10-05']);
+});
+
+test('a price falls back to the part before ":"', () => {
+  queueFile('decoded', '2026-09-30--orbit--product-manager.md', { company: 'Orbit', role: 'Product Manager', url: 'https://jobs.example/orbit/1', source: 'openclaw:web-search', found: '2026-09-30' }, 'strong-fit');
+  const prices = { openclaw: { price_month: 6, currency: 'USD' }, rtj: { price_month: 10, currency: 'USD' } };
+  assert.equal(sc.priceFor(prices, 'openclaw:web-search'), prices.openclaw);
+  assert.equal(sc.priceFor(prices, 'openclaw'), prices.openclaw);
+  assert.equal(sc.priceFor(prices, 'linkedin'), undefined);
+  assert.equal(sc.priceFor({ ...prices, 'openclaw:web-search': { price_month: 2 } }, 'openclaw:web-search').price_month, 2, 'its own price wins');
+  const r = sc.scorecard({ date: '2026-10-01', prices });
+  const by = Object.fromEntries(r.rows.map(x => [x.source, x]));
+  assert.equal(by['openclaw:web-search'].price.month, 6);
+  assert.equal(by['openclaw:web-search'].price.perOnly, 6);
+  assert.ok(!by.openclaw, 'no empty row for the key when a source carries its price');
+});
+
+test('cli.mjs sources-report --send: a Telegram failure is a clear line and exit 1, never a stack trace', async () => {
+  fs.rmSync(STATE('sources-report.json'), { force: true });   // the 1st of the month, not sent yet
+  const lines = [];
+  const code = await sc.sourcesReportCommand({ send: async () => { throw new Error('Telegram sendMessage 400: chat not found'); }, print: l => lines.push(l) });
+  assert.equal(code, 1);
+  assert.match(lines.at(-1), /^sources-report stopped: Telegram sendMessage 400: chat not found \(the report is in .*source-scorecard\.md\)$/);
+  assert.ok(!fs.existsSync(STATE('sources-report.json')), 'a failed send is not marked sent');
+  const ok = await sc.sourcesReportCommand({ send: async () => true, print: l => lines.push(l) });
+  assert.equal(ok, 0);
+  assert.equal(lines.at(-1), 'sources-report: sent to Telegram');
 });

@@ -88,7 +88,7 @@
   "delivery": { "telegram": { "enabled": false, "token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID" } },
   "locale": "en",
   "pack": { "enabled": true, "pdf": "auto" },
-  "tracker_export": { "enabled": false, "out": "data/tracker/pipeline.json" },
+  "tracker_export": { "enabled": false, "out": "tracker/pipeline.json" },
   "sources_report": {
     "enabled": false,
     "window_days": 30,

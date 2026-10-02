@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-tracker-'));
+process.env.JOBPILOT_HOME = tmp;
 process.env.JOBPILOT_DATA = path.join(tmp, 'data');
+process.env.JOBPILOT_RUN_DATE = '2026-10-02';
 process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
 fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
 const DATA = process.env.JOBPILOT_DATA;
@@ -19,6 +21,7 @@ const OVERRIDES = path.join(DATA, 'state', 'tracker-overrides.json');
 const OUT = path.join(tmp, 'out', 'pipeline.json');
 
 const tr = await import('../lib/tracker.mjs');
+const { SETTINGS } = await import('../lib/config.mjs');
 
 fs.mkdirSync(path.join(DATA, 'decoded'), { recursive: true });
 fs.writeFileSync(path.join(DATA, 'decoded', '2026-09-18--lumenfield--product-owner.md'),
@@ -146,7 +149,7 @@ test('a broken overrides file is named', () => {
 
 test('cli.mjs tracker-export writes, then says unchanged; a bad row exits 1', () => {
   seed(APPS_DATA, [{ company: 'Nobody Inc', drop: true }]);
-  const env = { ...process.env, JOBPILOT_HOME: ROOT };
+  const env = process.env;
   const cli = (...a) => spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'tracker-export', '--out', OUT, ...a], { encoding: 'utf8', env });
   const first = cli();
   assert.equal(first.status, 0, first.stdout + first.stderr);
@@ -158,4 +161,86 @@ test('cli.mjs tracker-export writes, then says unchanged; a bad row exits 1', ()
   const bad = cli();
   assert.equal(bad.status, 1);
   assert.match(bad.stdout, /tracker-export stopped: invalid row/);
+});
+
+test('a role closed or withdrawn before applying is not exported; an entry with no date is skipped and reported, not fatal', () => {
+  seed({
+    ...APPS_DATA,
+    'manual:closedco one|pm': { company: 'Closedco One', role: 'PM', status: 'closed' },
+    'manual:closedco two|pm': { company: 'Closedco Two', role: 'PM', status: 'closed' },
+    'manual:closedco three|pm': { company: 'Closedco Three', role: 'PM', status: 'closed', events: [{ type: 'closed' }] },
+    'manual:pulledback|pm': { company: 'Pulledback', role: 'PM', status: 'withdrawn', updated: '2026-09-25', events: [ev('2026-09-25', 'withdrawn')] },
+    'manual:nodate|pm': { company: 'Nodate', role: 'Product Manager', status: 'applied' },
+  });
+  const r = tr.trackerExport({ out: OUT });
+  const names = r.applications.map(a => a.company);
+  for (const c of ['Closedco One', 'Closedco Two', 'Closedco Three', 'Pulledback', 'Nodate']) assert.ok(!names.includes(c), c);
+  assert.equal(r.applications.length, 7, 'the rest of the file is still written');
+  assert.ok(fs.existsSync(OUT));
+  assert.deepEqual(r.undated.map(x => x.company), ['Nodate']);
+  assert.deepEqual(tr.exportNotes(r), ['skipped, no date: Nodate: Product Manager']);
+  assert.equal(tr.isApplication({ status: 'closed', applied: '2026-09-01' }), true, 'an applied date is proof enough');
+  assert.equal(tr.isApplication({ status: 'withdrawn', events: [ev('2026-09-01', 'applied')] }), true);
+});
+
+test('dateApplied falls back to the earliest dated event before updated; lastActivity never runs past today', () => {
+  seed({
+    'manual:earlyco|pm': { company: 'Earlyco', role: 'PM', status: 'interview', updated: '2026-09-20', events: [ev('2026-09-10', 'interview', 'gmail'), ev('2026-09-05', 'application_received', 'gmail')] },
+    'manual:bookedco|pm': { company: 'Bookedco', role: 'PM', status: 'interview', updated: '2026-09-28', events: [ev('2026-09-20', 'applied'), ev('2026-10-10', 'interview', 'gmail')] },
+  });
+  const rows = byCompany(tr.trackerExport({ out: OUT }).applications);
+  assert.equal(rows.Earlyco.dateApplied, '2026-09-05');
+  assert.equal(rows.Bookedco.lastActivity, '2026-09-28', 'the interview on 2026-10-10 is booked, not done (today is 2026-10-02)');
+  assert.equal(rows.Bookedco.notes, 'Last update 2026-09-28');
+  const later = byCompany(tr.trackerExport({ out: OUT, date: '2026-10-10' }).applications);
+  assert.equal(later.Bookedco.lastActivity, '2026-10-10', 'it counts from its day on');
+});
+
+test('an override "note" is a comment and is not copied; an override applies to every row it matches', () => {
+  seed({
+    'manual:tidewell|product manager': { company: 'Tidewell', role: 'Product Manager', status: 'applied', updated: '2026-09-29' },
+    'manual:tidewell|data pm': { company: 'Tidewell', role: 'Data PM', status: 'applied', updated: '2026-09-29' },
+  }, [{ company: 'Tidewell', stage: 'Screen', note: 'the recruiter called about both' }]);
+  const r = tr.trackerExport({ out: OUT });
+  assert.equal(r.applications.length, 2);
+  for (const row of r.applications) {
+    assert.equal(row.stage, 'Screen');
+    assert.ok(!('note' in row), JSON.stringify(row));
+  }
+});
+
+test('a row without a role breaks the format and stops the export', () => {
+  seed({ ...APPS_DATA, 'manual:roleless|': { company: 'Roleless', role: '', status: 'applied', updated: '2026-09-30' } });
+  assert.throws(() => tr.trackerExport({ out: OUT }), /invalid row \(role is empty\)/);
+  assert.ok(!fs.existsSync(OUT));
+});
+
+test('a relative tracker_export.out is under the data folder; doctor shows it with "/"', () => {
+  seed();
+  const keep = SETTINGS.tracker_export;
+  try {
+    SETTINGS.tracker_export = { enabled: true, out: 'exports/pipeline.json' };
+    assert.equal(tr.trackerOutFile(), path.join(DATA, 'exports', 'pipeline.json'));
+    assert.equal(tr.trackerExport().file, path.join(DATA, 'exports', 'pipeline.json'));
+    SETTINGS.tracker_export = { enabled: true, out: OUT };
+    assert.equal(tr.trackerOutFile(), OUT, 'an absolute path is used as it is');
+    SETTINGS.tracker_export = { enabled: true };
+    assert.equal(tr.trackerOutFile(), path.join(DATA, 'tracker', 'pipeline.json'));
+  } finally { SETTINGS.tracker_export = keep; }
+  const settings = path.join(tmp, 'doctor-settings.json');
+  fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', tracker_export: { enabled: true, out: 'exports/pipeline.json' } }));
+  const doc = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: { ...process.env, JOBPILOT_SETTINGS: settings } });
+  assert.match(doc.stdout, /^ok {3}tracker export: data\/exports\/pipeline\.json$/m, doc.stdout);
+});
+
+test('cli.mjs tracker-export --dry-run prints the rows as JSON, then the summary, and writes nothing', () => {
+  seed();
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'tracker-export', '--out', OUT, '--dry-run'], { encoding: 'utf8', env: process.env });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const lines = r.stdout.trimEnd().split('\n');
+  assert.match(lines.at(-1), /^would write .*pipeline\.json \(7 applications: .*dry run, nothing written\)$/);
+  const rows = JSON.parse(lines.slice(0, -1).join('\n'));
+  assert.equal(rows.length, 7);
+  assert.deepEqual(Object.keys(rows[0]), ['company', 'role', 'stage', 'furthestStage', 'dateApplied', 'lastActivity', 'notes', 'source', 'link']);
+  assert.ok(!fs.existsSync(OUT));
 });

@@ -30,6 +30,19 @@ test('the run unit has OnFailure= and the failure template runs notify', () => {
   assert.ok(!f.includes('@ROOT@') && !f.includes('@NODE@'));
 });
 
+test('the unit paths use "/" even where path.join uses "\\" (Windows)', () => {
+  // A child process where path.join behaves as on Windows; the units must still say /srv/jobpilot/cli.mjs.
+  const script = `import path from 'node:path'; path.join = path.win32.join;
+    const { unitFiles } = await import(${JSON.stringify(new URL('../lib/ops.mjs', import.meta.url).href)});
+    const u = unitFiles({ root: '/srv/jobpilot', node: '/usr/bin/node', time: '18:30', envPath: '/usr/bin' });
+    console.log(JSON.stringify(Object.values(u).join('\\n').split('\\n').filter(l => l.startsWith('ExecStart='))));`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, JOBPILOT_DATA: path.join(tmp, 'winsim') } });
+  assert.equal(r.status, 0, r.stderr);
+  const exec = JSON.parse(r.stdout.trim().split('\n').at(-1));
+  assert.equal(exec.length, 2);
+  for (const l of exec) { assert.ok(!l.includes('\\'), l); assert.match(l, /\/srv\/jobpilot\/cli\.mjs /); }
+});
+
 test('the template ships in deploy/, and install.sh installs the units through cli.mjs timer', () => {
   const tpl = fs.readFileSync(path.join(ROOT, 'deploy', 'jobpilot-failure@.service'), 'utf8');
   assert.match(tpl, /cli\.mjs notify "jobpilot: %i failed/);

@@ -11,7 +11,7 @@
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
 //   node cli.mjs export [--out file.tar.gz|folder] [--with-profile] [--with-settings]   # .env is never exported
 //   node cli.mjs import --from <file.tar.gz|folder> [--dry-run] [--force] [--with-profile] [--with-settings]
-//   node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
+//   node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file (--dry-run prints the rows)
 //   node cli.mjs sources-report [--send]                     # which source earns its price (data/reports/source-scorecard.md)
 //   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
 import fs from 'node:fs';
@@ -24,8 +24,9 @@ import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { exportData, importData } from './lib/archive.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 import { checkSetup as careerOpsSetup } from './sources/career-ops.mjs';
-import { trackerExport } from './lib/tracker.mjs';
-import { sourcesReport } from './lib/scorecard.mjs';
+import { trackerExport, exportNotes } from './lib/tracker.mjs';
+import { sourcesReport, sourcesReportCommand } from './lib/scorecard.mjs';
+import { trimSightings } from './lib/sightings.mjs';
 import { healthPing, notify, unitFiles } from './lib/ops.mjs';
 import { localeOk, LOCALES } from './lib/i18n.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
@@ -150,7 +151,7 @@ function doctor() {
   ok(!tg.enabled || (secret(tg.token_env) && secret(tg.chat_id_env)), `Telegram delivery: ${tg.enabled ? 'on' : 'off (digest is written to data/digests only)'}`, 'add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env');
   ok(localeOk(), `locale: ${SETTINGS.locale || 'en'}`, `unknown locale "${SETTINGS.locale}"; use one of ${LOCALES.join(', ')} (English is used meanwhile)`);
   ok(true, `health ping: ${SETTINGS.health?.ping_url ? 'set' : 'not set (optional: health.ping_url, so a run that never happens is noticed)'}`);
-  if (SETTINGS.tracker_export?.enabled) ok(true, `tracker export: ${SETTINGS.tracker_export.out || path.join(path.basename(DATA), 'tracker', 'pipeline.json')}`);
+  if (SETTINGS.tracker_export?.enabled) { const o = SETTINGS.tracker_export.out || 'tracker/pipeline.json'; ok(true, `tracker export: ${path.isAbsolute(o) ? o : path.posix.join(path.basename(DATA), o.replace(/\\/g, '/'))}`); }
   if (SETTINGS.sources_report?.enabled) ok(true, `source scorecard: on, ${Object.keys(SETTINGS.sources_report.prices || {}).length} price(s)`);
   const so = ver(process.env.SOFFICE || SETTINGS.pack.soffice || 'soffice');
   ok(!!so || process.platform === 'win32', `PDF export: ${so ? 'LibreOffice' : process.platform === 'win32' ? 'Word (Windows)' : 'LibreOffice not found'}`, 'sudo apt install libreoffice-writer-nogui fonts-liberation');
@@ -166,10 +167,11 @@ async function evening() {
   if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
   process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
   const t0 = Date.now(); runHook('before_run', { date: today() });
+  await optional('sightings trim', () => trimSightings());   // here only, before any source writes: no two writers race
   const failed = runSources(); const decoder = node('decoder/decoder.mjs');
   if (SETTINGS.sources_report?.enabled) await optional('sources-report', () => sourcesReport({ send: sendText, print: () => {} }));
   const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
-  if (SETTINGS.tracker_export?.enabled) await optional('tracker-export', () => { const r = trackerExport(); console.log(`tracker-export: ${r.message}`); });
+  if (SETTINGS.tracker_export?.enabled) await optional('tracker-export', () => { const r = trackerExport(); for (const l of [...exportNotes(r), r.message]) console.log(`tracker-export: ${l}`); });
   runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed });
   if (failed.length) console.log(`jobpilot: run finished; failed source(s): ${failedLine(failed)}`);
   return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
@@ -208,15 +210,14 @@ const codes = {
   'tracker-export': () => {
     const i = rest.indexOf('--out'); if (i >= 0 && !rest[i + 1]) { console.log('Usage: node cli.mjs tracker-export [--out <file>] [--dry-run]'); return 1; }
     try {
-      const r = trackerExport({ out: i >= 0 ? rest[i + 1] : undefined, dryRun: rest.includes('--dry-run') });
-      for (const o of r.unused) console.log(`override matched nothing: ${JSON.stringify(o)}`);
+      const dryRun = rest.includes('--dry-run');
+      const r = trackerExport({ out: i >= 0 ? rest[i + 1] : undefined, dryRun });
+      if (dryRun) console.log(JSON.stringify(r.applications, null, 1));   // what the file would hold, to review before writing
+      for (const l of exportNotes(r)) console.log(l);
       console.log(r.message); return 0;
     } catch (e) { console.log(`tracker-export stopped: ${e.message}`); return 1; }
   },
-  'sources-report': async () => {
-    const r = await sourcesReport({ send: rest.includes('--send') ? sendText : null });
-    console.log(r.sent ? 'sources-report: sent to Telegram' : `sources-report: written to ${r.file}`); return 0;
-  },
+  'sources-report': () => sourcesReportCommand({ send: rest.includes('--send') ? sendText : null }),
   notify: () => notify(rest.join(' '), { send: sendText, on: telegramOn }),
   import: locked(() => {
     const i = rest.indexOf('--from'); if (i < 0 || !rest[i + 1]) { console.log('Usage: node cli.mjs import --from <folder|file.tar.gz> [--dry-run] [--force] [--with-profile] [--with-settings]'); return 1; }
