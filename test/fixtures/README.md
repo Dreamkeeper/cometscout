@@ -15,5 +15,6 @@ without network access and without anyone's personal data.
 | `gmail/` | Application outcome emails with the expected event type |
 | `lint/` | A WordprocessingML `document.xml` (bold heading, long summary, a bullet with entities split over runs, a tab, empty paragraphs), lint and fact rules, and a CV library in which one bullet breaks a rule on purpose |
 | `career-ops/` | career-ops `data/pipeline.md` and `data/scan-history.tsv` in the shapes its `scan.mjs` writes (every row shape, labeled segments, skipped and expired rows, the 12-column history); canned Ashby, Greenhouse and Lever answers and a plain job page for the links it lists; `expected.json` |
+| `workspace/` | `tiny.pdf`: a one-page PDF (made by `tools/text-pdf.mjs`) that the workspace tests serve as a pack's CV |
 
 Do not replace these with real data. If a real format changes, update the synthetic sample to match the new structure.

@@ -36,5 +36,5 @@ A web workspace instead of chat-only control, so nobody needs a Claude Code sess
 
 | Piece | Brief | Status |
 |---|---|---|
-| Probe: `cli.mjs serve` and the "Today" screen (picks, decode, pack review, applied / skip / later) | `docs/tasks/10-workspace-today-screen.md` | ⏳ |
+| M5a probe: `cli.mjs serve` and the "Today" screen (picks, decode, pack review, applied / skip / later); a week of daily use on real data decides the rest | `docs/tasks/10-workspace-today-screen.md` | 🔨 |
 | PWA platform (manifest, service worker, Web Push, sign-in via Telegram launch data or a login link, HTTPS installer), the other screens, the bot, modules | later briefs | 💤 |

@@ -6,11 +6,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num, isMain } from '../lib/config.mjs';
-import { loadJob, parseResult, frontMatter, norm, readApplications } from '../lib/queue.mjs';
+import { loadJob, parseResult, frontMatter, norm, readApplications, laterOnly } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
 import { runHook } from '../lib/hooks.mjs';
 import { aliasFamilies, companyMatch, sameRole } from '../lib/companies.mjs';
+import { laterUntil } from '../lib/applications.mjs';
 import { APPLY_WORTHY, picksText, digestText } from './digest.mjs';
 import { translator } from '../lib/i18n.mjs';
 
@@ -88,9 +89,10 @@ export function asOf(a, before = null) {
 export function history(company, { before = null, excludeFile = null } = {}) {
   const fams = aliasFamilies(); const recorded = [], decodes = [];
   for (const [key, a] of Object.entries(apps())) {
-    if (!a || key === excludeFile || !companyMatch(a.company, company, fams)) continue;
+    if (!a || key === excludeFile || laterOnly(a) || !companyMatch(a.company, company, fams)) continue;
     const s = asOf(a, before); if (!s) continue;
-    const ev = s.events.slice(-3).map(e => `${e.date || '?'} ${e.type || ''}${e.note ? ` (${String(e.note).slice(0, 120)})` : ''}`).join('; ');
+    // "later" (the workspace's "not now") says nothing about the employer
+    const ev = s.events.filter(e => e.type !== 'later').slice(-3).map(e => `${e.date || '?'} ${e.type || ''}${e.note ? ` (${String(e.note).slice(0, 120)})` : ''}`).join('; ');
     recorded.push({ d: s.date || '', line: `- ${s.date}: ${a.role}: ${s.status}${s.note ? ` (${s.note})` : ''}${ev ? ` [events: ${ev}]` : ''} [recorded by the candidate]` });
   }
   for (const dir of ['decoded', 'rejected']) for (const f of fs.readdirSync(DIRS[dir])) {
@@ -218,13 +220,20 @@ const knownCompany = c => !!norm(c) && norm(c) !== 'unknown';
  * stoplist; a role with no readable words on either side is taken as the same process).
  */
 export function closedRole(job, A, fams = aliasFamilies()) {
-  if (A[job.file]) return true;
-  return Object.values(A).some(a => a && (CLOSED_STATUSES.has(a.status) || (a.events || []).length) && companyMatch(a.company, job.fm.company, fams) && sameRole(a.role, job.fm.role));
+  if (A[job.file] && !laterOnly(A[job.file])) return true;
+  return Object.values(A).some(a => a && !laterOnly(a) && (CLOSED_STATUSES.has(a.status) || (a.events || []).length) && companyMatch(a.company, job.fm.company, fams) && sameRole(a.role, job.fm.role));
 }
 // The board's band (1 best to 4), when a source gives one; unknown counts as the middle.
 const band = fm => { const b = Number(fm.band); return fm.band !== undefined && fm.band !== '' && b >= 1 && b <= 4 ? b : 2.5; };
-export async function buildPicks(extra = [], { fetch = globalThis.fetch } = {}) {
-  const P = { ...SETTINGS.picks, per_day: num(SETTINGS.picks.per_day, 2, 0, 10), window_days: num(SETTINGS.picks.window_days, 14, 1), max_shown: num(SETTINGS.picks.max_shown, 3, 1) };
+const picksSettings = () => ({ ...SETTINGS.picks, per_day: num(SETTINGS.picks.per_day, 2, 0, 10), window_days: num(SETTINGS.picks.window_days, 14, 1), max_shown: num(SETTINGS.picks.max_shown, 3, 1) });
+/**
+ * The jobs picks choose from, best first, with no network call: every apply-worthy decode in picks.window_days that
+ * is not closed for picks (a known company, no application for the role, shown fewer than picks.max_shown times,
+ * not excluded by location). extra: decodes not yet written (a dry run). Returns { open, state, A, fams }.
+ * The workspace's pool (lib/workspace.mjs) is this list.
+ */
+export function picksPool(extra = []) {
+  const P = picksSettings();
   const since = Date.now() - P.window_days * 86400000, state = readJson(PICKS_FILE, {}), A = apps(), fams = aliasFamilies();
   const excludeLoc = settingRegex(P.exclude_location_regex, 'exclude_location_regex');
   const excludeOnsite = settingRegex(P.exclude_onsite_location_regex, 'exclude_onsite_location_regex');
@@ -239,9 +248,15 @@ export async function buildPicks(extra = [], { fetch = globalThis.fetch } = {}) 
     && !locMatches(excludeLoc, c.fm.location) && !(locMatches(excludeOnsite, c.fm.location) && !fullyRemote(c.fm.location)));
   const score = c => (c.v.apply_priority || 5) * 10 + shapeRank(c.fm.location, P.shape_bonus) * 4 + band(c.fm) + Math.min((Date.now() - Date.parse(c.v.decoded_on || today())) / 86400000, 10) * 0.3 + (state[c.file]?.shown || 0) * 2;
   open.sort((a, b) => score(a) - score(b));
+  return { open, state, A, fams };
+}
+export async function buildPicks(extra = [], { fetch = globalThis.fetch } = {}) {
+  const P = picksSettings();
+  const { open, A, fams } = picksPool(extra);
   const picks = [];
   for (const c of open) {
     if (picks.length >= P.per_day) break;
+    if ((laterUntil(A[c.file]) || '') > today()) continue;   // "later" in the workspace: not a pick before that day
     if (picks.some(p => companyMatch(p.fm.company, c.fm.company, fams))) continue;
     if (await linkAlive(c.fm.url, { fetch })) picks.push(c); else log(`pick skipped, dead link: ${c.file}`);
   }

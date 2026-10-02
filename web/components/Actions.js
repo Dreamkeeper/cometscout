@@ -1,0 +1,54 @@
+// The action bar (Applied, Skip, Later, Open job link) and its dialogs, plus the keyboard help.
+import { useState } from 'preact/hooks';
+import { html } from '../lib/html.js';
+import { SKIP_REASONS, LATER_CHOICES } from '../lib/logic.js';
+import { KEY_HELP } from '../lib/keys.js';
+
+export function ActionBar({ t, item, busy, onApplied, onSkip, onLater, onOpen }) {
+  const off = !item || busy;
+  return html`
+    <div class="actions" role="toolbar" aria-label=${t('ws.title')}>
+      <button type="button" class="btn btn-primary" disabled=${off} onClick=${onApplied} title="a">${t('ws.act.applied')}</button>
+      <button type="button" class="btn" disabled=${off} onClick=${onSkip} title="s">${t('ws.act.skip')}</button>
+      <button type="button" class="btn" disabled=${off} onClick=${onLater} title="l">${t('ws.act.later')}</button>
+      <button type="button" class="btn" disabled=${!item?.url} onClick=${onOpen} title="o">${t('ws.act.open')}</button>
+    </div>`;
+}
+
+function Modal({ title, onClose, children }) {
+  return html`
+    <div class="overlay" onClick=${e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div class="dialog" role="dialog" aria-modal="true" aria-label=${title}>
+        <h3>${title}</h3>
+        ${children}
+      </div>
+    </div>`;
+}
+
+export function SkipDialog({ t, onPick, onClose }) {
+  const [note, setNote] = useState('');
+  return html`
+    <${Modal} title=${t('ws.skip.title')} onClose=${onClose}>
+      <ol class="choices">
+        ${SKIP_REASONS.map((r, i) => html`<li key=${r.id}><button type="button" class="btn choice" onClick=${() => onPick(r.id, note)}><kbd>${i + 1}</kbd> ${t(`ws.skip.${r.id}`)}</button></li>`)}
+      </ol>
+      <label class="note">${t('ws.skip.note')}<textarea rows="2" value=${note} onInput=${e => setNote(e.currentTarget.value)}></textarea></label>
+      <p><button type="button" class="btn" onClick=${onClose}>${t('ws.act.cancel')}</button></p>
+    <//>`;
+}
+
+export function LaterDialog({ t, onPick, onClose }) {
+  return html`
+    <${Modal} title=${t('ws.later.title')} onClose=${onClose}>
+      <p class="choices-row">${LATER_CHOICES.map(d => html`<button key=${d} type="button" class="btn choice" onClick=${() => onPick(d)}><kbd>${d}</kbd> ${t(`ws.later.${d}`)}</button> `)}</p>
+      <p><button type="button" class="btn" onClick=${onClose}>${t('ws.act.cancel')}</button></p>
+    <//>`;
+}
+
+export function HelpDialog({ t, onClose }) {
+  return html`
+    <${Modal} title=${t('ws.help.title')} onClose=${onClose}>
+      <dl class="keys">${KEY_HELP.map(([k, label]) => html`<div key=${k}><dt><kbd>${k}</kbd></dt><dd>${t(label)}</dd></div>`)}</dl>
+      <p><button type="button" class="btn" onClick=${onClose}>${t('ws.act.cancel')}</button></p>
+    <//>`;
+}

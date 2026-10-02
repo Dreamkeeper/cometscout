@@ -15,5 +15,9 @@
     "decode": "node cli.mjs decode",
     "pack": "node cli.mjs pack",
     "test": "node --test"
+  },
+  "dependencies": {
+    "htm": "3.1.1",
+    "preact": "10.29.8"
   }
 }

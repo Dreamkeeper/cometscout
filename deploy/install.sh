@@ -17,6 +17,13 @@ if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split("."
   echo "Elsewhere: https://github.com/nodesource/distributions (then rerun this script)"; exit 1
 fi
 
+echo "==> Browser libraries for the workspace (preact, htm; exact versions from package-lock.json)"
+if command -v npm >/dev/null; then
+  npm ci --omit=dev --no-audit --no-fund --loglevel=error
+else
+  echo "npm not found; the workspace (node cli.mjs serve) needs it once: sudo apt-get install -y npm && npm ci --omit=dev"
+fi
+
 echo "==> Claude Code or Codex CLI"
 if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
   echo "Install one of them, then sign in once interactively:"
