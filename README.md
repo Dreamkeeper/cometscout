@@ -55,7 +55,34 @@ node cli.mjs export [--out <file.zip>] [--data-only] | export --csv <file.csv>
 node cli.mjs import --from <file.zip> [--dry-run] [--on-conflict keep|theirs|both] [--data-only]
 node cli.mjs export-secrets --out <file> | import-secrets --from <file>
 node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]
+node cli.mjs serve [--port 8787]          # the workspace in your browser (preview), see below
 ```
+
+## Workspace (preview)
+
+A web screen for the daily routine: today's picks, the decode, the pack, then applied, skip or later. It is a first probe of the workspace (see `ROADMAP.md`, M5): one screen, no sign-in yet.
+
+```bash
+npm install                  # once: preact and htm, the two browser libraries (deploy/install.sh does this)
+node cli.mjs serve           # then open http://127.0.0.1:8787
+```
+
+- **It listens on 127.0.0.1 only.** Nobody else can reach it, and a page on another site cannot use it either (requests must name the server's own address, and every write needs a header a browser form cannot send). On a VPS, forward the port from your computer: `ssh -L 8787:127.0.0.1:8787 <your-vps>`, then open `http://127.0.0.1:8787` locally. `--host` with any other address is refused until sign-in exists; `--unsafe-no-auth` overrides that and warns on every start. A wildcard address (`0.0.0.0`, `::`) is refused even then: bind the address you will open. `--port` picks another port.
+- **Left:** today's picks first (the ones the evening run chose; "Picks of Oct 1" when the latest picks are older, for example after a failed run), then every other role the picks could still choose, grouped by verdict. Search, and filters for source, verdict, "has pack" and "hide later" (the filters are remembered in this browser, the search text is not).
+- **Middle:** the job: company, role, location, source, band, verdict and priority, the next step, why, fit signals, gaps, why held, fact check, your history with the company, and the job text (folded).
+- **Right:** the pack: "Check before sending" (flags and lint) first, then the form answers with a copy button each, the cover letter, the CV PDF (half the pane; "Larger preview" grows it), the files and the apply link. An older pack (a `<date>--<company>` folder, or one without `pack.json`) is shown from its `answers.md`, and the pane says so instead of claiming nothing was flagged.
+- **Actions:** Applied, Skip (with a reason: too senior, too junior, wrong domain, location or visa, language, company, already in contact, other), Later (1, 3 or 7 days) and Open job link. After an action the next job opens. Applied and Skip write the same record as `node cli.mjs status` (the event says `source: "workspace"`); Later adds a `later` event and keeps the job out of the picks and, with "hide later", out of the list until that day. A note is at most 500 characters, on the command line too. While the evening run (or a decode, pack, import, backup or restore) holds the run lock, actions answer "jobpilot is busy, try again in a minute" and nothing is written.
+- **Keyboard** (desktop): `j` / `k` next and previous, `a` applied, `s` skip (then `1` to `8` for the reason), `l` later (then `1`, `3` or `7`), `o` open the job link, `/` search, `?` help, `Esc` closes a dialog. Dialogs take the focus and keep `Tab` inside.
+- On a phone (or any window under 1100 px) it is one column: the list, then the job with tabs Job and Pack and the actions fixed at the bottom. Light and dark follow your system; labels follow `locale`.
+
+To see it before you have data of your own, write the demo data (invented jobs and packs for the example profile) into an empty folder and point the server at it:
+
+```bash
+node tools/workspace-demo.mjs --out /tmp/jobpilot-demo
+JOBPILOT_DATA=/tmp/jobpilot-demo node cli.mjs serve
+```
+
+![The Today screen on the desktop](docs/screenshots/workspace-today-desktop.png)
 
 ## Configuration
 
@@ -408,7 +435,7 @@ node cli.mjs restore <file name>
 
 ### Language of the messages
 
-`"locale": "ru"` in `settings.json` writes jobpilot's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram and the scorecard's Telegram text. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
+`"locale": "ru"` in `settings.json` writes jobpilot's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram, the scorecard's Telegram text and the workspace. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
 
 ### Tests
 

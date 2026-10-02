@@ -44,7 +44,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SETTINGS, STATE, ROOT, DIRS, read, log, num, isMain } from '../lib/config.mjs';
-import { writeJob, norm, normUrl, frontMatter } from '../lib/queue.mjs';
+import { writeJob, norm, normUrl, frontMatter, laterOnly } from '../lib/queue.mjs';
 import { fetchDetail as realFetchDetail, companyFromUrl, isListingPage } from '../lib/fetch-detail.mjs';
 import { checkGates, fromText, gateTally, settle } from '../lib/gates.mjs';
 
@@ -250,7 +250,7 @@ export function loadApplied(file = STATE('applications.json')) {
   if (!txt.trim()) return { urls, roles };
   const apps = JSON.parse(txt);
   for (const [key, a] of Object.entries(apps && typeof apps === 'object' ? apps : {})) {
-    if (!a || typeof a !== 'object') continue;
+    if (!a || typeof a !== 'object' || laterOnly(a)) continue;
     const links = [a.url];
     if (/\.md$/.test(key) && !key.includes('/') && !key.includes('\\')) {
       for (const d of ['decoded', 'rejected', 'inbox']) { const p = path.join(DIRS[d], key); if (fs.existsSync(p)) { links.push(frontMatter(read(p)).url); break; } }

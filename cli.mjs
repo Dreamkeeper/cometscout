@@ -17,14 +17,15 @@
 //   node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file (--dry-run: the rows on stdout, notes on stderr)
 //   node cli.mjs sources-report [--send]                     # which source earns its price (data/reports/source-scorecard.md)
 //   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
+//   node cli.mjs serve [--port 8787] [--host 127.0.0.1]      # the workspace (preview): today's picks, decode and pack in the browser
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
-import { frontMatter, norm, readApplications } from './lib/queue.mjs';
-import { pickRoleWords } from './lib/companies.mjs';
+import { readApplications } from './lib/queue.mjs';
+import { setStatus as recordStatus } from './lib/applications.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { archiveCommands } from './lib/archive-cli.mjs';
 import { nightlyBackup, backupDoctor } from './lib/backup.mjs';
@@ -39,6 +40,8 @@ import { trimSightings } from './lib/sightings.mjs';
 import { healthPing, notify, unitFiles } from './lib/ops.mjs';
 import { localeOk, LOCALES } from './lib/i18n.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
+import { startServer, vendorCheck } from './lib/server.mjs';
+import { takeLock } from './lib/lock.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (JOBPILOT_HOME) is where profile/ and settings live, which may be elsewhere.
@@ -50,7 +53,6 @@ const node = (file, extra = []) => spawnSync(process.execPath, [path.join(CODE, 
 const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs',
   hh_alerts: 'sources/hh-alerts.mjs', hirify: 'sources/hirify.mjs', career_ops: 'sources/career-ops.mjs', drop_dir: 'sources/drop-dir.mjs', outcomes: 'sources/outcomes.mjs' };
 const APPS = STATE('applications.json');
-const STATUSES = ['applied', 'screen', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 
 // A source that exits non-zero is logged by name and listed in the run's result (the closing log line and run_done's
 // sources_failed), so a dead source is never silent. Exit 3 means it cannot work until the user acts (an expired
@@ -79,44 +81,13 @@ const refusedSince = at => Object.entries(readJson(STATE('packs.json'), {})).fil
 const refusedLine = refused => refused.map(r => `${r.company || r.file}, ${r.role || '?'} (${r.rules.join(', ')})`).join('; ');
 
 // One run at a time: the timer and a manual command must not decode the same files or write state twice.
-function lock() {
-  const f = STATE('run.lock');
-  try { const pid = Number(fs.readFileSync(f, 'utf8')); if (pid && pid !== process.pid) { process.kill(pid, 0); return `another jobpilot run is in progress (pid ${pid}); try again when it finishes`; } } catch { /* no lock, or a stale one */ }
-  fs.writeFileSync(f, String(process.pid)); process.on('exit', () => { try { fs.rmSync(f); } catch { /* already gone */ } });
-  return null;
-}
+const lock = () => takeLock();
 
-function findRole(company, words) {
-  const c = norm(company), w = norm(words || '').split(' ').filter(Boolean);
-  const all = [];
-  for (const dir of ['decoded', 'rejected', 'inbox']) for (const f of fs.readdirSync(DIRS[dir])) {
-    if (!f.endsWith('.md')) continue; const fm = frontMatter(fs.readFileSync(path.join(DIRS[dir], f), 'utf8').replace(/\r\n/g, '\n'));
-    if (norm(fm.company).includes(c)) all.push({ file: f, company: fm.company, role: fm.role });
-  }
-  const exact = all.filter(h => norm(h.company) === c);              // "Ready" must not also pick "Readymade"
-  const atCompany = exact.length ? exact : all;
-  const roleWords = h => norm(h.role).split(' ');
-  return { atCompany, hits: w.length ? atCompany.filter(h => w.every(x => roleWords(h).some(r => r.startsWith(x)))) : atCompany };
-}
+// The body lives in lib/applications.mjs, shared with the workspace server (POST /api/status).
 function setStatus(company, status, words, note, manual) {
-  if (!company) { console.log('Say which company: node cli.mjs applied <company> [role words]'); return 1; }
-  if (!STATUSES.includes(status)) { console.log(`Unknown status "${status ?? ''}". Use one of: ${STATUSES.join(', ')}`); return 1; }
-  let apps; try { apps = readApplications(APPS); } catch (e) { console.log(`${e.message}. Nothing was recorded.`); return 1; }
-  const { atCompany, hits } = findRole(company, words);
-  if (hits.length > 1) { console.log(`Several roles match; add role words:\n${hits.map(h => `  ${h.company}: ${h.role}`).join('\n')}`); return 1; }
-  if (!hits.length && !manual) {
-    console.log(atCompany.length ? `No role at "${company}" matches "${words}". Roles there:\n${atCompany.map(h => `  ${h.company}: ${h.role}`).join('\n')}`
-      : `"${company}" is not in the queue. Add --manual to record it anyway (it will not affect picks).`);
-    return 1;
-  }
-  const key = hits[0]?.file || `manual:${norm(company)}|${norm(words)}`;
-  // events[] keeps the history (imported outcomes, every status change); the top-level status is the latest
-  const prev = apps[key] || {};
-  apps[key] = { ...prev, company: hits[0]?.company || prev.company || company, role: hits[0]?.role || prev.role || words || '', status, updated: today(), ...(note ? { note } : {}),
-    events: [...(prev.events || []), { date: today(), type: status, ...(note ? { note } : {}), source: 'cli' }] };
-  fs.writeFileSync(APPS, JSON.stringify(apps, null, 1)); console.log(`${apps[key].company}: ${apps[key].role || '(role not given)'} -> ${status}${hits.length ? '' : ' (manual record)'}`);
-  if (!pickRoleWords(apps[key].role).size) console.log(`Note: no role words recorded, so every pick at ${apps[key].company} is now treated as closed. Add role words to record one role only.`);
-  return 0;
+  const r = recordStatus({ company, status, words, note, manual, source: 'cli' });
+  for (const l of r.lines) console.log(l);
+  return r.code;
 }
 
 function timer(at) {
@@ -185,6 +156,8 @@ function doctor() {
   ok(!gates.unknown.length, `gates: ${gates.active.join(', ') || 'none (settings.gates not set)'}`, `unknown key(s) under gates ignored: ${gates.unknown.join(', ')} (known: ${GATE_KEYS.join(', ')})`);
   const tg = SETTINGS.delivery.telegram;
   ok(!tg.enabled || (secret(tg.token_env) && secret(tg.chat_id_env)), `Telegram delivery: ${tg.enabled ? 'on' : 'off (digest is written to data/digests only)'}`, 'add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env');
+  const vendor = vendorCheck();
+  ok(vendor.ok, `workspace modules: ${vendor.ok ? Object.entries(vendor.versions).map(([k, v]) => `${k} ${v}`).join(', ') : 'preact and htm not installed'}`, `run npm install in ${CODE} (needed for node cli.mjs serve only)`);
   ok(localeOk(), `locale: ${SETTINGS.locale || 'en'}`, `unknown locale "${SETTINGS.locale}"; use one of ${LOCALES.join(', ')} (English is used meanwhile)`);
   ok(true, `health ping: ${SETTINGS.health?.ping_url ? 'set' : 'not set (optional: health.ping_url, so a run that never happens is noticed)'}`);
   if (SETTINGS.tracker_export?.enabled) { const o = SETTINGS.tracker_export.out || 'tracker/pipeline.json'; ok(true, `tracker export: ${path.isAbsolute(o) ? o : path.posix.join(path.basename(DATA), o.replace(/\\/g, '/'))}`); }
@@ -216,6 +189,22 @@ async function evening() {
   if (closing.length) console.log(`jobpilot: run finished; ${closing.join('; ')}`);
   await nightlyBackup({ alert: text => notify(text, { send: sendText, on: telegramOn }) });   // backup.nightly; never fails the run
   return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
+}
+
+// The workspace (lib/server.mjs). Loopback only until sign-in exists; --unsafe-no-auth is the explicit way around it.
+async function serve() {
+  // a flag given without a value ("--port" last, or followed by another flag) is an error, never the default
+  const opt = n => { const i = rest.indexOf(`--${n}`); if (i < 0) return undefined; const v = rest[i + 1]; return v === undefined || v.startsWith('--') ? '' : v; };
+  const port = opt('port') ?? '8787', host = opt('host') ?? '127.0.0.1', unsafeNoAuth = rest.includes('--unsafe-no-auth');
+  if (port === '') { console.log('--port needs a number, e.g. --port 8787'); return 1; }
+  if (!/^\d{1,5}$/.test(port) || Number(port) > 65535) { console.log(`--port must be a number from 0 to 65535, got "${port}"`); return 1; }
+  if (host === '') { console.log('--host needs an address, e.g. --host 127.0.0.1'); return 1; }
+  let s; try { s = await startServer({ host, port: Number(port), unsafeNoAuth }); } catch (e) { console.log(`jobpilot serve: ${e.code === 'EADDRINUSE' ? `port ${port} is in use; try --port ${Number(port) + 1}` : e.message}`); return 1; }
+  if (unsafeNoAuth) console.log(`WARNING: --unsafe-no-auth: the workspace has no sign-in; anyone who can reach ${host}:${s.port} can read your queue and packs and record statuses.`);
+  console.log(`jobpilot workspace: ${s.url}  (data: ${DATA}; Ctrl+C stops it)`);
+  const stop = () => { s.close().then(() => process.exit(0)); };
+  process.on('SIGINT', stop); process.on('SIGTERM', stop);
+  await new Promise(() => {});
 }
 
 const locked = fn => () => { const busy = lock(); if (busy) { console.log(busy); return 1; } return fn(); };
@@ -257,6 +246,7 @@ const codes = {
   },
   'sources-report': () => sourcesReportCommand({ send: rest.includes('--send') ? sendText : null }),
   notify: () => notify(rest.join(' '), { send: sendText, on: telegramOn }),
+  serve: () => serve(),
   ...archiveCommands({ rest, locked }),
 };
 if (!codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(cmd ? 1 : 0); }

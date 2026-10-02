@@ -6,7 +6,7 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 
 - **Generic and settings-driven.** Everything in this repo must work for any job seeker. Behaviour that depends on a person (their countries, languages, gates, companies, prompts) lives in `settings.json` or `profile/`, never in code. Personal integrations (writing to someone's notes, a private tracker) use hooks (`settings.hooks`) and live outside this repo.
 - **No personal data.** No real names, emails, phone numbers, tokens, CV text or real job-search records in code, tests, fixtures or docs. `profile.example/` is fictional. Test fixtures are synthetic (see `test/fixtures/README.md`).
-- **No dependencies.** Node 20+ built-ins only (plus Python 3 for `pack/pack.py`). Ask before adding a package.
+- **No dependencies.** Node 20+ built-ins only (plus Python 3 for `pack/pack.py`). Ask before adding a package. The one exception is the workspace's browser code: `preact` and `htm`, pinned to exact versions in `package.json`, installed by `npm install` and served from `node_modules` (never copied into the repo, no CDN). The server and everything else stay dependency-free.
 - **Secrets stay in `.env`.** Never log them; model calls run with `modelEnv()` and their output is checked against `SECRET_VALUES()` (`lib/config.mjs`, `lib/llm.mjs`).
 - **Fail loudly on config errors, never silently drop data.** Use `readConfig()` for user-edited JSON and `num()` for every number setting. A source that cannot read something it would normally mark as seen must not mark it seen.
 - **Plain, short prose** in user-facing text (digest, doctor, docs). No em dashes.
@@ -15,10 +15,14 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
+| `lib/applications.mjs` | Writes to `applications.json`: `setStatus` (the CLI's `applied` / `status` and the workspace's `POST /api/status`), `addLater`, `laterUntil` |
+| `lib/lock.mjs` | The run lock (`data/state/run.lock`): `takeLock` for the commands, `lockHolder` for the workspace's writes |
+| `lib/workspace.mjs`, `lib/server.mjs` | The workspace: API payloads (today, job, pack, labels, status, later, pack files) and the `node:http` server behind `cli.mjs serve` |
+| `web/` | The workspace's browser code, no build step: `index.html` (import map), `app.js`, `components/` (Preact + htm), `lib/` (pure logic with no DOM, tested by `node --test`), `styles.css` |
 | `lib/hooks.mjs` | `runHook(event, payload)` |
 | `lib/lint.mjs` | Lint rules from `profile/lint-rules.json`: paragraphs from a DOCX, hits, report, CLI |
 | `lib/archive.mjs` | Export / import (`jobpilot-export` v2 zip or folder; reads v1 folders and tar.gz), conflict modes |
@@ -33,6 +37,7 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 | `sources/*.mjs` | One file per source; each writes job files with `writeJob()` |
 | `decoder/` | Verdicts, picks, digest (`digest.mjs` renders the text) |
 | `pack/` | Tailored CV, cover letter, form answers (`message.mjs` is the Telegram text) |
+| `tools/` | `gmail-auth.mjs`; `workspace-demo.mjs` (demo data for the workspace) and `text-pdf.mjs` (small text PDFs for it and the tests) |
 | `test/` | `node --test` unit tests; `test/fixtures/` synthetic inputs |
 | `ROADMAP.md` | Milestones and what is in progress |
 | `docs/tasks/` | Self-contained task briefs (good for cloud sessions) |
