@@ -45,6 +45,9 @@ node cli.mjs status <company> interview|offer|rejected|skipped [role] [--note ".
 node cli.mjs list
 node cli.mjs timer [HH:MM]                # reinstall the daily timer from settings.json (run_time, timezone)
 node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
+node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
+node cli.mjs sources-report [--send]      # which source earns its price
+node cli.mjs notify <text>                # one Telegram message (the failure alert uses it)
 ```
 
 ## Configuration
@@ -219,6 +222,52 @@ If you also run [career-ops](https://github.com/career-ops-hq/career-ops), jobpi
 Before anything is fetched, a link you already have in `data/state/applications.json` (the same link, or the same company and role) is skipped, and the [gates](#gates) run on the company, role and location career-ops wrote, so an excluded company or an on-site job in the wrong country costs nothing. jobpilot then fetches the full text (from the ATS API for Greenhouse, Ashby, Lever, Workable and Recruitee links, otherwise the page), checks applications and the gates again on what the posting says, and queues the job with `source: "career-ops"`, the location and the compensation (as salary). Closed postings are skipped. The company is the one career-ops wrote, else the one the posting names, else the board in the link; it is never guessed from the title. A job with no company anywhere is queued as "Unknown" with a flag, so the decoder sees it.
 
 `max_per_run` caps the jobs handled per run, shared out one per company in turn (the company as written, else the board in the link); the rest wait for the next run. Every link is remembered in `data/state/career-ops.json`, so nothing is fetched twice. A gate reject is remembered too, but one made before the fetch is checked again on every run without any network, so changing `gates` brings it back. A link that could not be fetched (a rate limit, a server error, a network hiccup) is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job given up on is still queued without text when its company and role are known. Try it with `node sources/career-ops.mjs --dry-run` (fetches and logs, writes nothing). `node cli.mjs doctor` checks that the folder has the pipeline file and that jobpilot can read it.
+
+### Tracker export
+
+`node cli.mjs tracker-export` writes your applications as the import file of [job-pipeline-tracker](https://github.com/Dreamkeeper/job-pipeline-tracker), which re-imports it whenever `exportedAt` changes:
+
+```json
+"tracker_export": { "enabled": false, "out": "data/tracker/pipeline.json" }
+```
+
+Every entry in `data/state/applications.json` that is an application is a row: any status but `skipped`, or an `applied` event. `stage` comes from the status (Applied, Screen, Interview, Offer, Rejected, Withdrawn; `withdrawn` and `closed` are Withdrawn); `furthestStage` is the furthest of Applied, Screen, Interview and Offer that the status and events reached, so a rejection after an interview keeps Interview. `dateApplied` is the first `applied` event (else the entry's `applied` date, else `updated`), `lastActivity` the latest event or update, `notes` "Rejected <date>", "Closed <date>" or "Last update <date>". `source` and `link` come from the job's queue file. The file is written (to a temporary file, then renamed) only when its `contentHash` changes, so the app does not re-import the same data; the command says `wrote <file>` or `unchanged (N applications: Applied 3, ...)`. Every row is checked first (known stages, dates as YYYY-MM-DD); a bad row stops the export and is shown. `--dry-run` writes nothing. With `enabled`, `node cli.mjs run` exports at the end; a failure there is logged and does not fail the run.
+
+Corrections go in `data/state/tracker-overrides.json`. `company` matches the company (with your `queue.aliases` once company alias families are in), `role` is an optional substring of the role; `drop` leaves the row out, any other field replaces the row's value. An override that matches nothing is reported.
+
+```json
+{ "overrides": [ { "company": "Acme", "role": "designer", "drop": true }, { "company": "Northwind", "stage": "Interview", "notes": "Second round booked" } ] }
+```
+
+### Source scorecard
+
+`node cli.mjs sources-report` answers "which source earns its price" and writes `data/reports/source-scorecard.md`. Per source, over the last `window_days`: jobs queued; worth applying (decoded strong-fit or investable-stretch); only here (worth applying, and no other source sighted the same company and role within 7 days either side); picks shown. All time, from `applications.json`: applied, and past the application stage (screen, interview or offer). Then the price a month and the price per only-here role.
+
+```json
+"sources_report": {
+  "enabled": false, "window_days": 30,
+  "prices": {
+    "rtj": { "price_month": 10, "currency": "USD", "renews": "2026-12-01", "decision": "under review" },
+    "some-premium-plan": { "feed": false, "price_month": 20, "currency": "EUR" }
+  }
+}
+```
+
+Price keys are source names as the job files carry them (`rtj`, `linkedin`, `hh`, `hirify`, `ats:greenhouse` ...). `feed: false` is a paid service that is not a job feed; it is listed under the table. To know which jobs two sources found, every job a source hands over, a duplicate too, is logged to `data/state/sightings.jsonl` (kept 120 days). `--send` also sends a short version to Telegram (one line per source) on the 1st of the month and when a `renews` date is 7 days away or less, once each time. With `enabled`, `node cli.mjs run` does that after the digest.
+
+### Running unattended: health ping and failure alert
+
+Set `health.ping_url` to a [healthchecks.io](https://healthchecks.io) style URL and every `node cli.mjs run` ends with a GET to it, or to `<url>/<exit code>` when the run exits non-zero, so a run that fails or never happens (a dead timer, a server that is off) is noticed. It waits 10 seconds at most and never fails the run. Treat the URL as a secret: jobpilot never logs it. `doctor` shows whether it is set.
+
+```json
+"health": { "ping_url": "" }
+```
+
+The daily timer also installs a failure alert: the run unit has `OnFailure=jobpilot-failure@%n.service` (template in `deploy/jobpilot-failure@.service`), which runs `node cli.mjs notify "jobpilot: jobpilot.service failed, see journalctl --user -u jobpilot.service"`. `notify` sends one Telegram message; with Telegram off it only logs the text. Re-run `node cli.mjs timer` to add the alert to an existing install.
+
+### Language of the messages
+
+`"locale": "ru"` in `settings.json` writes jobpilot's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram and the scorecard's Telegram text. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
 
 ### Tests
 

@@ -15,16 +15,20 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `tracker-export`, `sources-report`, `notify`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
 | `lib/hooks.mjs` | `runHook(event, payload)` |
 | `lib/archive.mjs` | Export / import (`jobpilot-export-v1`) |
 | `lib/telegram.mjs`, `lib/gmail.mjs` | Delivery, read-only Gmail |
+| `lib/i18n.mjs` | `settings.locale` label tables (`en`, `ru`) for the digest, picks, pack messages and the scorecard's Telegram text |
+| `lib/tracker.mjs`, `lib/scorecard.mjs`, `lib/sightings.mjs` | Tracker export, source scorecard, the sightings log `writeJob` keeps for it |
+| `lib/ops.mjs` | Health ping, `notify`, the systemd units (`deploy/jobpilot-failure@.service`) |
+| `lib/match.mjs` | Company and role matching for reports (uses `lib/companies.mjs` when it exists) |
 | `sources/*.mjs` | One file per source; each writes job files with `writeJob()` |
-| `decoder/` | Verdicts, picks, digest |
-| `pack/` | Tailored CV, cover letter, form answers |
+| `decoder/` | Verdicts, picks, digest (`digest.mjs` renders the text) |
+| `pack/` | Tailored CV, cover letter, form answers (`message.mjs` is the Telegram text) |
 | `test/` | `node --test` unit tests; `test/fixtures/` synthetic inputs |
 | `ROADMAP.md` | Milestones and what is in progress |
 | `docs/tasks/` | Self-contained task briefs (good for cloud sessions) |

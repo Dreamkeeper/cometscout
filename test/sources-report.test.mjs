@@ -1,0 +1,147 @@
+// Source scorecard: sightings from writeJob (duplicates too, trimmed once a day), the per-source table, "only here",
+// prices, the short Telegram text and when it is sent. Synthetic queue files and applications; Telegram is injected.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-scorecard-'));
+process.env.JOBPILOT_HOME = tmp;
+process.env.JOBPILOT_DATA = path.join(tmp, 'data');
+process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.JOBPILOT_RUN_DATE = '2026-10-01';
+fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+  timezone: 'UTC',
+  sources_report: {
+    enabled: true, window_days: 30,
+    prices: { rtj: { price_month: 10, currency: 'USD', renews: '2026-10-05', decision: 'under review' }, 'premium-plan': { feed: false, price_month: 20, currency: 'EUR' } },
+  },
+}));
+const DATA = process.env.JOBPILOT_DATA;
+const STATE = n => path.join(DATA, 'state', n);
+const SIGHTINGS = STATE('sightings.jsonl');
+for (const d of ['inbox', 'decoded', 'rejected', 'state']) fs.mkdirSync(path.join(DATA, d), { recursive: true });
+
+// Sightings from before this run: one past the 120 days, one recent.
+fs.writeFileSync(SIGHTINGS, [{ date: '2026-05-01', source: 'rtj', company: 'Old', role: 'Old', result: 'written' }, { date: '2026-09-29', source: 'hh', company: 'Recent', role: 'PM', result: 'written' }].map(s => JSON.stringify(s)).join('\n') + '\n');
+// Queue files written before sightings existed: the same Zeta Labs role from two sources, and one outside the window.
+const queueFile = (dir, file, fm, verdict) => fs.writeFileSync(path.join(DATA, dir, file),
+  `---\n${Object.entries(fm).map(([k, v]) => `${k}: ${k === 'found' ? v : `"${v}"`}`).join('\n')}\n---\n\n# ${fm.company} - ${fm.role}\n\ntext\n${verdict ? `\n## Decode Result\nDecoded ${fm.found} by jobpilot (test).\nverdict: ${verdict}\nconfidence: high\n` : ''}`);
+queueFile('decoded', '2026-09-25--zeta-labs--product-manager.md', { company: 'Zeta Labs', role: 'Product Manager', url: 'https://jobs.example/z/1', source: 'linkedin', found: '2026-09-25' }, 'strong-fit');
+queueFile('decoded', '2026-09-28--zeta-labs--product-manager.md', { company: 'Zeta Labs', role: 'Product Manager', url: 'https://boards.example/zeta/9', source: 'rtj', found: '2026-09-28' }, 'investable-stretch');
+queueFile('decoded', '2026-08-01--epsilon--designer.md', { company: 'Epsilon', role: 'Designer', url: 'https://jobs.example/e/1', source: 'ats:greenhouse', found: '2026-08-01' }, 'strong-fit');
+
+const { writeJob } = await import('../lib/queue.mjs');
+const sightings = await import('../lib/sightings.mjs');
+const sc = await import('../lib/scorecard.mjs');
+const { translator } = await import('../lib/i18n.mjs');
+
+// Decode a job by hand: move it from the inbox with a result block.
+const decode = (file, verdict) => {
+  const t = fs.readFileSync(path.join(DATA, 'inbox', file), 'utf8'); fs.rmSync(path.join(DATA, 'inbox', file));
+  fs.writeFileSync(path.join(DATA, ['weak-fit', 'gate-reject'].includes(verdict) ? 'rejected' : 'decoded', file), `${t}\n## Decode Result\nDecoded 2026-10-01 by jobpilot (test).\nverdict: ${verdict}\n`);
+};
+
+test('writeJob records a sighting per call, duplicates included, and trims old lines once a day', () => {
+  const acme = writeJob({ company: 'Acme', role: 'Product Manager', url: 'https://jobs.example/acme/1', source: 'rtj', text: 'x' });
+  const dup = writeJob({ company: 'Acme', role: 'Product Manager', url: 'https://www.linkedin.example/jobs/view/42', source: 'linkedin', text: 'x' });
+  assert.equal(acme.written, true); assert.equal(dup.written, false);
+  const s = sightings.readSightings();
+  assert.deepEqual(s.map(x => x.company), ['Recent', 'Acme', 'Acme'], 'the 2026-05-01 line is past 120 days and gone');
+  assert.deepEqual(s.slice(1).map(x => [x.source, x.result, x.where]), [['rtj', 'written', `inbox/${acme.file}`], ['linkedin', 'duplicate', `inbox/${acme.file}`]]);
+  assert.deepEqual(Object.keys(s[1]), ['date', 'source', 'company', 'role', 'url', 'result', 'where']);
+  assert.equal(s[1].date, '2026-10-01');
+  // a second trim the same day does nothing
+  fs.appendFileSync(SIGHTINGS, JSON.stringify({ date: '2026-01-01', source: 'rtj', company: 'Older', role: 'x', result: 'written' }) + '\n');
+  writeJob({ company: 'Beta', role: 'Product Owner', url: 'https://jobs.example/beta/1', source: 'rtj', text: 'x' });
+  assert.ok(sightings.readSightings().some(x => x.company === 'Older'), 'trimmed at most once a day');
+  assert.equal(sightings.trimSightings({ date: '2026-10-02' }), true);
+  assert.ok(!sightings.readSightings().some(x => x.company === 'Older'), 'the next day trims again');
+});
+
+test('the table counts queued, worth applying, only here, picks, applied and past application per source', () => {
+  writeJob({ company: 'Gamma', role: 'Analyst', url: 'https://jobs.example/gamma/1', source: 'linkedin', text: 'x' });
+  writeJob({ company: 'Delta', role: 'Product Lead', url: 'https://jobs.example/delta/1', source: 'hh', text: 'x' });
+  decode('2026-10-01--acme--product-manager.md', 'strong-fit');
+  decode('2026-10-01--beta--product-owner.md', 'investable-stretch');
+  decode('2026-10-01--gamma--analyst.md', 'weak-fit');
+  decode('2026-10-01--delta--product-lead.md', 'long-shot');
+  fs.writeFileSync(STATE('picks.json'), JSON.stringify({ '2026-10-01--beta--product-owner.md': { shown: 2, last: '2026-09-30' }, '2026-08-01--epsilon--designer.md': { shown: 1, last: '2026-08-02' } }));
+  fs.writeFileSync(STATE('applications.json'), JSON.stringify({
+    '2026-10-01--acme--product-manager.md': { company: 'Acme', role: 'Product Manager', status: 'applied', updated: '2026-10-01', events: [{ date: '2026-10-01', type: 'applied' }, { date: '2026-10-01', type: 'interview' }] },
+    '2026-08-01--epsilon--designer.md': { company: 'Epsilon', role: 'Designer', status: 'rejected', updated: '2026-08-20', events: [{ date: '2026-08-05', type: 'applied' }] },
+    'manual:kite|pm': { company: 'Kite', role: 'PM', status: 'applied', updated: '2026-09-10' },
+    'manual:loom|pm': { company: 'Loom', role: 'PM', status: 'skipped', updated: '2026-09-10' },
+  }));
+  const r = sc.scorecard({ date: '2026-10-01' });
+  const by = Object.fromEntries(r.rows.map(x => [x.source, x]));
+  const pick = x => ({ queued: x.queued, worth: x.worth, only: x.only, picks: x.picks, applied: x.applied, past: x.past });
+  assert.deepEqual(pick(by.rtj), { queued: 3, worth: 3, only: 1, picks: 1, applied: 1, past: 1 }, 'Acme was sighted by linkedin too, Zeta Labs came from linkedin 3 days earlier; Beta is only here');
+  assert.deepEqual(pick(by.linkedin), { queued: 2, worth: 1, only: 0, picks: 0, applied: 0, past: 0 }, 'Zeta Labs was seen by rtj too');
+  assert.deepEqual(pick(by.hh), { queued: 1, worth: 0, only: 0, picks: 0, applied: 0, past: 0 });
+  assert.deepEqual(pick(by['ats:greenhouse']), { queued: 0, worth: 0, only: 0, picks: 0, applied: 1, past: 0 }, 'outside the window; applications are all time');
+  assert.equal(by['(manual)'].applied, 1, 'a manual record counts; a skipped role does not');
+  assert.deepEqual(by.rtj.price, { month: 10, currency: 'USD', renews: '2026-10-05', decision: 'under review', perOnly: 10 });
+  assert.deepEqual(r.notFeeds.map(n => n.source), ['premium-plan']);
+  assert.ok(!by['premium-plan'], 'not a job feed: listed under the table, not in it');
+  assert.equal(r.rows[0].source, 'rtj', 'sorted by queued');
+
+  const md = sc.markdown(r);
+  assert.match(md, /\| rtj \| 3 \| 3 \| 1 \| 1 \| 1 \| 1 \| 10 USD \| 10 USD \| 2026-10-05 \| under review \|/);
+  assert.match(md, /\| linkedin \| 2 \| 1 \| 0 \| 0 \| 0 \| 0 \|  \|  \|  \|  \|/);
+  assert.match(md, /Not a job feed:\n- premium-plan: 20 EUR a month/);
+  assert.ok(!md.includes('—'), 'no em dashes');
+});
+
+test('the only-here rule: same company and role within 7 days either side, from another source', () => {
+  const job = { file: 'f.md', source: 'rtj', company: 'Acme', role: 'Product Manager', found: '2026-10-01' };
+  const seen = s => sc.seenElsewhere(job, [{ source: 'linkedin', company: 'Acme', role: 'Product Manager', date: '2026-10-01', ...s }]);
+  assert.equal(seen({}), true);
+  assert.equal(seen({ date: '2026-10-08' }), true, '7 days later');
+  assert.equal(seen({ date: '2026-09-24' }), true, '7 days earlier');
+  assert.equal(seen({ date: '2026-10-09' }), false, '8 days later');
+  assert.equal(seen({ source: 'rtj' }), false, 'the same source again');
+  assert.equal(seen({ role: 'Data Analyst' }), false);
+  assert.equal(seen({ company: 'Northwind' }), false);
+  assert.equal(seen({ company: 'Other', role: 'Other', where: 'inbox/f.md' }), true, 'a duplicate of the same file');
+});
+
+test('the Telegram text is one line per source, in the locale', () => {
+  const r = sc.scorecard({ date: '2026-10-01' });
+  const en = sc.telegramText(r, translator('en')).split('\n');
+  assert.equal(en[0], 'Sources, last 30 days');
+  assert.ok(en.includes('rtj: 3 queued, 3 worth applying, 1 only here, 1 applied; 10 USD a month, 10 USD per only-here role, renews 2026-10-05'), en.join('\n'));
+  assert.ok(en.includes('linkedin: 2 queued, 1 worth applying, 0 only here, 0 applied'));
+  assert.ok(en.includes('premium-plan: 20 EUR a month, not a job feed'));
+  assert.equal(en.length, 1 + r.rows.length + 1);
+  const ru = sc.telegramText(r, translator('ru'));
+  assert.match(ru, /^Источники, окно 30 дн\./);
+  assert.match(ru, /rtj: в очереди 3, стоит откликнуться 3, только здесь 1, откликов 1; 10 USD в месяц/);
+});
+
+test('--send: on the 1st and within 7 days of a renewal, once per occasion', async () => {
+  assert.deepEqual(sc.sendTriggers('2026-10-01'), ['month:2026-10', 'renews:rtj:2026-10-05']);
+  assert.deepEqual(sc.sendTriggers('2026-09-28'), ['renews:rtj:2026-10-05'], '7 days before');
+  assert.deepEqual(sc.sendTriggers('2026-09-27'), [], '8 days before');
+  assert.deepEqual(sc.sendTriggers('2026-10-06'), [], 'after the renewal');
+
+  const sent = []; const send = async t => { sent.push(t); return true; };
+  const quiet = () => {};
+  const off = await sc.sourcesReport({ date: '2026-10-01', send: async () => false, print: quiet });
+  assert.equal(off.sent, false, 'Telegram off: nothing is marked sent');
+  const first = await sc.sourcesReport({ date: '2026-10-01', send, print: quiet });
+  assert.equal(first.sent, true);
+  assert.deepEqual(first.triggers, ['month:2026-10', 'renews:rtj:2026-10-05']);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /^Sources, last 30 days\nrtj: /);
+  assert.ok(fs.existsSync(path.join(DATA, 'reports', 'source-scorecard.md')));
+  await sc.sourcesReport({ date: '2026-10-01', send, print: quiet });
+  await sc.sourcesReport({ date: '2026-10-03', send, print: quiet });
+  assert.equal(sent.length, 1, 'the same occasions are not sent again');
+  await sc.sourcesReport({ date: '2026-11-01', send, print: quiet });
+  assert.equal(sent.length, 2, 'the next 1st is a new occasion');
+  const none = await sc.sourcesReport({ date: '2026-10-15', print: quiet });
+  assert.equal(none.sent, false, 'without --send nothing is sent');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(STATE('sources-report.json'), 'utf8')).sent).sort(), ['month:2026-10', 'month:2026-11', 'renews:rtj:2026-10-05']);
+});
