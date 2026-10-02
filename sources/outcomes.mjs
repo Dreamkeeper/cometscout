@@ -72,7 +72,8 @@ const ALERT_SUBJECT = /jobs? you might like|jobs? you may be interested in|job a
 // A bulk-looking sender alone proves nothing (an ATS can send outcomes from alerts@); with a listing-style subject it is an alert.
 const BULK_SENDER = /newsletter|digest@|alerts?@/i;
 const LISTING_SUBJECT = /\b\d+\+? (new )?(\w+ )*?(jobs|vacancies|roles|openings)\b|\bjobs (in|near|at)\b|\d+ (новых )?ваканси[йи]|дайджест|рассылк/i;
-const OUTCOME_WORDS = /\b(applications?|applied|applying|interviews?|offers?|position|role|candidates?|candidacy|hiring|recruit\w*|interviewing|case( study)?|assessment|assignment|home ?task|take-home|next steps?)\b|отклик|резюме|собеседован|интервью|оффер|предложени|ваканси|позици|кандидат|тестов\w* задани/i;
+// Scheduling words count too: an ATS invite ("Vision call", a booking link) may name no role or application at all.
+const OUTCOME_WORDS = /\b(applications?|applied|applying|interviews?|offers?|position|role|candidates?|candidacy|hiring|recruit\w*|interviewing|case( study)?|assessment|assignment|home ?task|take-home|next steps?|calls?|meeting|invit\w*|schedul\w*|book(ed|ing)? a (slot|time)|calendly)\b|отклик|резюме|собеседован|интервью|оффер|предложени|ваканси|позици|кандидат|тестов\w* задани|звон[ок]|встреч|приглаш/i;
 /** null when the email should be classified, else the reason it is skipped. */
 export function prefilter(email) {
   if (ALERT_ONLY_SENDER.test(email.from) || ALERT_SUBJECT.test(email.subject)) return 'job alert or newsletter';
