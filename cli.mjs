@@ -24,13 +24,29 @@ import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 const [cmd, ...rest] = process.argv.slice(2);
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(ROOT, file), ...extra], { stdio: 'inherit' }).status;
 // outcomes reads application results from Gmail; it runs with the sources, so the decoder already knows what closed
-const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs', drop_dir: 'sources/drop-dir.mjs', outcomes: 'sources/outcomes.mjs' };
-// hh.ru alert emails (Gmail + the public vacancy page)
-SOURCES.hh_alerts = 'sources/hh-alerts.mjs';
+// hh_alerts: hh.ru alert emails (Gmail + the public vacancy page); hirify: saved filters, read with the user's session cookie
+const SOURCES = { ats_boards: 'sources/ats-boards.mjs', rtj: 'sources/rtj.mjs', linkedin_alerts: 'sources/linkedin-alerts.mjs',
+  hh_alerts: 'sources/hh-alerts.mjs', hirify: 'sources/hirify.mjs', drop_dir: 'sources/drop-dir.mjs', outcomes: 'sources/outcomes.mjs' };
 const APPS = STATE('applications.json');
 const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'skipped', 'closed'];
 
-function runSources() { for (const [k, f] of Object.entries(SOURCES)) if (SETTINGS.sources[k]?.enabled) node(f); }
+// A source that exits non-zero is logged by name and listed in the run's result (the closing log line and run_done's
+// sources_failed), so a dead source is never silent. Exit 3 means it cannot work until the user acts (an expired
+// login): the run still decodes and packs what it has, then exits 3 too, so the timer's status and health alerts
+// show it. Other exit codes do not change the run's own exit code.
+const NEEDS_USER = 3;
+function runSources() {
+  const failed = [];
+  for (const [k, f] of Object.entries(SOURCES)) {
+    if (!SETTINGS.sources[k]?.enabled) continue;
+    const exit = node(f);
+    if (exit === 0) continue;
+    failed.push({ source: k, exit });
+    console.log(`jobpilot: source ${k} failed (exit ${exit ?? 'none, it was killed'})${exit === NEEDS_USER ? '; it needs you, see the message above' : ''}`);
+  }
+  return failed;
+}
+const failedLine = failed => failed.map(f => `${f.source} (exit ${f.exit ?? 'killed'})`).join(', ');
 
 // One run at a time: the timer and a manual command must not decode the same files or write state twice.
 function lock() {
@@ -113,6 +129,11 @@ function doctor() {
   if (gmailUsers.length) ok(['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'].every(k => secret(k)), `Gmail read-only access (${gmailUsers.join(', ')})`, 'add GMAIL_CLIENT_ID/SECRET to .env, then run `node tools/gmail-auth.mjs`');
   if (SETTINGS.sources.hh_alerts?.enabled) { const l = [].concat(SETTINGS.gates?.languages ?? []).map(x => String(x).toLowerCase()); ok(!l.length || l.some(x => /^(ru|rus|russian)([-_].*)?$/.test(x)), 'hh.ru alerts: language gate', 'gates.languages has no "ru", so every Russian posting from hh.ru is rejected; add "ru"'); }
   if (SETTINGS.sources.drop_dir?.enabled) { const d = SETTINGS.sources.drop_dir.dir; ok(!!d && fs.existsSync(d), `drop-dir folder: ${d || 'not set'}`, d ? `create ${d} or fix sources.drop_dir.dir in settings.json` : 'set sources.drop_dir.dir in settings.json'); }
+  if (SETTINGS.sources.hirify?.enabled) {
+    const h = SETTINGS.sources.hirify, env = h.cookie_env || 'HIRIFY_COOKIE';
+    ok(!!secret(env), `Hirify session cookie (${env}) in .env`, `copy the cookie from your browser into ${env}=... in .env (README: Hirify)`);
+    ok((h.filters || []).some(f => f?.query), `Hirify filters: ${(h.filters || []).filter(f => f?.query).length}`, 'add a saved filter to sources.hirify.filters: [{ "name": "...", "query": "..." }]');
+  }
   const gates = describeGates(SETTINGS.gates);
   ok(!gates.unknown.length, `gates: ${gates.active.join(', ') || 'none (settings.gates not set)'}`, `unknown key(s) under gates ignored: ${gates.unknown.join(', ')} (known: ${GATE_KEYS.join(', ')})`);
   const tg = SETTINGS.delivery.telegram;
@@ -129,11 +150,12 @@ const codes = {
     if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
     process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
     const t0 = Date.now(); runHook('before_run', { date: today() });
-    runSources(); const decoder = node('decoder/decoder.mjs'); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
-    runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack });
-    return 0;
+    const failed = runSources(); const decoder = node('decoder/decoder.mjs'); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
+    runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed });
+    if (failed.length) console.log(`jobpilot: run finished; failed source(s): ${failedLine(failed)}`);
+    return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
   }),
-  sources: locked(() => { runSources(); return 0; }),
+  sources: locked(() => (runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0)),
   decode: locked(() => node('decoder/decoder.mjs', rest)),
   picks: () => node('decoder/decoder.mjs', ['--picks']),
   pack: locked(() => node('pack/pack.mjs', rest)),
