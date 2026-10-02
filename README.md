@@ -48,6 +48,10 @@ node cli.mjs reset --yes                  # clear data/ (e.g. after trying the e
 node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
 node cli.mjs sources-report [--send]      # which source earns its price
 node cli.mjs notify <text>                # one Telegram message (the failure alert uses it)
+node cli.mjs export [--out <file.zip>] [--data-only] | export --csv <file.csv>
+node cli.mjs import --from <file.zip> [--dry-run] [--on-conflict keep|theirs|both] [--data-only]
+node cli.mjs export-secrets --out <file> | import-secrets --from <file>
+node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]
 ```
 
 ## Configuration
@@ -336,6 +340,66 @@ Set `health.ping_url` to a [healthchecks.io](https://healthchecks.io) style URL 
 ```
 
 The daily timer also installs a failure alert: the run unit has `OnFailure=jobpilot-failure@%n.service` (template in `deploy/jobpilot-failure@.service`), which runs `node cli.mjs notify "jobpilot: jobpilot.service failed, see journalctl --user -u jobpilot.service"`. `notify` sends one Telegram message; with Telegram off it only logs the text. Re-run `node cli.mjs timer` to add the alert to an existing install.
+
+### Export, import and backups
+
+One archive format serves downloading your data, nightly backups, moving to a new server and restoring: a ZIP you can open with a double click on any computer and read your own files.
+
+**What is in it.** `manifest.json` (format `jobpilot-export` version 2, the jobpilot version, the data schema, when and on which machine it was made, and a SHA-256 hash of every file), `data/` (`inbox`, `decoded`, `rejected`, `digests`, `packs`, `state`), `profile/` and `settings.json`. **What is never in it:** `.env`, saved login sessions (`data/state/hirify-cookies.json`), the run lock, temporary files and `backups/`. The example profile and example settings are not exported.
+
+```bash
+node cli.mjs export                        # jobpilot-export-<date>-v<version>.zip in the current folder
+node cli.mjs export --out my-data.zip      # or --out <folder> for the same layout unpacked
+node cli.mjs export --data-only            # without profile/ and settings.json
+node cli.mjs export --csv applications.csv # your applications as a spreadsheet (not an archive)
+```
+
+The CSV has Company, Role, Status, Applied, Last activity, Source, Link and Notes, one row per entry in `applications.json`. It is UTF-8 with a BOM, so Excel shows Cyrillic and other scripts correctly; a cell that starts with `=`, `+`, `-` or `@` gets a leading `'` so a spreadsheet never runs it as a formula.
+
+**Import** reads a v2 zip or folder, and the older v1 format (a folder or a `.tar.gz`, read with the system `tar`). Every file's hash is checked before anything is written; a damaged archive, an unsafe file name, or an archive made by a newer jobpilot (a newer format or data schema) is refused and nothing changes. `--dry-run` prints the plan: new files, identical files and conflicts (a file you have with other content).
+
+```bash
+node cli.mjs import --from my-data.zip --dry-run
+node cli.mjs import --from my-data.zip --on-conflict keep     # or theirs, or both
+```
+
+- `keep` leaves your file as it is. Without `--on-conflict`, data conflicts are kept this way.
+- `theirs` replaces your file with the archived one. The files it replaces are first saved to `backups/` (a partial backup labelled `pre-import`).
+- `both` keeps yours and writes the archived copy next to it as `<name>.imported-<date><ext>`, for you to compare. A copy written into `decoded/` or `inbox/` is a queue file like any other, so delete it when you are done.
+- A conflict in `profile/` or `settings.json` always needs an explicit `--on-conflict`; until you give one, nothing is imported. `--data-only` leaves profile and settings alone.
+
+**Secrets** travel separately and encrypted (scrypt and AES-256-GCM): `.env` and the saved Hirify session. The passphrase is asked in the terminal (twice on export) or read from `JOBPILOT_SECRETS_PASSPHRASE`, never from an argument. A wrong passphrase fails without writing anything. On import, a secret file you already have with other content is replaced only with `--force`, and the old one is kept as `<name>.replaced-<date>`.
+
+```bash
+node cli.mjs export-secrets --out jobpilot-secrets.enc
+node cli.mjs import-secrets --from jobpilot-secrets.enc [--dry-run] [--force]
+```
+
+**Moving to a new server** in three commands (install jobpilot there first with `deploy/install.sh`):
+
+```bash
+node cli.mjs export --out jobpilot.zip                     # on the old server
+scp jobpilot.zip jobpilot-secrets.enc new-server:jobpilot/  # after export-secrets, if you use tokens
+node cli.mjs import --from jobpilot.zip                     # on the new server, then import-secrets
+```
+
+**Backups.** `node cli.mjs run` makes one after every evening run (not while you try jobpilot on the example profile), and `node cli.mjs backup` makes one now. They go to `backups/` in the jobpilot home as `jobpilot-backup-<date>-<time>-v<version>.zip` (the same format as an export, complete: data, profile and settings). A failed nightly backup is logged and sent to Telegram as an alert; it never fails the run. After each backup old ones are pruned: the newest backup of each of the last 7 days, 4 weeks and 6 months that have one is kept, and the newest three are never removed. `--label <text>` adds a label to the name (updates use `pre-update-...`, restores `pre-restore`); a labelled backup is removed only after 90 days.
+
+```json
+"backup": { "nightly": true, "copy_to": "" }
+```
+
+`copy_to` copies every new backup offsite: a folder (a Syncthing folder, a mounted disk), or a command with `{file}` in it, such as `"rclone copy {file} remote:jobpilot"` or `"rsync -a {file} backup-host:jobpilot/"`. A failed copy is logged and never stops anything. `doctor` shows the age of the last backup (a warning after 2 days while `nightly` is on) and the free disk space (a warning below three times the last backup).
+
+**Restoring.**
+
+```bash
+node cli.mjs backups                                    # date, version, size, label, file name
+node cli.mjs restore <file name> --dry-run              # what would change
+node cli.mjs restore <file name>
+```
+
+`restore` checks the backup first, then backs up the current state (label `pre-restore`), then imports the backup with `--on-conflict theirs`: every file in the backup comes back as it was. Files made after the backup that are not in it stay. It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
 
 ### Language of the messages
 

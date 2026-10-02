@@ -32,7 +32,7 @@ Updates are notify only: a daily check, release notes in the bot and the workspa
 
 | Piece | Brief | Status |
 |---|---|---|
-| Export v2 (ZIP), import with conflict modes, encrypted secrets export, nightly backups, restore | `docs/tasks/11-export-v2-and-backups.md` | ⏳ |
+| Export v2 (ZIP), import with conflict modes, encrypted secrets export, nightly backups, restore | `docs/tasks/11-export-v2-and-backups.md` | ✅ |
 | Releases, update notifications, update and rollback, What is new | `docs/tasks/12-releases-and-updates.md` | ⏳ (after 11) |
 
 ## Evals (M3)
