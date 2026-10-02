@@ -20,3 +20,5 @@ How to work on one:
 | 08 | `08-pack-lint.md` lint rules from the profile for packs | none |
 | 09 | `09-reports-and-ops.md` tracker export, source scorecard, health ping, failure alerts, Russian labels | none (uses 07 helpers when merged) |
 | 10 | `10-workspace-today-screen.md` workspace probe: `cli.mjs serve` and the Today screen (Preact + htm, no build) | 01-09 merged |
+| 11 | `11-export-v2-and-backups.md` export format v2 (ZIP, no dependency), import with conflict modes, encrypted secrets export, nightly backups and restore | none |
+| 12 | `12-releases-and-updates.md` release notes, update check and notification (notify only), update with backup, migrations, verify and automatic rollback, manual rollback, What is new | 11 |

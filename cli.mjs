@@ -9,8 +9,11 @@
 //   node cli.mjs doctor              # check the setup, one line per item
 //   node cli.mjs timer [HH:MM]       # (re)install the daily timer from settings.json (run_time, timezone)
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
-//   node cli.mjs export [--out file.tar.gz|folder] [--with-profile] [--with-settings]   # .env is never exported
-//   node cli.mjs import --from <file.tar.gz|folder> [--dry-run] [--force] [--with-profile] [--with-settings]
+//   node cli.mjs export [--out file.zip|folder] [--data-only]   # data, profile and settings; .env is never exported
+//   node cli.mjs export --csv <file.csv>                        # applications as a spreadsheet
+//   node cli.mjs import --from <file.zip|file.tar.gz|folder> [--dry-run] [--on-conflict keep|theirs|both] [--data-only]
+//   node cli.mjs export-secrets --out <file> | import-secrets --from <file> [--dry-run] [--force]   # .env, encrypted
+//   node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]                  # backups/ in the home
 //   node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file (--dry-run: the rows on stdout, notes on stderr)
 //   node cli.mjs sources-report [--send]                     # which source earns its price (data/reports/source-scorecard.md)
 //   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
@@ -24,7 +27,8 @@ import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS
 import { readApplications } from './lib/queue.mjs';
 import { setStatus as recordStatus } from './lib/applications.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
-import { exportData, importData } from './lib/archive.mjs';
+import { archiveCommands } from './lib/archive-cli.mjs';
+import { nightlyBackup, backupDoctor } from './lib/backup.mjs';
 import { describeGates, GATE_KEYS } from './lib/gates.mjs';
 import { checkSetup as careerOpsSetup } from './sources/career-ops.mjs';
 import { promptFile, DEFAULT_PROMPT_FILE } from './decoder/decoder.mjs';
@@ -165,6 +169,7 @@ function doctor() {
   const so = ver(process.env.SOFFICE || SETTINGS.pack.soffice || 'soffice');
   ok(!!so || process.platform === 'win32', `PDF export: ${so ? 'LibreOffice' : process.platform === 'win32' ? 'Word (Windows)' : 'LibreOffice not found'}`, 'sudo apt install libreoffice-writer-nogui fonts-liberation');
   ok(!!spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['--version']).stdout, 'Python 3 (packs the DOCX files)', 'install python3');
+  for (const b of backupDoctor()) if (b.level === 'warn') warn(`${b.text}  ->  ${b.fix}`); else ok(b.level === 'ok', b.text, b.fix);
 }
 
 async function optional(name, fn) {
@@ -186,6 +191,7 @@ async function evening() {
   runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed, refused });
   const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];
   if (closing.length) console.log(`jobpilot: run finished; ${closing.join('; ')}`);
+  await nightlyBackup({ alert: text => notify(text, { send: sendText, on: telegramOn }) });   // backup.nightly; never fails the run
   return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
 }
 
@@ -230,11 +236,6 @@ const codes = {
     for (const d of Object.values(DIRS)) for (const f of fs.readdirSync(d)) if (f !== 'run.lock') fs.rmSync(path.join(d, f), { recursive: true, force: true });
     console.log(`Cleared ${DATA}.`); return 0;
   }),
-  export: locked(() => {
-    const i = rest.indexOf('--out'); const out = i >= 0 ? rest[i + 1] : `jobpilot-export-${today()}.tar.gz`;
-    const r = exportData({ out, withProfile: rest.includes('--with-profile'), withSettings: rest.includes('--with-settings') });
-    console.log(`Exported ${r.files} file(s) to ${r.out}: ${Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join(', ')}`); return 0;
-  }),
   'tracker-export': () => {
     const i = rest.indexOf('--out'); if (i >= 0 && !rest[i + 1]) { console.log('Usage: node cli.mjs tracker-export [--out <file>] [--dry-run]'); return 1; }
     try {
@@ -250,16 +251,7 @@ const codes = {
   'sources-report': () => sourcesReportCommand({ send: rest.includes('--send') ? sendText : null }),
   notify: () => notify(rest.join(' '), { send: sendText, on: telegramOn }),
   serve: () => serve(),
-  import: locked(() => {
-    const i = rest.indexOf('--from'); if (i < 0 || !rest[i + 1]) { console.log('Usage: node cli.mjs import --from <folder|file.tar.gz> [--dry-run] [--force] [--with-profile] [--with-settings]'); return 1; }
-    try {
-      const r = importData({ from: rest[i + 1], dryRun: rest.includes('--dry-run'), force: rest.includes('--force'), withProfile: rest.includes('--with-profile'), withSettings: rest.includes('--with-settings') });
-      const p = r.plan;
-      console.log(`${r.dryRun ? 'Dry run: would import' : 'Imported'} from ${r.manifest.source || 'unknown source'} (exported ${r.manifest.exported_at}): ${p.add.length} new, ${p.same.length} already identical, ${p.conflict.length} conflict(s)${p.skipped.length ? `, ${p.skipped.length} profile/settings file(s) left out (add --with-profile / --with-settings)` : ''}.`);
-      if (p.conflict.length) console.log(`Conflicts${r.dryRun ? '' : ' (overwritten)'}:\n${p.conflict.slice(0, 30).map(x => `  ${x}`).join('\n')}${p.conflict.length > 30 ? `\n  ... and ${p.conflict.length - 30} more` : ''}`);
-      return 0;
-    } catch (e) { console.log(`Import stopped: ${e.message}`); if (e.plan?.conflict?.length) console.log(e.plan.conflict.slice(0, 30).map(x => `  ${x}`).join('\n')); return 1; }
-  }),
+  ...archiveCommands({ rest, locked }),
 };
 if (!codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(cmd ? 1 : 0); }
 process.exitCode = (await codes[cmd]()) || 0;

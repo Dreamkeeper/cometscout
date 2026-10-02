@@ -1,7 +1,5 @@
 # jobpilot
 
-**По-русски:** установка на Debian шаг за шагом в [README-rus.md](README-rus.md).
-
 A self-hosted job search pipeline that runs every evening on your own server and ends with something you can act on: **up to two roles worth applying to, each with a CV tailored from your own checked wording and draft answers for its application form.**
 
 It is built by a product manager for his own search (seven applications in four days once it was running) and uses the Claude or ChatGPT subscription you already have. Your data never leaves your server except for the model calls.
@@ -9,16 +7,21 @@ It is built by a product manager for his own search (seven applications in four 
 ## How it works
 
 ```
-sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack  ─►  Telegram
-(job boards,          (your profile,    (best 2 a day,     (tailored CV PDF,
- RealtimeJobs, ...)    hard gates,       dead links and     cover letter if the
-                       fit verdict)      applied roles      form asks, drafted
-                                         skipped)           form answers)
+sources  ─►  gates  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack  ─►  Telegram
+(job boards,  (language,           (your profile,  (best 2 a day,  (tailored CV PDF,
+ alerts,       permit, place,       fit verdict,    dead links and  cover letter if the
+ feeds)        company, industry)   fact check)     closed roles    form asks, drafted
+                                                    skipped)        form answers, lint)
+                                         ▲
+Gmail outcomes ─► applications ──────────┘  (rejections, interviews and offers close roles for the picks)
 ```
 
-- **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans.
+- **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans; any outside tool that drops job files into a folder (drop-dir, e.g. OpenClaw).
+- **Gates:** hard rules every source applies before a job costs a model call: posting language, work permit and citizenship, on-site countries, remote scope, sponsorship refusals, excluded companies, agencies and industries. A missing or unclear field never rejects a job; it is flagged for the decoder. Duplicates are caught across company aliases and against roles you already applied to.
 - **Decode:** each job is judged against `profile/profile.md`: your experience, what you want, location and work permit, hard gates, and scope guards (what you must never claim). Verdicts: strong fit, investable stretch, long shot (with the reason it was held), weak fit, gate.
 - **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you are already in process for excluded.
+- **Outcomes:** with Gmail connected, answers to your applications (received, rejection, interview, test task, offer) are recognised and recorded, so a role you are already in process for never comes back as a pick.
+- **Reports:** your applications as a [job-pipeline-tracker](https://github.com/Dreamkeeper/job-pipeline-tracker) file, a monthly scorecard of which source earns its price, a health ping and a Telegram alert when a run fails, labels in English or Russian.
 - **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The finished CV, cover letter and answers are checked against your [lint rules](#lint-rules); a CV that would still carry a banned claim is not sent. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
 
 ## Quick start
@@ -30,7 +33,7 @@ git clone https://github.com/Dreamkeeper/jobpilot.git && cd jobpilot
 bash deploy/install.sh
 ```
 
-Then open the folder in **Claude Code** or **Codex** and say **"set me up"**. The agent follows `AGENTS.md`: it interviews you for the profile, turns your CV into the library (you approve every line), connects a first source, and shows you a real decoded job and its tailored CV in the same sitting. Telegram delivery and the daily timer come after.
+Then open the folder in **Claude Code** or **Codex** and say **"set me up"** (step by step, from a fresh server: see [Install guides](#install-guides)). The agent follows `AGENTS.md`: it interviews you for the profile, turns your CV into the library (you approve every line), connects a first source, and shows you a real decoded job and its tailored CV in the same sitting. Telegram delivery and the daily timer come after.
 
 Try it before onboarding: with no `profile/`, jobpilot runs on the fictional example profile in `profile.example/`.
 
@@ -47,7 +50,13 @@ node cli.mjs timer [HH:MM]                # reinstall the daily timer from setti
 node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
 node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
 node cli.mjs sources-report [--send]      # which source earns its price
+node cli.mjs export --out <file.tar.gz|folder>   # your data (and with --with-profile --with-settings, profile and settings)
+node cli.mjs import --from <file.tar.gz|folder> [--dry-run]   # bring an export into this install
 node cli.mjs notify <text>                # one Telegram message (the failure alert uses it)
+node cli.mjs export [--out <file.zip>] [--data-only] | export --csv <file.csv>
+node cli.mjs import --from <file.zip> [--dry-run] [--on-conflict keep|theirs|both] [--data-only]
+node cli.mjs export-secrets --out <file> | import-secrets --from <file>
+node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]
 node cli.mjs serve [--port 8787]          # the workspace in your browser (preview), see below
 ```
 
@@ -364,6 +373,66 @@ Set `health.ping_url` to a [healthchecks.io](https://healthchecks.io) style URL 
 
 The daily timer also installs a failure alert: the run unit has `OnFailure=jobpilot-failure@%n.service` (template in `deploy/jobpilot-failure@.service`), which runs `node cli.mjs notify "jobpilot: jobpilot.service failed, see journalctl --user -u jobpilot.service"`. `notify` sends one Telegram message; with Telegram off it only logs the text. Re-run `node cli.mjs timer` to add the alert to an existing install.
 
+### Export, import and backups
+
+One archive format serves downloading your data, nightly backups, moving to a new server and restoring: a ZIP you can open with a double click on any computer and read your own files.
+
+**What is in it.** `manifest.json` (format `jobpilot-export` version 2, the jobpilot version, the data schema, when and on which machine it was made, and a SHA-256 hash of every file), `data/` (`inbox`, `decoded`, `rejected`, `digests`, `packs`, `state`), `profile/` and `settings.json`. **What is never in it:** `.env`, saved login sessions (`data/state/hirify-cookies.json`), the run lock, temporary files and `backups/`. The example profile and example settings are not exported.
+
+```bash
+node cli.mjs export                        # jobpilot-export-<date>-v<version>.zip in the current folder
+node cli.mjs export --out my-data.zip      # or --out <folder> for the same layout unpacked
+node cli.mjs export --data-only            # without profile/ and settings.json
+node cli.mjs export --csv applications.csv # your applications as a spreadsheet (not an archive)
+```
+
+The CSV has Company, Role, Status, Applied, Last activity, Source, Link and Notes, one row per entry in `applications.json`. It is UTF-8 with a BOM, so Excel shows Cyrillic and other scripts correctly; a cell that starts with `=`, `+`, `-` or `@` gets a leading `'` so a spreadsheet never runs it as a formula.
+
+**Import** reads a v2 zip or folder, and the older v1 format (a folder or a `.tar.gz`, read with the system `tar`). Every file's hash is checked before anything is written; a damaged archive, an unsafe file name, or an archive made by a newer jobpilot (a newer format or data schema) is refused and nothing changes. `--dry-run` prints the plan: new files, identical files and conflicts (a file you have with other content).
+
+```bash
+node cli.mjs import --from my-data.zip --dry-run
+node cli.mjs import --from my-data.zip --on-conflict keep     # or theirs, or both
+```
+
+- `keep` leaves your file as it is. Without `--on-conflict`, data conflicts are kept this way.
+- `theirs` replaces your file with the archived one. The files it replaces are first saved to `backups/` (a partial backup labelled `pre-import`).
+- `both` keeps yours and writes the archived copy next to it as `<name>.imported-<date><ext>`, for you to compare. A copy written into `decoded/` or `inbox/` is a queue file like any other, so delete it when you are done.
+- A conflict in `profile/` or `settings.json` always needs an explicit `--on-conflict`; until you give one, nothing is imported. `--data-only` leaves profile and settings alone.
+
+**Secrets** travel separately and encrypted (scrypt and AES-256-GCM): `.env` and the saved Hirify session. The passphrase is asked in the terminal (twice on export) or read from `JOBPILOT_SECRETS_PASSPHRASE`, never from an argument. A wrong passphrase fails without writing anything. On import, a secret file you already have with other content is replaced only with `--force`, and the old one is kept as `<name>.replaced-<date>`.
+
+```bash
+node cli.mjs export-secrets --out jobpilot-secrets.enc
+node cli.mjs import-secrets --from jobpilot-secrets.enc [--dry-run] [--force]
+```
+
+**Moving to a new server** in three commands (install jobpilot there first with `deploy/install.sh`):
+
+```bash
+node cli.mjs export --out jobpilot.zip                     # on the old server
+scp jobpilot.zip jobpilot-secrets.enc new-server:jobpilot/  # after export-secrets, if you use tokens
+node cli.mjs import --from jobpilot.zip                     # on the new server, then import-secrets
+```
+
+**Backups.** `node cli.mjs run` makes one after every evening run (not while you try jobpilot on the example profile), and `node cli.mjs backup` makes one now. They go to `backups/` in the jobpilot home as `jobpilot-backup-<date>-<time>-v<version>.zip` (the same format as an export, complete: data, profile and settings). A failed nightly backup is logged and sent to Telegram as an alert; it never fails the run. After each backup old ones are pruned: the newest backup of each of the last 7 days, 4 weeks and 6 months that have one is kept, and the newest three are never removed. `--label <text>` adds a label to the name (updates use `pre-update-...`, restores `pre-restore`); a labelled backup is removed only after 90 days.
+
+```json
+"backup": { "nightly": true, "copy_to": "" }
+```
+
+`copy_to` copies every new backup offsite: a folder (a Syncthing folder, a mounted disk), or a command with `{file}` in it, such as `"rclone copy {file} remote:jobpilot"` or `"rsync -a {file} backup-host:jobpilot/"`. A failed copy is logged and never stops anything. `doctor` shows the age of the last backup (a warning after 2 days while `nightly` is on) and the free disk space (a warning below three times the last backup).
+
+**Restoring.**
+
+```bash
+node cli.mjs backups                                    # date, version, size, label, file name
+node cli.mjs restore <file name> --dry-run              # what would change
+node cli.mjs restore <file name>
+```
+
+`restore` checks the backup first, then backs up the current state (label `pre-restore`), then imports the backup with `--on-conflict theirs`: every file in the backup comes back as it was. Files made after the backup that are not in it stay. It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
+
 ### Language of the messages
 
 `"locale": "ru"` in `settings.json` writes jobpilot's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram, the scorecard's Telegram text and the workspace. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
@@ -374,7 +443,35 @@ The daily timer also installs a failure alert: the run unit has `OnFailure=jobpi
 
 ## Status
 
-v0.1, first testers. Working: ATS boards, RealtimeJobs, LinkedIn-alerts, hh.ru-alerts, Hirify and career-ops sources, outcomes from Gmail, decode, picks, packs (Claude and Codex), Telegram, installer. Next: guided onboarding polish from tester sessions, evals for your own voice and CV quality.
+v0.1, first testers. Working today:
+
+- Sources: Greenhouse, Ashby and Lever boards, RealtimeJobs, LinkedIn and hh.ru job alerts through Gmail, Hirify, career-ops, drop-dir for outside tools.
+- Shared gates for every source, company aliases, duplicates caught against your own applications.
+- Decode with your profile, history with each company and a fact check; daily picks that skip closed roles and dead links.
+- Application packs (Claude or Codex) with lint rules from your profile.
+- Outcomes from Gmail, tracker export, source scorecard, health ping, failure alert, English and Russian labels.
+- Installer, `doctor`, daily timer, hooks, export and import.
+
+The pipeline it replaces ran one person's search for three months; jobpilot reached parity with it on that data (identical tracker rows, gate replay and outcome checks within the agreed thresholds) before the next steps below.
+
+## Roadmap
+
+Planned, in order (details and task briefs in [ROADMAP.md](ROADMAP.md) and `docs/tasks/`):
+
+1. **Evals.** Decoder verdicts scored against human labels, blind A/B judging of CVs and form answers, a check that answers sound like you, and a side-by-side diff of two systems on the same days. Quality is proven before anyone relies on it.
+2. **Workspace (in progress).** A web app served by jobpilot itself, so nobody needs a Claude Code session after setup:
+   - fullscreen and dense on the desktop (picks, decode and pack side by side, keyboard shortcuts), installable on the phone with offline access and notifications;
+   - the same app opens as a Telegram Mini App; one bot in a private chat brings picks with Apply / Skip / Later buttons, outcome cards and alerts;
+   - screens for the pack editor, your pipeline, sources, settings and gates ("wrong pick: why?" turns into a suggested setting), and a guided onboarding that replaces the setup session.
+   - First piece being built: the "Today" screen.
+3. **Backups, export and updates (in progress).** One ZIP export you can open and read (your data, profile and settings), import with a preview and conflict choices, nightly backups with restore, an encrypted export for secrets. Updates are notify only: release notes in the bot and the app, one tap to update, a backup first, automatic rollback if anything fails, and a manual rollback.
+4. **Optional modules,** installed from their own projects: an interview coach, meeting transcription (on your own GPU or the server's CPU), OpenClaw and career-ops.
+5. **Later:** a hosted option for people who do not want to run a server, after the self-hosted version has been through testers.
+
+## Install guides
+
+- **English:** step by step on a Debian server, from a fresh machine to the first tailored CV: [INSTALL.md](INSTALL.md).
+- **По-русски:** установка на Debian шаг за шагом: [README-rus.md](README-rus.md).
 
 ## License
 

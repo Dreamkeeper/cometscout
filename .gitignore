@@ -3,5 +3,6 @@ settings.json
 .env
 profile/
 data/
+backups/
 node_modules/
 *.log
