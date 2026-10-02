@@ -75,3 +75,19 @@ test('a source checks applications.json before it marks anything seen', async ()
   const r = await run({ fetch: async () => { throw new Error('no network in tests'); } });
   assert.equal(r.ran, true, 'with a valid (here: missing) file the same run goes ahead');
 });
+
+test('the decoder stops on a broken applications.json instead of picking roles already applied to', async () => {
+  fs.writeFileSync(APPS, BROKEN);
+  const picksFile = path.join(DATA, 'state', 'picks.json');
+  for (const r of [cli('picks'), cli('decode', '--no-telegram'),
+    spawnSync(process.execPath, [path.join(ROOT, 'decoder', 'decoder.mjs'), '--picks'], { encoding: 'utf8', env: process.env, timeout: 60000 })]) {
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.match(r.stdout, /decoder: .*applications\.json is not valid JSON .*fix it and run again; nothing decoded, no picks\./);
+    assert.doesNotMatch(r.stdout, /Apply today|no picks \(/);
+  }
+  assert.ok(!fs.existsSync(picksFile), 'nothing recorded as shown');
+  const d = await import('../decoder/decoder.mjs');
+  assert.throws(() => d.apps(), /not valid JSON/);
+  await assert.rejects(d.buildPicks([], { fetch: async () => { throw new Error('no network'); } }), /not valid JSON/);
+  assert.equal(fs.readFileSync(APPS, 'utf8'), BROKEN);
+});

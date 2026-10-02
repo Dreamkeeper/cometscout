@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num, isMain } from '../lib/config.mjs';
-import { loadJob, parseResult, frontMatter, norm } from '../lib/queue.mjs';
+import { loadJob, parseResult, frontMatter, norm, readApplications } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
 import { runHook } from '../lib/hooks.mjs';
@@ -61,7 +61,9 @@ export { APPLY_WORTHY };
 
 // ---------- applications (the user's own record of what happened) ----------
 export const APPS_FILE = STATE('applications.json');
-export const apps = () => readJson(APPS_FILE, {});
+// Strict, like the sources: a broken file throws instead of reading as "no applications", which would bring back
+// roles already applied to as picks. main() checks it before anything else.
+export const apps = () => readApplications(APPS_FILE);
 // What the candidate recorded (applied, rejected, offer ...) always reaches the model, newest first; past decodes,
 // newest first, fill the remaining lines. A long history must never drop "they already rejected me".
 // The company matches through alias families (lib/companies.mjs), so "Acme" also finds "Acme Robotics".
@@ -153,7 +155,13 @@ const PICKS_FILE = STATE('picks.json');
 const shapeText = loc => String(loc || '').toLowerCase().normalize('NFKD').replace(/([a-z])\p{M}+/gu, '$1').normalize('NFC').replace(/ё/g, 'е');
 const W = words => new RegExp(`(?<![\\p{L}\\p{N}_])(?:${words})(?![\\p{L}\\p{N}_])`, 'u');
 const REMOTE = W('remote|remoto|anywhere|worldwide'), ONSITE = W('hybrid|onsite|on[\\s-]+site|office');
-const remoteShape = loc => { const l = shapeText(loc); return { remote: REMOTE.test(l) || /udalen|удален/.test(l), onsite: ONSITE.test(l) || /гибрид/.test(l) }; };
+// Queue files imported from the original pipeline carry "(remote_scope: <value>)": any value but "none" (geo_restricted,
+// country, worldwide ...) is remote work, as there.
+const REMOTE_SCOPE = /(?<![\p{L}\p{N}_])remote_scope\s*:\s*([\p{L}\p{N}_-]+)/u;
+const remoteShape = loc => {
+  const l = shapeText(loc), scope = (l.match(REMOTE_SCOPE) || [])[1];
+  return { remote: REMOTE.test(l) || /udalen|удален/.test(l) || (!!scope && scope !== 'none'), onsite: ONSITE.test(l) || /гибрид/.test(l) };
+};
 const fullyRemote = loc => { const { remote, onsite } = remoteShape(loc); return remote && !onsite; };
 // A user-edited regex: a typo stops the run with the setting's name instead of silently matching nothing.
 const settingRegex = (v, key) => { if (!v) return null; try { return new RegExp(v, 'i'); } catch (e) { throw new Error(`picks.${key} is not a valid regex (${e.message})`); } };
@@ -243,6 +251,7 @@ export function recordPicks(picks) { const s = readJson(PICKS_FILE, {}); for (co
 
 // ---------- main ----------
 async function main() {
+  try { apps(); } catch (e) { log(`decoder: ${e.message}; nothing decoded, no picks.`); process.exit(2); }
   if (PICKS_ONLY) { const pk = await buildPicks(); console.log(picksText(pk).join('\n') || translator()('picks.none', { open: pk.open })); process.exit(0); }
   // jobpilot's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
   // into data/inbox on its own schedule, set decoder.settle_sec (e.g. 60) so half-written files are left for later.

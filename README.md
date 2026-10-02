@@ -77,7 +77,7 @@ A company belongs to a family when one of the family's names occurs in it as who
 
 **Statuses.** `applied`, `screen` (a recruiter screen), `interview`, `offer`, `rejected`, `skipped`, `closed`; outcomes from Gmail may also record events. A role with any of these statuses (or `withdrawn`), or with any recorded event, never becomes a pick again, nor does another opening for the same role at the same employer. Here "the same role" is looser than for duplicates: titles sharing at least half the shorter title's words of three letters or more, generic words included. A record whose role has no such words (no role, or just "PM") closes every pick at that employer; `node cli.mjs applied` and `status` say so when you record one.
 
-`data/state/applications.json` is your own record, so jobpilot never guesses around a broken one: when it is not valid JSON, `node cli.mjs run` and `sources` stop before any source runs, each source stops before it marks anything seen, and `applied` and `status` refuse to write. Fix the file (a trailing comma is the usual cause) and run again.
+`data/state/applications.json` is your own record, so jobpilot never guesses around a broken one: when it is not valid JSON, `node cli.mjs run` and `sources` stop before any source runs, each source stops before it marks anything seen, the decoder (`decode`, `picks`) stops before it decodes or picks anything, and `applied` and `status` refuse to write. Fix the file (a trailing comma is the usual cause) and run again.
 
 ### Decoder
 
@@ -105,7 +105,7 @@ Every evening the best open roles from the last `picks.window_days` (14) are pic
 ```
 
 - `exclude_location_regex`: never pick a job whose location matches, remote or not.
-- `exclude_onsite_location_regex`: never pick a job whose location matches unless it is fully remote (a fully remote job from that country stays).
+- `exclude_onsite_location_regex`: never pick a job whose location matches unless it is fully remote (a fully remote job from that country stays). A location carrying `remote_scope:` (queue files imported from other tools, such as "Madrid, ES (remote_scope: geo_restricted, regions: Europe)") counts as remote for any value but `none`.
 - `shape_bonus`: the first entry whose `location_regex` matches sets the shape rank of a job that is not fully remote (fully remote is 0, remote with office days 1.5, on-site 2), so an office in a city you like can rank with remote roles.
 
 ### Gates

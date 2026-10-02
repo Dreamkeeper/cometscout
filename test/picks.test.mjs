@@ -90,14 +90,18 @@ test('picks: on-site exclusion and location regexes on real location strings', a
   const lisbon = job('Nettlefield', 'Product Manager', 'Lisbon, PT (remote_scope: none)', { priority: 1 });
   const sevilla = job('Oakhurst', 'Product Manager', 'Sevilla, España', { priority: 1 });
   const voronezh = job('Pinecrest', 'Product Manager', 'Воронеж (удалённо)', { priority: 1 });
+  const madrid = job('Quillon', 'Product Manager', 'Madrid, ES (remote_scope: geo_restricted, regions: Europe)', { priority: 1 });
+  const porto = job('Rowanby', 'Product Manager', 'Porto, PT (remote_scope: country)', { priority: 1 });
   const { SETTINGS } = await import('../lib/config.mjs');
   const keep = { ...SETTINGS.picks };
-  Object.assign(SETTINGS.picks, { exclude_onsite_location_regex: 'lisbon|воронеж', exclude_location_regex: 'espana' });
+  Object.assign(SETTINGS.picks, { exclude_onsite_location_regex: 'lisbon|воронеж|madrid|porto', exclude_location_regex: 'espana' });
   try {
     const files = (await d.buildPicks([], { fetch: fakeFetch({}) })).picks.map(p => p.file);
     assert.ok(!files.includes(lisbon), 'remote_scope: none is on-site, so the on-site exclusion applies');
     assert.ok(!files.includes(sevilla), '"espana" matches "España"');
     assert.ok(files.includes(voronezh), 'a fully remote job from an excluded on-site city stays');
+    assert.ok(files.includes(madrid), 'remote_scope: geo_restricted is remote, so the on-site exclusion does not drop it');
+    assert.ok(files.includes(porto), 'remote_scope: country too');
   } finally { SETTINGS.picks = keep; }
 });
 
@@ -105,6 +109,9 @@ test('shapeRank: remote words, office days, on-site, and the first matching shap
   const bonus = [{ location_regex: 'barcelona', rank: 0.5 }, { location_regex: 'spain', rank: 1 }];
   for (const loc of ['Remote', 'Remoto, España', 'Anywhere', 'Worldwide', 'Удаленно', 'Воронеж (удалённо)', 'Remote-first, EU']) assert.equal(d.shapeRank(loc, bonus), 0, loc);
   assert.equal(d.shapeRank('Lisbon, PT (remote_scope: none)', bonus), 2, '"remote" inside remote_scope is not remote work');
+  assert.equal(d.shapeRank('Madrid, ES (remote_scope: geo_restricted, regions: Europe)', bonus), 0, 'any remote_scope but none is remote');
+  assert.equal(d.shapeRank('Porto, PT (remote_scope: country)', bonus), 0);
+  assert.equal(d.shapeRank('Berlin (Hybrid; remote_scope: country)', bonus), 1.5, 'office words still count');
   assert.equal(d.shapeRank('Sevilla, España', [{ location_regex: 'espana', rank: 0.25 }]), 0.25, 'a regex matches the normalised location too');
   assert.equal(d.shapeRank('Sevilla, España', [{ location_regex: 'España', rank: 0.25 }]), 0.25, 'and the location as written');
   assert.equal(d.shapeRank('Remote, Barcelona', bonus), 0, 'fully remote stays 0');
