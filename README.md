@@ -19,7 +19,7 @@ sources  ─►  inbox  ─►  decode  ─►  picks  ─►  application pack 
 - **Sources** (all optional): public Greenhouse, Ashby and Lever boards of your target companies (no login); RealtimeJobs API (your token); LinkedIn and hh.ru job-alert emails, read from your Gmail with read-only access, each job's full text taken from the public job page; Hirify saved filters (your own session); the findings of your own career-ops scans.
 - **Decode:** each job is judged against `profile/profile.md`: your experience, what you want, location and work permit, hard gates, and scope guards (what you must never claim). Verdicts: strong fit, investable stretch, long shot (with the reason it was held), weak fit, gate.
 - **Picks:** the best two open roles of the last two weeks, different companies, remote first, links checked, roles you already applied to excluded.
-- **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
+- **Application pack:** the CV is assembled only from `profile/cv-library.json`, text you approved. The model selects and orders; it may write only the tagline and summary, and both are checked against your fact rules. The finished CV, cover letter and answers are checked against your [lint rules](#lint-rules); a CV that would still carry a banned claim is not sent. The application form is read automatically for Ashby, Greenhouse and Lever, and every non-personal question gets a draft in your voice (`profile/voice.md`). Sections and company blocks are kept whole across the page break whenever two pages have room (the pack says so when they do not). A "check before sending" list names every decision that is yours (salary, location, gaps).
 
 ## Quick start
 
@@ -56,7 +56,7 @@ node cli.mjs notify <text>                # one Telegram message (the failure al
 |---|---|---|
 | `settings.json` | model provider (`claude` or `codex`) and models, sources and their filters, picks, Telegram | no |
 | `.env` | tokens: `RTJ_API_TOKEN`, `HIRIFY_COOKIE`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GMAIL_*` (written by `tools/gmail-auth.mjs`) | no |
-| `profile/` | `profile.md`, `cv-library.json`, `fact-rules.json`, `voice.md`, `cover-letter-template.md` | no |
+| `profile/` | `profile.md`, `cv-library.json`, `fact-rules.json`, `lint-rules.json`, `voice.md`, `cover-letter-template.md` | no |
 | `data/` | the queue, digests, packs, state | no |
 
 Models: decoding uses `llm.model` (a mid-size model is enough), packs use `llm.pack_model` (use the strongest you have). On smaller plans, lower `decoder.cap` or use a smaller model.
@@ -132,6 +132,29 @@ Every run writes a report to `data/digests/outcomes-YYYY-MM-DD.md` (appended whe
 
 `model: null` uses `llm.model`. Each email is read once (by Gmail id). After the first run the search starts at the last run minus `overlap_hours` and `newer_than:` is dropped, so a few days without a run lose nothing. `max_emails` caps the emails sent to the model per run; the rest are picked up by the next run, oldest first. `account_index` is the `N` in `mail.google.com/mail/u/N/` for the links (0 unless you read this mailbox as a second Google account). Try it with `node sources/outcomes.mjs --dry-run` (classifies and prints, writes nothing); backfill with `--since YYYY-MM-DD`; `--no-telegram` writes the report file only. Company aliases come from `queue.aliases` (`[["Acme", "Acme Labs"]]`) if you set them.
 
+### Lint rules
+
+`profile/lint-rules.json` (optional) is your memory of what must never be written. Every time you correct a fact in a CV, a cover letter or an answer, add a rule for it, so the same claim never comes back. See `profile.example/lint-rules.json`:
+
+```json
+{
+  "banned_claims": [ { "id": "first-pm", "pattern": "\\bfirst (product )?(pm|product manager)\\b", "why": "Not the first PM at either company." } ],
+  "warn_claims":   [ { "id": "fluff", "pattern": "\\b(passionate|synergy)\\b", "why": "Empty words." } ],
+  "limits": { "bullet_max_words": 70, "summary_max_words": 190 }
+}
+```
+
+Every key is optional. Patterns are JavaScript regular expressions with the flags `giu` (case-insensitive, Unicode). `\b` only knows Latin letters; for Cyrillic write `(?<!\p{L})слово(?!\p{L})`. `node cli.mjs doctor` names a pattern that does not compile (it is skipped) and any pattern that puts `\b` next to a Cyrillic letter (it is left as written).
+
+Each pack is checked: the rendered CV, the cover letter and every form answer (your `fact-rules.json` still runs too; a hit is reported once).
+
+- A **banned claim** in the model's CV tagline or summary brings back your vetted tagline and summary (`CV lint: first-pm in model text, vetted summary used`).
+- A banned claim that is still in the CV after that is in your own vetted text, so **the pack for that job is refused**: no PDF, no pack, one short Telegram line (company, role, rule ids, "fix profile/cv-library.json"), and the log says `CV still breaks <ids> after the vetted fallback; fix profile/cv-library.json`. The run goes on and does not fail; the refusal is listed in the run's closing line and in `run_done` (`refused`). It is remembered in `data/state/packs.json`, so later runs skip that job without a model call until `cv-library.json` or `lint-rules.json` changes.
+- Banned claims in the cover letter or an answer go under "Check before sending", and so do **warnings** in text the model wrote (the cover letter, the answers, the CV tagline and summary). Warnings and **limits** (a bullet or a summary paragraph over the word limit) on your vetted CV text are reported once by `node cli.mjs doctor`, not in every pack. `answers.md` ends with the CV's full lint report, and `pack.json` keeps every hit under `lint` (paragraphs counted from 1).
+- `node cli.mjs doctor` checks every tagline, summary, bullet, highlight, skill and award in the library: a banned claim fails the check, warnings and limits are listed. You find a problem there before a run does.
+
+Check any file by hand: `node lib/lint.mjs <file.docx|document.xml|file.txt> [--rules lint-rules.json] [--json]` (exits 1 on a banned hit).
+
 ### Hooks
 
 Hooks let your own scripts react to the pipeline without changing jobpilot, for example to copy decodes into your notes or update a tracker:
@@ -146,7 +169,7 @@ Hooks let your own scripts react to the pipeline without changing jobpilot, for 
 
 Events: `before_run`, `job_written`, `decoded`, `picks`, `pack_built`, `outcome`, `run_done`. Each command gets the event as JSON on stdin (`{ "event", "at", ...details }`). A hook that fails or runs too long is logged and never stops the run.
 
-`run_done` carries `date`, `seconds`, `decoder_exit`, `pack_exit` and `sources_failed`: every source that exited non-zero in this run, as `[{ "source": "rtj", "exit": 2 }]` (empty when all went well). The same sources are named in the run's log (`jobpilot: source rtj failed (exit 2)`, and a closing `run finished; failed source(s): ...` line), so a dead source is never silent. Only exit 3 (a source that needs you, such as an expired login) makes the run itself exit non-zero. `node cli.mjs doctor` lists configured hooks and flags unknown event names.
+`run_done` carries `date`, `seconds`, `decoder_exit`, `pack_exit`, `sources_failed`: every source that exited non-zero in this run, as `[{ "source": "rtj", "exit": 2 }]` (empty when all went well), and `refused`: the packs this run refused because vetted CV text breaks a [lint rule](#lint-rules), as `[{ "file", "company", "role", "rules": ["id"] }]` (listed in the closing line too, never a failure). The same sources are named in the run's log (`jobpilot: source rtj failed (exit 2)`, and a closing `run finished; failed source(s): ...` line), so a dead source is never silent. Only exit 3 (a source that needs you, such as an expired login) makes the run itself exit non-zero. `node cli.mjs doctor` lists configured hooks and flags unknown event names.
 
 The `outcome` event carries: `key` (the application), `company`, `role`, `type` (rejection, interview, test_task, offer, application_received), `status` and `previous_status`, `reopened` (true when a rejected or closed application was reopened), the event fields `date` (the email's day), `round` and `event_date` (when given), `note` (the evidence sentence), `source` (`gmail`) and `gmail_id`, plus `thread_id`, `email_date` (the email's Date header as received, or the time Gmail received it when there is none), `from`, `subject` and `evidence` (the same sentence as `note`).
 

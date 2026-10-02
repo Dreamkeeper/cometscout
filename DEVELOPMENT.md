@@ -20,6 +20,7 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
 | `lib/hooks.mjs` | `runHook(event, payload)` |
+| `lib/lint.mjs` | Lint rules from `profile/lint-rules.json`: paragraphs from a DOCX, hits, report, CLI |
 | `lib/archive.mjs` | Export / import (`jobpilot-export-v1`) |
 | `lib/telegram.mjs`, `lib/gmail.mjs` | Delivery, read-only Gmail |
 | `lib/i18n.mjs` | `settings.locale` label tables (`en`, `ru`) for the digest, picks, pack messages and the scorecard's Telegram text |

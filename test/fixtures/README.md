@@ -13,6 +13,7 @@ without network access and without anyone's personal data.
 | `openclaw/` | A `synthesis-queue.json` with page titles in the formats seen from ATSs and job aggregators |
 | `fetch-detail/` | Canned Greenhouse, Ashby, Lever, Workable and Recruitee API responses and job-posting pages (with and without JSON-LD), for `lib/fetch-detail.mjs` |
 | `gmail/` | Application outcome emails with the expected event type |
+| `lint/` | A WordprocessingML `document.xml` (bold heading, long summary, a bullet with entities split over runs, a tab, empty paragraphs), lint and fact rules, and a CV library in which one bullet breaks a rule on purpose |
 | `career-ops/` | career-ops `data/pipeline.md` and `data/scan-history.tsv` in the shapes its `scan.mjs` writes (every row shape, labeled segments, skipped and expired rows, the 12-column history); canned Ashby, Greenhouse and Lever answers and a plain job page for the links it lists; `expected.json` |
 
 Do not replace these with real data. If a real format changes, update the synthetic sample to match the new structure.

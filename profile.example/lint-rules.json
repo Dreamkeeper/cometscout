@@ -1,0 +1,12 @@
+{
+  "_comment": "FICTIONAL EXAMPLE. Optional. Claims that must never be written, checked in every pack: the rendered CV, the cover letter and each form answer. banned_claims are errors: in the model's CV tagline or summary they bring back the vetted text, and a CV whose vetted text still breaks one is not built or sent. warn_claims and limits are warnings under 'Check before sending'. Patterns are JavaScript regex with flags giu (case-insensitive, Unicode). Every fact you correct is a good new rule.",
+  "banned_claims": [
+    { "id": "first-pm", "pattern": "\\bfirst (product )?(pm|product manager)\\b", "why": "Alex was not the first PM at Brightgrid or at Parcelpoint." },
+    { "id": "head-of-product", "pattern": "\\b(head of product|vp,? (of )?product|director of product)\\b", "why": "Alex has never held a head-of-product title." }
+  ],
+  "warn_claims": [
+    { "id": "fluff", "pattern": "\\b(passionate|synergy|rockstar|ninja)\\b", "why": "Empty words; say what was done instead." },
+    { "id": "ai-expert", "pattern": "\\b(ai|ml|machine learning) (expert|researcher|scientist)\\b", "why": "Alex ships AI-assisted features but is not a researcher; name what was built." }
+  ],
+  "limits": { "bullet_max_words": 70, "summary_max_words": 190 }
+}
