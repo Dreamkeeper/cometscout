@@ -7,7 +7,7 @@ without network access and without anyone's personal data.
 | Folder | Mirrors |
 |---|---|
 | `rtj/` | RealtimeJobs `POST /api/jobs/search` items (`position` + `employer`); `_expect` notes the intended gate result |
-| `hh/` | hh.ru subscription email HTML and public vacancy pages (`data-qa` markers); `expected.json` |
+| `hh/` | hh.ru subscription email HTML and public vacancy pages as of 2026-10 (`data-qa` markers, the archive label inside the title, the page state as HTML-escaped JSON); `expected.json` |
 | `hirify/` | Hirify `/api/vacancies` list and detail responses, `/auth/user`; `expected.json` |
 | `linkedin/` | LinkedIn job-alert email (text part) and the public guest job page |
 | `openclaw/` | A `synthesis-queue.json` with page titles in the formats seen from ATSs and job aggregators |
