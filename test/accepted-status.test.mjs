@@ -76,6 +76,11 @@ test('cli.mjs status <company> accepted writes the event and the status; a later
   assert.equal(a.events[1].gmail_id, 'acc1');
   // the decoder's view of the past agrees: the offer email did not undo the accepted status
   assert.equal(d.asOf(a, addDays(5)).status, 'accepted');
+  // the same view when the record changed after the cutoff (the user closed it later): the history is replayed, and the
+  // offer email still does not undo the accepted status
+  const later = { ...a, status: 'closed', updated: addDays(10), events: [...a.events, { date: addDays(10), type: 'closed', source: 'user' }] };
+  assert.equal(d.asOf(later, addDays(5)).status, 'accepted');
+  assert.equal(d.asOf(later, addDays(11)).status, 'closed');
 });
 
 test('no email of any kind changes an accepted application, whatever its date', () => {
