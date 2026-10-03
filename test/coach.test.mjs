@@ -123,6 +123,35 @@ test('imported records: in-progress statuses and events dated today or later are
   assert.match(coach.buildHandoff({ profileDir: EXAMPLE, apps: {} }).text, /Nothing with a date ahead or in progress is recorded\./);
 });
 
+test('a job the user holds (accepted) is listed under "Jobs I hold", never in progress; its interview date ahead is a possible probation review', () => {
+  const apps = {
+    'manual:saltmarsh analytics|senior pm': { company: 'Saltmarsh Analytics', role: 'Senior PM', status: 'accepted', updated: '2026-09-15',
+      events: [ev('2026-08-20', 'applied'), ev('2026-09-10', 'offer', { source: 'gmail' }), ev('2026-09-15', 'accepted'), ev('2026-10-02', 'offer', { source: 'gmail' })] },
+    'manual:gullwing|platform pm': { company: 'Gullwing', role: 'Platform PM', status: 'interview', updated: '2026-09-30',
+      events: [ev('2026-09-21', 'applied'), ev('2026-09-30', 'interview')] },
+  };
+  let { text } = coach.buildHandoff({ profileDir: EXAMPLE, apps });
+  const section = (from, to) => text.slice(at(text, from), at(text, to)).split('\n').filter(l => l.startsWith('- '));
+  assert.ok(at(text, '## Where I stand') < at(text, '### Jobs I hold') && at(text, '### Jobs I hold') < at(text, '### Coming up'));
+  assert.deepEqual(section('### Jobs I hold', '### Coming up'), ['- Saltmarsh Analytics, Senior PM, since 2026-09-15']);
+  assert.deepEqual(section('### Coming up', '### Applications'), ['- in progress: interview, Gullwing, Platform PM, last news 2026-09-30'],
+    'the held job is not in progress, and an offer email dated today is not something coming up');
+  assert.equal(text.split('\n').find(l => l.startsWith('| Saltmarsh Analytics |')), '| Saltmarsh Analytics | Senior PM | accepted | offer | 2026-10-02 |');
+
+  // an interview booked after accepting (a probation review, say) is still coming up, with a note
+  apps['manual:saltmarsh analytics|senior pm'].events.push(ev('2026-10-01', 'interview', { source: 'gmail', event_date: '2026-10-09' }));
+  ({ text } = coach.buildHandoff({ profileDir: EXAMPLE, apps }));
+  assert.deepEqual(section('### Coming up', '### Applications'), [
+    '- 2026-10-09: interview, Saltmarsh Analytics, Senior PM (a job I hold: this may be a probation review)',
+    '- in progress: interview, Gullwing, Platform PM, last news 2026-09-30',
+  ]);
+  assert.deepEqual(section('### Jobs I hold', '### Coming up'), ['- Saltmarsh Analytics, Senior PM, since 2026-09-15']);
+  // no job held: no section
+  assert.ok(!coach.buildHandoff({ profileDir: EXAMPLE, apps: { g: apps['manual:gullwing|platform pm'] } }).text.includes('Jobs I hold'));
+  // no accepted event (an imported record): since is the day it was updated
+  assert.deepEqual(coach.heldJobs({ x: { company: 'Orchard Freight', role: 'PM', status: 'accepted', updated: '2026-07-01' } }), [{ company: 'Orchard Freight', role: 'PM', since: '2026-07-01' }]);
+});
+
 test('no secret, job text, pack or email note ends up in the hand-off', () => {
   const { text } = coach.buildHandoff({ profileDir: EXAMPLE });
   for (const s of [SECRET, JOB_TEXT, 'SYNTHETIC-PACK-ANSWERS-marker', 'Your second interview is on 8 October']) assert.ok(!text.includes(s), s);

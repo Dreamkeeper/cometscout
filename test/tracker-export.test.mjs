@@ -52,6 +52,19 @@ const seed = (apps = APPS_DATA, overrides = null) => {
 };
 const byCompany = rows => Object.fromEntries(rows.map(r => [r.company, r]));
 
+test('accepted (a job the user holds) is Offer / Offer with an "Accepted" note: the tracker has no hired stage', () => {
+  const a = { company: 'Saltmarsh', role: 'Senior PM', status: 'accepted', updated: '2026-09-28',
+    events: [ev('2026-09-02', 'applied'), ev('2026-09-20', 'offer', 'gmail'), ev('2026-09-28', 'accepted'), ev('2026-10-01', 'offer', 'gmail')] };
+  const r = tr.toRow('manual:saltmarsh|senior pm', a, {}, '2026-10-02');
+  assert.equal(r.stage, 'Offer');
+  assert.equal(r.furthestStage, 'Offer');
+  assert.equal(r.notes, 'Accepted 2026-09-28');
+  assert.deepEqual(tr.rowProblems(r), []);
+  // recorded by hand with no offer event: still reached Offer
+  const b = tr.toRow('k', { company: 'Orchard', role: 'PM', status: 'accepted', updated: '2026-09-15', events: [ev('2026-09-01', 'applied'), ev('2026-09-15', 'accepted')] }, {}, '2026-10-02');
+  assert.deepEqual([b.stage, b.furthestStage, b.notes], ['Offer', 'Offer', 'Accepted 2026-09-15']);
+});
+
 test('only applications are exported, with stage, furthest stage, dates, notes, source and link', () => {
   seed();
   const r = tr.trackerExport({ out: OUT, now: new Date('2026-10-02T09:00:00Z') });

@@ -3,7 +3,7 @@
 //   node cli.mjs run                 # the evening run: every enabled source (and outcomes from Gmail), then decode + picks + digest, then packs
 //   node cli.mjs sources|decode|pack|picks
 //   node cli.mjs applied <company> [role words]   # record an application (picks stop showing it)
-//   node cli.mjs status <company> <applied|screen|interview|offer|rejected|skipped|closed> [role words] [--note "..."]
+//   node cli.mjs status <company> <applied|screen|interview|offer|accepted|rejected|skipped|closed> [role words] [--note "..."]
 //                                    # add --manual to record a role that is not in the queue (it does not affect picks)
 //   node cli.mjs list                # what is recorded
 //   node cli.mjs doctor              # check the setup, one line per item
