@@ -5,7 +5,7 @@ import { verdictName, verdictTone, statusName, formatDate, isLater, bodyText } f
 const Section = ({ title, children, cls = '' }) => html`<section class=${`block ${cls}`}><h4>${title}</h4>${children}</section>`;
 const Bullets = ({ items }) => html`<ul class="bullets">${items.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>`;
 
-export function JobHeader({ t, locale, item, date }) {
+export function JobHeader({ t, locale, item, date, onInterview }) {
   if (!item) return null;
   const meta = [item.location, item.source && t('picks.via', { source: item.source }), item.band != null && t('ws.band', { n: item.band }),
     item.decoded_on && t('ws.decoded_on', { date: formatDate(item.decoded_on, locale) }), item.shown ? t('ws.shown', { n: item.shown }) : null].filter(Boolean);
@@ -19,16 +19,17 @@ export function JobHeader({ t, locale, item, date }) {
         ${item.apply_priority != null && html`<span class="chip">${t('ws.priority', { n: item.apply_priority })}</span>`}
         ${item.application?.status && html`<span class="chip tone-info">${t('ws.recorded', { status: statusName(item.application.status, t), date: formatDate(item.application.updated, locale) })}</span>`}
         ${isLater(item, date) && html`<span class="chip tone-warn">${t('ws.later_until', { date: formatDate(item.later_until, locale) })}</span>`}
+        ${onInterview && html`<button type="button" class="btn btn-small" onClick=${onInterview}>${t('ws.act.interview')}</button>`}
       </p>
     </header>`;
 }
 
-export function JobPane({ t, locale, item, date, job, error, textOpen, setTextOpen, showHeader = true }) {
+export function JobPane({ t, locale, item, date, job, error, textOpen, setTextOpen, showHeader = true, onInterview }) {
   if (!item) return html`<div class="pane-empty">${t('ws.select')}</div>`;
   const d = job?.decode;
   return html`
     <article class="job">
-      ${showHeader && html`<${JobHeader} t=${t} locale=${locale} item=${item} date=${date} />`}
+      ${showHeader && html`<${JobHeader} t=${t} locale=${locale} item=${item} date=${date} onInterview=${onInterview} />`}
       ${error && html`<p class="inline-error">${t('ws.error', { error })}</p>`}
       ${!job && !error && html`<p class="loading">${t('ws.loading')}</p>`}
       ${d && html`

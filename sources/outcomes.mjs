@@ -32,11 +32,12 @@ const MAX_HEADER = 300;                 // sender and subject are cut too, so a 
 export const MAX_INPUT_EXTRA = MAX_TEXT + 3 * MAX_HEADER + 200;   // the email block never adds more than this to the prompt
 export const TYPES = ['rejection', 'interview', 'test_task', 'offer', 'application_received', 'none'];
 export const SCHEMA = {
-  type: 'object', additionalProperties: false, required: ['type', 'company', 'role', 'event_date', 'evidence'],
+  type: 'object', additionalProperties: false, required: ['type', 'company', 'role', 'event_date', 'event_time', 'evidence'],
   properties: {
     type: { type: 'string', enum: TYPES },
     company: { type: 'string' }, role: { type: 'string' },
     event_date: { type: 'string', description: 'YYYY-MM-DD of the event the email sets (an interview day, a deadline), or empty' },
+    event_time: { type: 'string', description: 'HH:MM (24-hour) of a booked interview or call when the email states it, or empty' },
     evidence: { type: 'string', maxLength: 200 },
     round: { type: 'integer', minimum: 1 },
   },
@@ -99,7 +100,9 @@ async function modelClassify(input) {
 function clean(v) {
   const type = TYPES.includes(v?.type) ? v.type : 'none';
   const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(v?.event_date || '') ? v.event_date : '';
-  return { type, company: cut(v?.company, 120), role: cut(v?.role, 160), event_date: eventDate, evidence: cut(v?.evidence, 200), ...(Number.isInteger(v?.round) && v.round > 0 ? { round: v.round } : {}) };
+  // a time means nothing without its day; "9:30" is read as 09:30
+  const tm = String(v?.event_time || '').trim().match(/^(\d{1,2}):([0-5]\d)$/), eventTime = eventDate && tm && Number(tm[1]) < 24 ? `${tm[1].padStart(2, '0')}:${tm[2]}` : '';
+  return { type, company: cut(v?.company, 120), role: cut(v?.role, 160), event_date: eventDate, event_time: eventTime, evidence: cut(v?.evidence, 200), ...(Number.isInteger(v?.round) && v.round > 0 ? { round: v.round } : {}) };
 }
 
 // ---------- 4. match to an application ----------
@@ -165,7 +168,7 @@ function statusTime(prev) {
  */
 export function applyOutcome(apps, hit, o, email, { reopen = false } = {}) {
   const prev = apps[hit.key] || { company: hit.company, role: hit.role || '' };
-  const event = { date: email.date, type: o.type, ...(o.round ? { round: o.round } : {}), ...(o.event_date ? { event_date: o.event_date } : {}), note: o.evidence, source: 'gmail', gmail_id: email.id };
+  const event = { date: email.date, type: o.type, ...(o.round ? { round: o.round } : {}), ...(o.event_date ? { event_date: o.event_date } : {}), ...(o.event_time ? { event_time: o.event_time } : {}), note: o.evidence, source: 'gmail', gmail_id: email.id };
   let status = STATUS_FOR[o.type] || (prev.status ? null : 'applied');        // application_received only adds an event
   const old = prev.status, when = prev.updated || '';
   if (USER_ONLY.has(old)) status = null;
@@ -306,6 +309,9 @@ if (isMain(import.meta.url)) {
   if (since && !/^\d{4}-\d{2}-\d{2}$/.test(since)) { console.log('--since needs a date as YYYY-MM-DD'); process.exit(1); }
   const { Gmail, messageText } = await import('../lib/gmail.mjs');
   const { sendText } = await import('../lib/telegram.mjs');
-  const r = await runOutcomes({ gmail: new Gmail(), messageText, dryRun, since, send: args.includes('--no-telegram') ? null : sendText });
+  // the evening run on an off day (schedule.days) sends nothing; the report is still written to data/digests
+  const { offDay } = await import('../lib/schedule.mjs');
+  const quiet = args.includes('--no-telegram') || (process.env.JOBPILOT_EVENING === '1' && offDay());
+  const r = await runOutcomes({ gmail: new Gmail(), messageText, dryRun, since, send: quiet ? null : sendText });
   if (dryRun && r.text) console.log(`\n${r.text}`);
 }

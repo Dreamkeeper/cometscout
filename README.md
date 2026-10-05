@@ -46,7 +46,9 @@ node cli.mjs sources | decode | picks | pack
 node cli.mjs applied <company> [role]     # you applied: picks move on
 node cli.mjs status <company> screen|interview|offer|accepted|rejected|skipped|closed [role] [--note "..."]
 node cli.mjs list
-node cli.mjs timer [HH:MM]                # reinstall the daily timer from settings.json (run_time, timezone)
+node cli.mjs interview <company> <YYYY-MM-DD> [HH:MM] [role] [--round "..."]   # a booked interview: prep mode starts before it
+node cli.mjs timer [HH:MM]                # reinstall the daily timer from settings.json (schedule.time, timezone), and the bot with Telegram on
+node cli.mjs bot                          # the Telegram bot: /schedule, /time, /interview, /help (the timer installs it as a service)
 node cli.mjs reset --yes                  # clear data/ (e.g. after trying the example profile)
 node cli.mjs tracker-export [--out <file>] [--dry-run]   # applications as a job-pipeline-tracker import file
 node cli.mjs sources-report [--send]      # which source earns its price
@@ -72,6 +74,7 @@ node cli.mjs serve           # then open http://127.0.0.1:8787
 - **Left:** today's picks first (the ones the evening run chose; "Picks of Oct 1" when the latest picks are older, for example after a failed run), then every other role the picks could still choose, grouped by verdict. Search, and filters for source, verdict, "has pack" and "hide later" (the filters are remembered in this browser, the search text is not).
 - **Middle:** the job: company, role, location, source, band, verdict and priority, the next step, why, fit signals, gaps, why held, fact check, your history with the company, and the job text (folded).
 - **Right:** the pack: "Check before sending" (flags and lint) first, then the form answers with a copy button each, the cover letter, the CV PDF (half the pane; "Larger preview" grows it), the files and the apply link. An older pack (a `<date>--<company>` folder, or one without `pack.json`) is shown from its `answers.md`, and the pane says so instead of claiming nothing was flagged.
+- **Settings and interviews:** Settings (top bar) sets the digest days, the time and the prep window. Record interview (in the job's header) records a booked interview with its date, time and round. During prep mode the list opens with the interview and the day's prep step.
 - **Actions:** Applied, Skip (with a reason: too senior, too junior, wrong domain, location or visa, language, company, already in contact, other), Later (1, 3 or 7 days) and Open job link. After an action the next job opens. Applied and Skip write the same record as `node cli.mjs status` (the event says `source: "workspace"`); Later adds a `later` event and keeps the job out of the picks and, with "hide later", out of the list until that day. A note is at most 500 characters, on the command line too. While the evening run (or a decode, pack, import, backup or restore) holds the run lock, actions answer "jobpilot is busy, try again in a minute" and nothing is written.
 - **Keyboard** (desktop): `j` / `k` next and previous, `a` applied, `s` skip (then `1` to `8` for the reason), `l` later (then `1`, `3` or `7`), `o` open the job link, `/` search, `?` help, `Esc` closes a dialog. Dialogs take the focus and keep `Tab` inside.
 - On a phone (or any window under 1100 px) it is one column: the list, then the job with tabs Job and Pack and the actions fixed at the bottom. Light and dark follow your system; labels follow `locale`.
@@ -142,6 +145,30 @@ Every evening the best open roles from the last `picks.window_days` (14) are pic
 - `exclude_location_regex`: never pick a job whose location matches, remote or not.
 - `exclude_onsite_location_regex`: never pick a job whose location matches unless it is fully remote (a fully remote job from that country stays). A location carrying `remote_scope:` (queue files imported from other tools, such as "Madrid, ES (remote_scope: geo_restricted, regions: Europe)") counts as remote for any value but `none`.
 - `shape_bonus`: the first entry whose `location_regex` matches sets the shape rank of a job that is not fully remote (fully remote is 0, remote with office days 1.5, on-site 2), so an office in a city you like can rank with remote roles.
+
+### Digest days and interview prep
+
+The evening run starts every day at `schedule.time` in `timezone`, and sends its digest on `schedule.days` (ISO weekdays, 1 = Monday). Change both in the workspace (Settings) or in the Telegram bot (`/schedule`, `/time`); a time change reinstalls the timer. An older `run_time` still works as the time, and `doctor` suggests moving it.
+
+```json
+"schedule": { "days": [1, 2, 3, 4, 5], "time": "18:00" },
+"picks": { "prep": { "days_before": 2, "max": 1, "verdicts": ["strong-fit"], "max_priority": 1, "fresh_days": 2 } }
+```
+
+- **Off days** (not in `schedule.days`): sources and decode still run, so nothing piles up, but nothing is sent (no digest, no outcomes report in Telegram) and no picks are shown or counted. The digest is still written to `data/digests/`, with a first line saying it was an off day. The first digest after off days opens with one line: which days were held back, how many roles were decoded and how many are worth applying to (they are in the picks pool). Failure and backup alerts still go out.
+- **Prep mode:** when an interview is 1 to `days_before` days ahead, or later today (an interview with no time counts as later today), the digest opens with the interview (company, round, day, time, "tomorrow") and the day's prep step: 2 or more days out, research and likely concerns; the day before, practice or a mock; the day itself, a short confidence plan and a warm-up answer. With the interview coach enabled it names the coach command (`prep <company>`, `practice` or `mock`, `hype`). Then at most `max` pick, and only a `strong-fit` with apply priority 1 decoded in the last `fresh_days` days (today and yesterday); otherwise "N roles wait until after the interview". Roles that wait keep their showings. Today's new finds are listed one line each, for after the interview. `days_before: 0` turns prep mode off. The workspace's Today screen shows the same lines.
+- **Where interview dates come from:** an `interview` event with an `event_date` today or later, and `event_time` (HH:MM, your time zone) when known. Outcomes from Gmail fill both when the email states them; `node cli.mjs interview <company> <YYYY-MM-DD> [HH:MM] [role words] [--round "..."]`, the workspace's Record interview button and the bot's `/interview` record one by hand (and set the status to `interview` unless it is already `offer` or `accepted`).
+
+### Telegram bot
+
+`node cli.mjs bot` long-polls Telegram and answers only the chat in `TELEGRAM_CHAT_ID`; anyone else gets no answer. `node cli.mjs timer` installs it as a systemd user service (`jobpilot-bot.service`) when Telegram delivery is on.
+
+- `/schedule`: digest days, time and the prep window, with buttons to switch each day on or off and to set prep days (0, 1, 2, 3).
+- `/time HH:MM`: the digest time (the timer is reinstalled).
+- `/interview <company> <YYYY-MM-DD> [HH:MM] [role words]`: the same as the command; put a company name with spaces in quotes.
+- `/help`: the commands.
+
+The bot and the workspace save through the same writer: it checks the values like `doctor`, changes only those keys in `settings.json` (your other keys and layout stay), and reinstalls the timer only when the time changed (on a host without systemd it says to run `node cli.mjs timer`).
 
 ### Gates
 
@@ -480,7 +507,7 @@ Planned, in order (details and task briefs in [ROADMAP.md](ROADMAP.md) and `docs
    - fullscreen and dense on the desktop (picks, decode and pack side by side, keyboard shortcuts), installable on the phone with offline access and notifications;
    - the same app opens as a Telegram Mini App; one bot in a private chat brings picks with Apply / Skip / Later buttons, outcome cards and alerts;
    - screens for the pack editor, your pipeline, sources, settings and gates ("wrong pick: why?" turns into a suggested setting), and a guided onboarding that replaces the setup session.
-   - First piece being built: the "Today" screen.
+   - First pieces built: the "Today" screen, a settings dialog and the first bot commands (`/schedule`, `/time`, `/interview`).
 3. **Backups, export and updates (in progress).** One ZIP export you can open and read (your data, profile and settings), import with a preview and conflict choices, nightly backups with restore, an encrypted export for secrets. Updates are notify only: release notes in the bot and the app, one tap to update, a backup first, automatic rollback if anything fails, and a manual rollback.
 4. **Optional modules,** installed from their own projects: an interview coach (the install and hand-off are done, see [Interview coach](#interview-coach-optional)), meeting transcription (on your own GPU or the server's CPU), OpenClaw and career-ops.
 5. **Later:** a hosted option for people who do not want to run a server, after the self-hosted version has been through testers.

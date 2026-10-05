@@ -2,7 +2,7 @@
   "_comment": "Copy to settings.json. Secrets (tokens) go in .env, never here. Every source is optional: enable what you have.",
   "candidate_name": "Alex Rivera",
   "timezone": "Europe/Madrid",
-  "run_time": "18:00",
+  "schedule": { "days": [1, 2, 3, 4, 5, 6, 7], "time": "18:00" },
   "llm": {
     "provider": "claude",
     "model": "sonnet",
@@ -14,7 +14,8 @@
   "picks": {
     "per_day": 2, "window_days": 14, "max_shown": 3,
     "exclude_location_regex": "", "exclude_onsite_location_regex": "",
-    "shape_bonus": []
+    "shape_bonus": [],
+    "prep": { "days_before": 2, "max": 1, "verdicts": ["strong-fit"], "max_priority": 1, "fresh_days": 2 }
   },
   "sources": {
     "ats_boards": {

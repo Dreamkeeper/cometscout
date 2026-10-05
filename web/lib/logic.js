@@ -161,3 +161,16 @@ export function packView(pack) {
   const md = pack.from_answers || {};
   return { fromMd: true, flags: md.flags ?? null, hits: null, answers: md.answers ?? null, positioning: md.positioning || null, built: null };
 }
+
+// ---------- settings and interviews ----------
+/** Short weekday names, Monday first (ISO 1 to 7), in a locale. */
+export const weekdayNames = (locale = 'en') => [1, 2, 3, 4, 5, 6, 7].map(d => { try { return new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, d))); } catch { return String(d); } });
+/** Days with d switched on or off, sorted. */
+export const toggleDay = (days, d) => (days.includes(d) ? days.filter(x => x !== d) : [...days, d].sort((a, b) => a - b));
+/** What the settings form may send: null when it is ready, else the label key of the problem. */
+export function settingsProblem({ days, time, prep_days }) {
+  if (!Array.isArray(days) || !days.length) return 'ws.settings.days';
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(time || ''))) return 'ws.settings.time';
+  if (!Number.isInteger(prep_days) || prep_days < 0 || prep_days > 7) return 'ws.settings.prep';
+  return null;
+}

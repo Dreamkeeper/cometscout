@@ -15,14 +15,17 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`, `interview`, `bot`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
-| `lib/applications.mjs` | Writes to `applications.json`: `setStatus` (the CLI's `applied` / `status` and the workspace's `POST /api/status`), `addLater`, `laterUntil` |
+| `lib/applications.mjs` | Writes to `applications.json`: `setStatus` (the CLI's `applied` / `status` and the workspace's `POST /api/status`), `addLater`, `laterUntil`, `addInterview` (`cli.mjs interview`, `POST /api/interview`, the bot) |
 | `lib/lock.mjs` | The run lock (`data/state/run.lock`): `takeLock` for the commands, `lockHolder` for the workspace's writes |
 | `lib/workspace.mjs`, `lib/server.mjs` | The workspace: API payloads (today, job, pack, labels, status, later, pack files) and the `node:http` server behind `cli.mjs serve` |
 | `web/` | The workspace's browser code, no build step: `index.html` (import map), `app.js`, `components/` (Preact + htm), `lib/` (pure logic with no DOM, tested by `node --test`), `styles.css` |
+| `lib/schedule.mjs` | `settings.schedule` (digest days and time, `offDay`) and `picks.prep` (`prepState`, `prepQualifies`), interview dates from events |
+| `lib/settings-writer.mjs`, `lib/jsonedit.mjs` | The one writer for settings the workspace and the bot change: validates like doctor, edits only those values in settings.json, reinstalls the timer on a time change |
+| `lib/bot.mjs` | The Telegram bot (`cli.mjs bot`): `COMMANDS` and `BUTTONS` tables, a transport injected in tests, the long-poll loop |
 | `lib/hooks.mjs` | `runHook(event, payload)` |
 | `lib/lint.mjs` | Lint rules from `profile/lint-rules.json`: paragraphs from a DOCX, hits, report, CLI |
 | `lib/archive.mjs` | Export / import (`jobpilot-export` v2 zip or folder; reads v1 folders and tar.gz), conflict modes |
@@ -35,7 +38,7 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 | `lib/ops.mjs` | Health ping, `notify`, the systemd units (`deploy/jobpilot-failure@.service`) |
 | `lib/match.mjs` | Company and role matching for reports (uses `lib/companies.mjs` when it exists) |
 | `sources/*.mjs` | One file per source; each writes job files with `writeJob()` |
-| `decoder/` | Verdicts, picks, digest (`digest.mjs` renders the text) |
+| `decoder/` | Verdicts, picks, digest (`digest.mjs` renders the text; `finishRun` handles off days and prep mode) |
 | `pack/` | Tailored CV, cover letter, form answers (`message.mjs` is the Telegram text) |
 | `lib/coach.mjs`, `deploy/modules/` | The interview coach module: installer (`coach.sh`, `coach.ps1` both run `node lib/coach.mjs install`), doctor lines, the hand-off file |
 | `tools/` | `gmail-auth.mjs`; `workspace-demo.mjs` (demo data for the workspace) and `text-pdf.mjs` (small text PDFs for it and the tests) |

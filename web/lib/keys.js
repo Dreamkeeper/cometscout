@@ -10,7 +10,7 @@ const TYPING = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 /**
  * The action for a key press, or null. e: { key, ctrlKey, metaKey, altKey, tag, editable }; mode: "main", or the
  * open dialog: "skip" (1 to `reasons` picks a reason: { action: "skip-reason", index }), "later" (1, 3 or 7:
- * { action: "later-days", days }), "help". While typing in a field only Escape counts (it leaves the field).
+ * { action: "later-days", days }), "help"; any other dialog (settings, interview) takes Escape only. While typing in a field only Escape counts (it leaves the field).
  * Returns { action, ... }.
  */
 export function keyAction(e, mode = 'main', { reasons = 8, laterDays = [1, 3, 7] } = {}) {
@@ -21,6 +21,7 @@ export function keyAction(e, mode = 'main', { reasons = 8, laterDays = [1, 3, 7]
   if (mode === 'skip') { const n = Number(key); return Number.isInteger(n) && n >= 1 && n <= reasons ? { action: 'skip-reason', index: n - 1 } : null; }
   if (mode === 'later') { const n = Number(key); return laterDays.includes(n) ? { action: 'later-days', days: n } : null; }
   if (mode === 'help') return key === '?' ? { action: 'close' } : null;
+  if (mode !== 'main') return null;   // a form dialog (settings, interview): only Escape
   const action = KEYMAP[key] ?? KEYMAP[String(key).toLowerCase()];
   return action ? { action } : null;
 }

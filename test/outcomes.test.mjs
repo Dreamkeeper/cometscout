@@ -559,3 +559,14 @@ test('the outcomes match keeps its exact / prefix company rule after the move to
   assert.equal(o.companyMatch('Labs', 'Ridgeway Labs'), null, 'not the looser containment the queue uses');
   assert.ok(o.ROLE_STOPWORDS.has('senior'));
 });
+
+test('an interview email that states a time stores event_time next to event_date; no day or a bad time stores none', async () => {
+  assert.ok(o.SCHEMA.required.includes('event_time') && o.SCHEMA.properties.event_time.type === 'string');
+  assert.match(fs.readFileSync(o.PROMPT_FILE, 'utf8'), /event_time: the start time of a booked interview/);
+  const one = async answer => (await scenario({ apps: OSTRAVA, messages: [ostravaInterview('t1', 'Backend Developer')], answers: { t1: { type: 'interview', company: 'Ostrava Tools', role: 'Backend Developer', ...answer } } })).apps['os-backend.md'].events.at(-1);
+  const ev = await one({ event_date: '2026-10-02', event_time: '9:30' });
+  assert.equal(ev.event_date, '2026-10-02'); assert.equal(ev.event_time, '09:30');
+  assert.equal((await one({ event_date: '2026-10-02', event_time: '25:00' })).event_time, undefined);
+  assert.equal((await one({ event_date: '', event_time: '10:00' })).event_time, undefined, 'a time without its day');
+  assert.equal((await one({ event_date: '2026-10-02', event_time: '' })).event_time, undefined);
+});

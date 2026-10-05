@@ -74,3 +74,24 @@ test('en output is the same text as before locales existed', () => {
   assert.equal(packMessage(pack, en).split('\n')[0], '📎 Application pack: Северон, Продакт-менеджер');
   assert.match(packMessage(pack, en), /Check before sending:\n• Проверьте даты\.\n\nForm answers:\n\n▸ Почему мы\? \(your words\)\n\nПотому что\.\n\nCover letter \(paste as text\):\n\nЗдравствуйте\./);
 });
+
+test('off day, held-back, prep mode and bot texts in ru keep no English label', async () => {
+  const { prepLines, heldBackLine } = await import('../decoder/digest.mjs');
+  const ru = translator('ru');
+  const prep = { interview: { company: 'Северон', round: 2, date: '2026-10-06', time: '10:00' }, days: 1, step: 'practice', wait: 3 };
+  const texts = {
+    off: digestText({ ...all, dry: false, off: '2026-10-03', held: [] }, ru),
+    held: digestText({ ...all, held: [{ date: '2026-10-03', decoded: 4, worth: 1 }, { date: '2026-10-04', decoded: 2, worth: 0 }] }, ru),
+    prepPick: digestText({ ...all, pk: { ...pk, picks: [done[0]], prep } }, ru),
+    prepWait: digestText({ ...all, pk: { picks: [], open: 3, prep } }, ru),
+    lines: ['prep', 'practice', 'warmup'].flatMap(step => prepLines({ ...prep, step, days: step === 'prep' ? 2 : step === 'practice' ? 1 : 0 }, ru, { locale: 'ru', coach: true })).join('\n'),
+    bot: ['bot.help', 'bot.schedule', 'bot.prep_off', 'bot.prep_on', 'bot.time_usage', 'bot.interview_usage', 'bot.unknown', 'bot.busy', 'settings.saved', 'settings.timer_done', 'settings.timer_run'].map(k => ru(k, { n: 2, days: 'пн', time: '18:00', tz: 'UTC', prep: 'выключена' })).join('\n'),
+  };
+  for (const [name, text] of Object.entries(texts)) for (const part of englishParts) assert.ok(!text.includes(part), `${name} still has "${part}":\n${text}`);
+  assert.match(texts.off, /^Выходной \(сб, 3 окт\.\): эта сводка не отправлена/);
+  assert.match(texts.held, /^Не отправлено в дни сб, 3 окт\.; вс, 4 окт\.: разобрано 6, стоит откликнуться 1\./);
+  assert.match(texts.prepWait, /^📅 Собеседование завтра: Северон, раунд 2, вт, 6 окт\., 10:00\nПодготовка: отрепетируйте ответы/);
+  assert.match(texts.prepWait, /Ждут до окончания собеседования: 3\./);
+  assert.match(texts.prepPick, /После собеседования \(1\)\n1\. Ладога: Владелец продукта \[Удалённо\] Стоит попробовать, p2\n/);
+  assert.match(texts.lines, /В тренере для собеседований: prep Северон, затем concerns\./);
+});
