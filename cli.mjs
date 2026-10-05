@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// jobpilot command line.
+// CometScout command line: node cli.mjs <command>, or cometscout <command> once `npm link` has put it on the PATH.
+//   node cli.mjs help                # this list (also --help)
 //   node cli.mjs run                 # the evening run: every enabled source (and outcomes from Gmail), then decode + picks + digest, then packs
 //   node cli.mjs sources|decode|pack|picks
 //   node cli.mjs applied <company> [role words]   # record an application (picks stop showing it)
@@ -7,7 +8,7 @@
 //                                    # add --manual to record a role that is not in the queue (it does not affect picks)
 //   node cli.mjs list                # what is recorded
 //   node cli.mjs doctor              # check the setup, one line per item
-//   node cli.mjs timer [HH:MM]       # (re)install the daily timer from settings.json (schedule.time, timezone); with Telegram on, also the bot unit
+//   node cli.mjs timer [HH:MM] [--keep-old-units]  # (re)install the daily timer from settings.json (schedule.time, timezone); with Telegram on, also the bot unit; removes the units from before the rename unless --keep-old-units
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
 //   node cli.mjs export [--out file.zip|folder] [--data-only]   # data, profile and settings; .env is never exported
 //   node cli.mjs export --csv <file.csv>                        # applications as a spreadsheet
@@ -27,7 +28,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
+import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today, fromEnvFile } from './lib/config.mjs';
+import { envSet, oldEnvVars } from './lib/legacy-names.mjs';
 import { readApplications } from './lib/queue.mjs';
 import { setStatus as recordStatus, addInterview } from './lib/applications.mjs';
 import { runBot } from './lib/bot.mjs';
@@ -42,7 +44,7 @@ import { binCommand } from './lib/llm.mjs';
 import { trackerExport, exportNotes } from './lib/tracker.mjs';
 import { sourcesReport, sourcesReportCommand } from './lib/scorecard.mjs';
 import { trimSightings } from './lib/sightings.mjs';
-import { healthPing, notify, installTimer } from './lib/ops.mjs';
+import { healthPing, notify, installTimer, oldUnitsDoctor, UNITS } from './lib/ops.mjs';
 import { scheduleOf, scheduleProblems, prepOf, weekdayNames, offDay } from './lib/schedule.mjs';
 import { localeOk, LOCALES } from './lib/i18n.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
@@ -51,7 +53,7 @@ import { takeLock } from './lib/lock.mjs';
 import { coachDoctor, coachHandoff, refreshHandoff } from './lib/coach.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
-// Steps are scripts next to this file; ROOT (JOBPILOT_HOME) is where profile/ and settings live, which may be elsewhere.
+// Steps are scripts next to this file; ROOT (COMETSCOUT_HOME) is where profile/ and settings live, which may be elsewhere.
 const CODE = path.dirname(fileURLToPath(import.meta.url));
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(CODE, file), ...extra], { stdio: 'inherit' }).status;
 // outcomes reads application results from Gmail; it runs with the sources, so the decoder already knows what closed
@@ -68,7 +70,7 @@ const APPS = STATE('applications.json');
 const NEEDS_USER = 3;
 // A broken applications.json would make every source stop half-way; check it once, before any source runs.
 function appsBroken() {
-  try { readApplications(APPS); return null; } catch (e) { return `jobpilot: ${e.message}`; }
+  try { readApplications(APPS); return null; } catch (e) { return `cometscout: ${e.message}`; }
 }
 function runSources() {
   const failed = [];
@@ -77,7 +79,7 @@ function runSources() {
     const exit = node(f);
     if (exit === 0) continue;
     failed.push({ source: k, exit });
-    console.log(`jobpilot: source ${k} failed (exit ${exit ?? 'none, it was killed'})${exit === NEEDS_USER ? '; it needs you, see the message above' : ''}`);
+    console.log(`cometscout: source ${k} failed (exit ${exit ?? 'none, it was killed'})${exit === NEEDS_USER ? '; it needs you, see the message above' : ''}`);
   }
   return failed;
 }
@@ -97,10 +99,11 @@ function setStatus(company, status, words, note, manual) {
   return r.code;
 }
 
-function timer(at) {
-  const r = installTimer({ time: at || scheduleOf().time });
+function timer(...a) {
+  const keepOld = a.includes('--keep-old-units'), at = a.find(x => x && !x.startsWith('--'));
+  const r = installTimer({ time: at || scheduleOf().time, keepOld });
   for (const l of r.lines) console.log(l);
-  if (!r.code) spawnSync('systemctl', ['--user', 'list-timers', 'jobpilot.timer', '--no-pager'], { stdio: 'inherit' });
+  if (!r.code) spawnSync('systemctl', ['--user', 'list-timers', UNITS.timer, '--no-pager'], { stdio: 'inherit' });
   return r.code;
 }
 
@@ -113,7 +116,7 @@ function doctor() {
   const claudeish = m => /^(sonnet|opus|haiku|claude)/i.test(String(m || '')), openaiish = m => /^(gpt|o\d|codex)/i.test(String(m || ''));
   const wrong = [model, pack_model].filter(m => m && (provider === 'codex' ? claudeish(m) : openaiish(m)));
   ok(!wrong.length, `models for ${provider}: ${model} / ${pack_model}`, `${wrong.join(', ')} is not a ${provider} model; set llm.model and llm.pack_model in settings.json`);
-  ok(!!process.env.JOBPILOT_SETTINGS || path.basename(SETTINGS_FILE) === 'settings.json', `settings: ${process.env.JOBPILOT_SETTINGS ? SETTINGS_FILE : path.basename(SETTINGS_FILE)}`, 'copy settings.example.json to settings.json and edit it (the onboarding does this)');
+  ok(envSet('SETTINGS') || path.basename(SETTINGS_FILE) === 'settings.json', `settings: ${envSet('SETTINGS') ? SETTINGS_FILE : path.basename(SETTINGS_FILE)}`, 'copy settings.example.json to settings.json and edit it (the onboarding does this)');
   const unknownHooks = Object.keys(SETTINGS.hooks || {}).filter(k => k !== 'timeout_sec' && !HOOK_EVENTS.includes(k));
   const hookCount = HOOK_EVENTS.reduce((n, e) => n + hooksFor(e).length, 0);
   const ctx = (SETTINGS.decoder?.context_files || []).filter(e => !/\*\.md$/.test(e) && !fs.existsSync(path.isAbsolute(e) ? e : path.join(PROFILE.dir, e)));
@@ -175,20 +178,23 @@ function doctor() {
   ok(!!spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['--version']).stdout, 'Python 3 (packs the DOCX files)', 'install python3');
   for (const b of backupDoctor()) if (b.level === 'warn') warn(`${b.text}  ->  ${b.fix}`); else ok(b.level === 'ok', b.text, b.fix);
   for (const c of coachDoctor()) ok(c.level === 'ok', c.text, c.fix);   // modules.coach (optional)
+  // leftovers from before the rename to CometScout (lib/legacy-names.mjs): they still work, for a release or two
+  for (const u of oldUnitsDoctor()) warn(`${u.text}  ->  ${u.fix}`);
+  for (const v of oldEnvVars()) warn(`${v.old} is read as ${v.new}  ->  rename it in ${fromEnvFile(v.old) ? '.env' : 'your environment (shell profile, systemd unit or hook)'}`);
 }
 
 async function optional(name, fn) {
   // a step after the digest: a failure is logged, the run's exit code stays
-  try { await fn(); } catch (e) { console.log(`jobpilot: ${name} failed: ${e.message}`); }
+  try { await fn(); } catch (e) { console.log(`cometscout: ${name} failed: ${e.message}`); }
 }
 async function evening() {
   // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
-  if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
-  process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
+  if (PROFILE.isExample && !rest.includes('--example')) { console.log('cometscout: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
+  process.env.COMETSCOUT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
   // An off day (not in schedule.days) still collects and decodes, but the steps send nothing and show no picks
   // (decoder/decoder.mjs finishRun, sources/outcomes.mjs); failure and backup alerts still go out.
-  process.env.JOBPILOT_EVENING = '1'; const off = offDay(today());
-  if (off) console.log(`jobpilot: ${today()} is an off day (schedule.days); sources and decode run, nothing is sent`);
+  process.env.COMETSCOUT_EVENING = '1'; const off = offDay(today());
+  if (off) console.log(`cometscout: ${today()} is an off day (schedule.days); sources and decode run, nothing is sent`);
   const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
   const t0 = Date.now(); runHook('before_run', { date: today() });
   await optional('sightings trim', () => trimSightings());   // here only, before any source writes: no two writers race
@@ -200,7 +206,7 @@ async function evening() {
   if (SETTINGS.tracker_export?.enabled) await optional('tracker-export', () => { const r = trackerExport(); for (const l of [...exportNotes(r), r.message]) console.log(`tracker-export: ${l}`); });
   runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed, refused });
   const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];
-  if (closing.length) console.log(`jobpilot: run finished; ${closing.join('; ')}`);
+  if (closing.length) console.log(`cometscout: run finished; ${closing.join('; ')}`);
   await nightlyBackup({ alert: text => notify(text, { send: sendText, on: telegramOn }) });   // backup.nightly; never fails the run
   return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
 }
@@ -213,9 +219,9 @@ async function serve() {
   if (port === '') { console.log('--port needs a number, e.g. --port 8787'); return 1; }
   if (!/^\d{1,5}$/.test(port) || Number(port) > 65535) { console.log(`--port must be a number from 0 to 65535, got "${port}"`); return 1; }
   if (host === '') { console.log('--host needs an address, e.g. --host 127.0.0.1'); return 1; }
-  let s; try { s = await startServer({ host, port: Number(port), unsafeNoAuth }); } catch (e) { console.log(`jobpilot serve: ${e.code === 'EADDRINUSE' ? `port ${port} is in use; try --port ${Number(port) + 1}` : e.message}`); return 1; }
+  let s; try { s = await startServer({ host, port: Number(port), unsafeNoAuth }); } catch (e) { console.log(`cometscout serve: ${e.code === 'EADDRINUSE' ? `port ${port} is in use; try --port ${Number(port) + 1}` : e.message}`); return 1; }
   if (unsafeNoAuth) console.log(`WARNING: --unsafe-no-auth: the workspace has no sign-in; anyone who can reach ${host}:${s.port} can read your queue and packs and record statuses.`);
-  console.log(`jobpilot workspace: ${s.url}  (data: ${DATA}; Ctrl+C stops it)`);
+  console.log(`cometscout workspace: ${s.url}  (data: ${DATA}; Ctrl+C stops it)`);
   const stop = () => { s.close().then(() => process.exit(0)); };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
   await new Promise(() => {});
@@ -240,7 +246,7 @@ const codes = {
   },
   list: () => { for (const a of Object.values(readJson(APPS, {}))) console.log(`${a.updated || '?'}  ${String(a.status || '?').padEnd(9)} ${a.company}: ${a.role}${a.events?.length ? `  (${a.events.length} event(s), last ${a.events[a.events.length - 1].date || '?'})` : ''}`); return 0; },
   doctor: () => { doctor(); return 0; },
-  timer: () => timer(rest[0]),
+  timer: () => timer(...rest),
   reset: locked(() => {
     if (!rest.includes('--yes')) { console.log(`This deletes everything in ${DATA} (queue, decodes, picks, packs, seen lists, applications). Run again with --yes to confirm.`); return 1; }
     for (const d of Object.values(DIRS)) for (const f of fs.readdirSync(d)) if (f !== 'run.lock') fs.rmSync(path.join(d, f), { recursive: true, force: true });
@@ -280,5 +286,6 @@ const codes = {
   },
   ...archiveCommands({ rest, locked }),
 };
-if (!codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(cmd ? 1 : 0); }
+const help = !cmd || ['help', '--help', '-h'].includes(cmd);
+if (help || !codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(help ? 0 : 1); }
 process.exitCode = (await codes[cmd]()) || 0;

@@ -216,14 +216,14 @@ test('fetchDetail: 401/403/451 are terminal errors, 429/5xx are worth a retry', 
   assert.equal(net.terminal, false);
 });
 
-test('fetchDetail: pages get a browser User-Agent, ATS APIs keep jobpilot\'s', async () => {
+test('fetchDetail: pages get a browser User-Agent, ATS APIs keep cometscout\'s', async () => {
   const seen = {};
   const fetch = async (url, opts) => { seen[url] = opts.headers['User-Agent']; return url.includes('greenhouse') ? jsonRes(200, read('greenhouse-job.json')) : htmlRes(200, read('page-plain.html')); };
   await fetchDetail('https://example.com/careers/pm', { fetch });
   await fetchDetail('https://job-boards.greenhouse.io/northwind/jobs/7000001', { fetch });
   assert.match(seen['https://example.com/careers/pm'], /^Mozilla\/5\.0/);
-  assert.doesNotMatch(seen['https://example.com/careers/pm'], /jobpilot/);
-  assert.match(seen['https://boards-api.greenhouse.io/v1/boards/northwind/jobs/7000001?content=true'], /^jobpilot\//);
+  assert.doesNotMatch(seen['https://example.com/careers/pm'], /cometscout/);
+  assert.match(seen['https://boards-api.greenhouse.io/v1/boards/northwind/jobs/7000001?content=true'], /^cometscout\//);
 });
 
 test('fetchDetail: Ashby .../application and Lever .../apply links still go to the API', async () => {

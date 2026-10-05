@@ -25,7 +25,7 @@ const cfg = SETTINGS.sources.ats_boards || {};
 const DRY = process.argv.includes('--dry-run');
 const has = (hay, list) => !list || !list.length || matchesAny(hay, list);
 const hasNot = (hay, list) => !matchesAny(hay, list);
-const get = async url => { const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'jobpilot/0.1' } }); if (!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); };
+const get = async url => { const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'cometscout/0.1' } }); if (!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); };
 
 const FETCH = {
   async greenhouse(board) {

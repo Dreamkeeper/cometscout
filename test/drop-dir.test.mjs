@@ -1,4 +1,4 @@
-// drop-dir: external tools hand jobs to jobpilot by dropping files into a folder.
+// drop-dir: external tools hand jobs to cometscout by dropping files into a folder.
 // No network: fetchDetail's fetch is injected throughout. Every _expect in test/fixtures/openclaw/synthesis-queue.json
 // is checked below.
 import { test } from 'node:test';
@@ -12,14 +12,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIX = path.join(HERE, 'fixtures');
 const read = (...rel) => fs.readFileSync(path.join(FIX, ...rel), 'utf8');
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-dropdir-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-dropdir-'));
 const dropDir = path.join(tmp, 'drop');
 fs.mkdirSync(dropDir, { recursive: true });
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-01';
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-01';
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({
   timezone: 'UTC',
   sources: { drop_dir: { enabled: true, dir: dropDir, settle_sec: 2 } },
 }));
@@ -46,7 +46,7 @@ test('a file younger than settle_sec is left alone', async () => {
   fs.rmSync(file);
 });
 
-test('a job file in jobpilot\'s own format is validated, queued and moved to processed/', async () => {
+test('a job file in cometscout\'s own format is validated, queued and moved to processed/', async () => {
   const file = path.join(dropDir, 'good-job.md');
   fs.writeFileSync(file, '---\ncompany: "Acme Robotics"\nrole: "Firmware Engineer"\nurl: "https://acme.example/jobs/1"\nsource: "openclaw"\nlocation: "Berlin"\n---\n\n# Acme Robotics - Firmware Engineer\n\nBuild embedded firmware for our robots.\n');
   fs.utimesSync(file, ...old());
@@ -372,7 +372,7 @@ test('run(): a missing folder is reported clearly, and doctor flags it', async (
   const settings = path.join(tmp, 'settings-doctor.json');
   fs.writeFileSync(settings, JSON.stringify({ sources: { drop_dir: { enabled: true, dir: path.join(tmp, 'does-not-exist') } } }));
   const { spawnSync } = await import('node:child_process');
-  const d = spawnSync(process.execPath, [path.join(HERE, '..', 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: { ...process.env, JOBPILOT_SETTINGS: settings }, timeout: 60000 });
+  const d = spawnSync(process.execPath, [path.join(HERE, '..', 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: { ...process.env, COMETSCOUT_SETTINGS: settings }, timeout: 60000 });
   assert.match(d.stdout, /TODO drop-dir folder: .*does-not-exist/);
 });
 

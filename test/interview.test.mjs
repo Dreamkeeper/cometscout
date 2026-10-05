@@ -10,21 +10,21 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-interview-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-interview-'));
 const DATA = path.join(tmp, 'data');
 const DAY = new Date().toISOString().slice(0, 10);
 const addDays = n => { const d = new Date(`${DAY}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = DATA;
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = DAY;
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', candidate_name: 'Sam Example', schedule: { days: [1, 2, 3, 4, 5, 6, 7], time: '18:00' } }, null, 2));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = DATA;
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = DAY;
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC', candidate_name: 'Sam Example', schedule: { days: [1, 2, 3, 4, 5, 6, 7], time: '18:00' } }, null, 2));
 for (const d of ['decoded', 'rejected', 'inbox', 'state', 'packs']) fs.mkdirSync(path.join(DATA, d), { recursive: true });
 const APPS = path.join(DATA, 'state', 'applications.json');
 const job = (company, role, verdict = 'strong-fit') => {
   const file = `${DAY}--${company.toLowerCase()}--${role.toLowerCase().replace(/\W+/g, '-')}.md`;
   fs.writeFileSync(path.join(DATA, 'decoded', file), ['---', `company: "${company}"`, `role: "${role}"`, `url: "https://jobs.example/${file}"`, 'location: "Remote"', `found: ${DAY}`, '---', '',
-    `# ${company} - ${role}`, '', 'text', '', '## Decode Result', `Decoded ${DAY} by jobpilot (claude/sonnet).`, `verdict: ${verdict}`, 'confidence: high', 'apply_priority: 2', 'rationale: r', 'action: Apply.', ''].join('\n'));
+    `# ${company} - ${role}`, '', 'text', '', '## Decode Result', `Decoded ${DAY} by CometScout (claude/sonnet).`, `verdict: ${verdict}`, 'confidence: high', 'apply_priority: 2', 'rationale: r', 'action: Apply.', ''].join('\n'));
   return file;
 };
 const F = { glen: job('Glenmoor', 'Product Manager'), ferro: job('Ferrovia', 'Platform Product Owner'), kite: job('Kitewell', 'Data Product Manager') };
@@ -92,7 +92,7 @@ test('Today shows prep mode like the digest; the settings API reads and writes t
   // the real writer: settings.json changes, and so does the Today screen
   const w = W.postSettings({ prep_days: 0 });
   assert.equal(w.ok, true);
-  assert.equal(JSON.parse(fs.readFileSync(process.env.JOBPILOT_SETTINGS, 'utf8')).picks.prep.days_before, 0);
+  assert.equal(JSON.parse(fs.readFileSync(process.env.COMETSCOUT_SETTINGS, 'utf8')).picks.prep.days_before, 0);
   assert.equal(W.todayPayload().prep, null, 'prep off: no banner');
 });
 
@@ -104,11 +104,11 @@ test('addInterview refuses a long round and a broken applications.json', () => {
   fs.writeFileSync(APPS, keep);
 });
 
-test('the server routes: GET and POST /api/settings, POST /api/interview (with the X-Jobpilot header)', async () => {
+test('the server routes: GET and POST /api/settings, POST /api/interview (with the X-CometScout header)', async () => {
   const { startServer } = await import('../lib/server.mjs');
   const srv = await startServer({ port: 0, log: () => {} });
   try {
-    const base = `http://127.0.0.1:${srv.port}`, post = (p, body, h = { 'X-Jobpilot': '1' }) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(body) });
+    const base = `http://127.0.0.1:${srv.port}`, post = (p, body, h = { 'X-CometScout': '1' }) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(body) });
     const g = await fetch(`${base}/api/settings`); assert.equal(g.status, 200); assert.equal((await g.json()).timezone, 'UTC');
     assert.equal((await post('/api/settings', { days: [1, 2, 3, 4, 5] }, {})).status, 403, 'no header, no write');
     const s = await post('/api/settings', { days: [1, 2, 3, 4, 5] }); assert.equal(s.status, 200, await s.clone().text());

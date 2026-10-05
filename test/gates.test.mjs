@@ -8,11 +8,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-gates-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-gates-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
 
 const { checkGates, fromRtj, fromText, countriesIn, attendanceIn, describeGates, gateTally, settle, recordDemote } = await import('../lib/gates.mjs');
 const ROOT = path.join(HERE, '..');
@@ -235,7 +235,7 @@ test('the shipped accept_regions match European Union, EEA and other Europe spel
 });
 
 test('demoted jobs are recorded once in data/state/demoted.jsonl and not marked seen', () => {
-  const file = path.join(process.env.JOBPILOT_DATA, 'state', 'demoted.jsonl');
+  const file = path.join(process.env.COMETSCOUT_DATA, 'state', 'demoted.jsonl');
   fs.rmSync(file, { force: true });
   const big = job({ attendance: ['office'], countries: ['ES'], headcount: { min: 2000, max: 5000 } });
   const g = checkGates(big, GATES); assert.equal(g.decision, 'demote');
@@ -431,7 +431,7 @@ test('sample user is fictional: its citizenship, and every forbidden one in the 
 
 // Sources end to end, with fetch mocked (no network) and their own data folder.
 function sourceRun(script, settings, routes, extraEnv = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-src-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-src-'));
   fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ timezone: 'UTC', ...settings }));
   fs.writeFileSync(path.join(home, 'routes.json'), JSON.stringify(routes));
   fs.writeFileSync(path.join(home, 'mock-fetch.mjs'), `import fs from 'node:fs';
@@ -440,7 +440,7 @@ globalThis.fetch = async url => { const k = Object.keys(routes).find(p => String
   return k ? new Response(JSON.stringify(routes[k]), { status: 200, headers: { 'content-type': 'application/json' } }) : new Response('not found', { status: 404 }); };`);
   const run = (args = []) => {
     const r = spawnSync(process.execPath, ['--import', pathToFileURL(path.join(home, 'mock-fetch.mjs')).href, path.join(ROOT, 'sources', script), ...args], {
-      encoding: 'utf8', env: { ...process.env, JOBPILOT_HOME: home, JOBPILOT_DATA: path.join(home, 'data'), JOBPILOT_SETTINGS: path.join(home, 'settings.json'), MOCK_ROUTES: path.join(home, 'routes.json'), ...extraEnv } });
+      encoding: 'utf8', env: { ...process.env, COMETSCOUT_HOME: home, COMETSCOUT_DATA: path.join(home, 'data'), COMETSCOUT_SETTINGS: path.join(home, 'settings.json'), MOCK_ROUTES: path.join(home, 'routes.json'), ...extraEnv } });
     assert.equal(r.status, 0, r.stderr + r.stdout);
     return r.stdout;
   };

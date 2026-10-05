@@ -129,7 +129,12 @@ export function picksTitle(today, n, t, locale = 'en') {
   return day && day !== today?.date ? t('ws.picks_of', { date: formatDate(day, locale), n }) : t('ws.picks', { n });
 }
 
-// Filters are remembered between visits; the search text is not.
+// Filters are remembered between visits (browser storage, FILTERS_KEY); the search text is not. The key from before
+// the rename is still read when the new one is empty (listed in lib/legacy-names.mjs); saving writes the new key.
+export const FILTERS_KEY = 'cometscout.workspace.filters';
+const OLD_FILTERS_KEY = 'jobpilot.workspace.filters';
+/** The stored filters: load(key) reads one key. */
+export const loadFilters = load => load(FILTERS_KEY) ?? load(OLD_FILTERS_KEY);
 const KEPT = ['source', 'verdict', 'hasPack', 'hideLater'];
 /** What to store: the filters without the search text. */
 export const filtersToSave = f => Object.fromEntries(KEPT.map(k => [k, (f || {})[k] ?? DEFAULT_FILTERS[k]]));

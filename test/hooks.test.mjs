@@ -5,17 +5,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-hooks-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-hooks-'));
 const out = path.join(tmp, 'event.json');
 const writer = path.join(tmp, 'write-stdin.mjs');
 fs.writeFileSync(writer, `import fs from 'node:fs'; let s=''; process.stdin.on('data', d => s += d).on('end', () => fs.writeFileSync(process.argv[2], s));`);
 const sleeper = path.join(tmp, 'sleep.mjs');
 fs.writeFileSync(sleeper, 'setTimeout(() => {}, 5000);');
 const q = p => `"${p}"`;
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({
   hooks: {
     timeout_sec: 1,
     job_written: `node ${q(writer)} ${q(out)}`,

@@ -7,18 +7,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-bot-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'Europe/Madrid', locale: 'en', schedule: { days: [1, 2, 3, 4, 5, 6, 7], time: '18:00' }, extra: 'kept' }, null, 2) + '\n');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-bot-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'Europe/Madrid', locale: 'en', schedule: { days: [1, 2, 3, 4, 5, 6, 7], time: '18:00' }, extra: 'kept' }, null, 2) + '\n');
 
 const { createBot, poll, splitArgs } = await import('../lib/bot.mjs');
 const { writeSettings } = await import('../lib/settings-writer.mjs');
 const { translator } = await import('../lib/i18n.mjs');
 const CHAT = '4242';
 const fake = (results = {}) => { const calls = []; return { calls, call: async (method, params) => { calls.push({ method, params }); const r = results[method]; return typeof r === 'function' ? r(params) : r ?? true; } }; };
-const settings = () => JSON.parse(fs.readFileSync(process.env.JOBPILOT_SETTINGS, 'utf8'));
+const settings = () => JSON.parse(fs.readFileSync(process.env.COMETSCOUT_SETTINGS, 'utf8'));
 const msg = (text, chat = CHAT) => ({ message: { message_id: 7, chat: { id: Number(chat) }, text } });
 const press = (data, chat = CHAT) => ({ callback_query: { id: 'q1', data, message: { message_id: 9, chat: { id: Number(chat) } } } });
 const reinstalls = [];
@@ -128,10 +128,10 @@ test('prototype names are not commands or buttons; a press that changes nothing 
   assert.deepEqual(transport.calls.map(c => c.method), ['sendMessage', 'sendMessage']);
   assert.match(transport.calls[0].params.text, /^Unknown command/); assert.match(transport.calls[1].params.text, /^Unknown command/);
   transport.calls.length = 0;
-  const before = fs.readFileSync(process.env.JOBPILOT_SETTINGS, 'utf8');
+  const before = fs.readFileSync(process.env.COMETSCOUT_SETTINGS, 'utf8');
   const r = await bot.handle(press('constructor:x'));
   assert.equal(r.ok, false);
-  assert.equal(fs.readFileSync(process.env.JOBPILOT_SETTINGS, 'utf8'), before);
+  assert.equal(fs.readFileSync(process.env.COMETSCOUT_SETTINGS, 'utf8'), before);
   transport.calls.length = 0;
   const cur = settings().picks?.prep?.days_before ?? 2;
   await bot.handle(press(`prep:${cur}`));

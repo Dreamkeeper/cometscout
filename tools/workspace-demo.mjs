@@ -4,7 +4,7 @@
 // answer is invented. It never touches your own data/: it writes only into the folder you name, and only if that
 // folder is empty (or with --force).
 //   node tools/workspace-demo.mjs --out <folder> [--force]
-//   then: JOBPILOT_DATA=<folder> node cli.mjs serve        (PowerShell: $env:JOBPILOT_DATA="<folder>"; node cli.mjs serve)
+//   then: COMETSCOUT_DATA=<folder> node cli.mjs serve        (PowerShell: $env:COMETSCOUT_DATA="<folder>"; node cli.mjs serve)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,7 +66,7 @@ const fileOf = (norm, j, d) => `${d}--${slugify(norm, j.company)}--${slugify(nor
 function jobFile(j, d) {
   const fm = ['---', `company: ${q(j.company)}`, `role: ${q(j.role)}`, j.url ? `url: ${q(j.url)}` : null, `source: ${q(j.source)}`, `location: ${q(j.location)}`,
     j.band ? `band: ${q(j.band)}` : null, `found: ${d}`, '---'].filter(Boolean);
-  const decode = ['## Decode Result', `Decoded ${d} by jobpilot (claude/sonnet).`, `verdict: ${j.verdict}`, 'confidence: high', j.priority ? `apply_priority: ${j.priority}` : null,
+  const decode = ['## Decode Result', `Decoded ${d} by CometScout (claude/sonnet).`, `verdict: ${j.verdict}`, 'confidence: high', j.priority ? `apply_priority: ${j.priority}` : null,
     `rationale: ${j.rationale || 'Synthetic example.'}`, `fit_signals: ${(j.fit || []).join('; ')}`, `gaps: ${(j.gaps || []).join('; ') || 'none'}`, `action: ${j.action || 'Skip.'}`,
     j.flags?.length ? `fact_flags: ${j.flags.join(', ')}` : null].filter(x => x !== null);
   return [...fm, '', `# ${j.company} - ${j.role}`, '', j.text || 'Synthetic example job text.', '', ...decode, ''].join('\n');
@@ -137,7 +137,7 @@ export async function writeDemo(out, { now = new Date(), force = false } = {}) {
     fs.mkdirSync(abs, { recursive: true });
     const base = `Alex Rivera CV - ${j.company} (${j.role.replace(/[\\/:*?"<>|]/g, '-')})`;
     fs.writeFileSync(path.join(abs, `${base}.pdf`), textPdf(cvLines(lib, { ai: p.ai }), { title: base }));
-    const md = [`# ${j.company}: ${j.role}`, '', `Link: ${j.url}`, `Built ${today} by jobpilot (claude/opus). Form: greenhouse. Cover letter: ${p.cover_letter}.`, '',
+    const md = [`# ${j.company}: ${j.role}`, '', `Link: ${j.url}`, `Built ${today} by CometScout (claude/opus). Form: greenhouse. Cover letter: ${p.cover_letter}.`, '',
       `**CV leads with:** ${p.positioning}`, '', '## Check before sending', ...(p.flags.length ? p.flags.map(f => `- ${f}`) : ['- nothing flagged']), '',
       '## Form answers (drafts)', ...p.answers.flatMap(a => [`### ${a.field}${a.own_words ? ' (rewrite in your own words)' : ''}`, '', a.answer, ...(a.note ? [`_${a.note}_`] : []), '']),
       ...(p.cover_letter === 'text' ? ['## Cover letter (paste as text)', p.cl, ''] : []), '## Lint', 'CV: no lint hits.', '', `Files: ${base}.pdf`].join('\n');
@@ -165,6 +165,6 @@ if (isMain) {
   try {
     const r = await writeDemo(out, { force: args.includes('--force') });
     console.log(`Demo data in ${out}: ${Object.keys(r.files).length} decodes, ${r.picks.length} picks for today, ${r.packs.length} packs.`);
-    console.log(`Start the workspace on it:\n  JOBPILOT_DATA="${out}" node cli.mjs serve\n  (PowerShell: $env:JOBPILOT_DATA="${out}"; node cli.mjs serve)`);
+    console.log(`Start the workspace on it:\n  COMETSCOUT_DATA="${out}" node cli.mjs serve\n  (PowerShell: $env:COMETSCOUT_DATA="${out}"; node cli.mjs serve)`);
   } catch (e) { console.log(`workspace-demo: ${e.message}`); process.exit(1); }
 }

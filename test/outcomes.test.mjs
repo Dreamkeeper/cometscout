@@ -9,14 +9,14 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'gmail', 'outcomes.json'), 'utf8'));
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-outcomes-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-outcomes-'));
 const hookOut = path.join(tmp, 'hook.jsonl');
 const appender = path.join(tmp, 'append-stdin.mjs');
 fs.writeFileSync(appender, `import fs from 'node:fs'; let s=''; process.stdin.on('data', d => s += d).on('end', () => fs.appendFileSync(process.argv[2], s + '\\n'));`);
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({
   timezone: 'UTC',
   sources: { outcomes: { enabled: true, max_emails: 50 } },
   queue: { aliases: [['Kvadrat Soft', 'Kvadrat']] },
@@ -26,7 +26,7 @@ fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
 const o = await import('../sources/outcomes.mjs');
 const { messageText } = await import('../lib/gmail.mjs');
 const { SETTINGS } = await import('../lib/config.mjs');
-const DATA = process.env.JOBPILOT_DATA;
+const DATA = process.env.COMETSCOUT_DATA;
 const APPS = path.join(DATA, 'state', 'applications.json');
 const STATE = path.join(DATA, 'state', 'outcomes.json');
 const DIGESTS = path.join(DATA, 'digests');

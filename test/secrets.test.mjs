@@ -8,16 +8,16 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'cli.mjs');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-secrets-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-secrets-'));
 const home = path.join(tmp, 'home'); fs.mkdirSync(home);
 const ENV = 'RTJ_API_TOKEN=planted-token-0a1b2c3d\nHIRIFY_COOKIE="session=planted-cookie-9z8y"\n';
 const JAR = JSON.stringify({ env: 'abc', cookies: { refresh: 'planted-jar-value-5e6f' } });
 fs.writeFileSync(path.join(home, '.env'), ENV);
 fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ timezone: 'UTC' }));
-process.env.JOBPILOT_HOME = home;
-process.env.JOBPILOT_DATA = path.join(home, 'data');
-delete process.env.JOBPILOT_SETTINGS;
-delete process.env.JOBPILOT_SECRETS_PASSPHRASE;
+process.env.COMETSCOUT_HOME = home;
+process.env.COMETSCOUT_DATA = path.join(home, 'data');
+delete process.env.COMETSCOUT_SETTINGS;
+delete process.env.COMETSCOUT_SECRETS_PASSPHRASE;
 const { STATE } = await import('../lib/config.mjs');
 const S = await import('../lib/secrets.mjs');
 fs.writeFileSync(STATE('hirify-cookies.json'), JAR);
@@ -30,7 +30,7 @@ test('export, delete, import: the same bytes come back, with private file modes'
   assert.deepEqual(r.files, ['.env', 'data/state/hirify-cookies.json']);
   const raw = fs.readFileSync(out, 'utf8');
   for (const s of ['planted-token-0a1b2c3d', 'planted-cookie-9z8y', 'planted-jar-value-5e6f', 'RTJ_API_TOKEN']) assert.ok(!raw.includes(s), s);
-  assert.equal(JSON.parse(raw).format, 'jobpilot-secrets');
+  assert.equal(JSON.parse(raw).format, 'cometscout-secrets');
   fs.rmSync(path.join(home, '.env')); fs.rmSync(STATE('hirify-cookies.json'));
   const imp = S.importSecrets({ from: out, passphrase: PASS });
   assert.deepEqual(imp.add, ['.env', 'data/state/hirify-cookies.json']);
@@ -72,21 +72,21 @@ test('a different local file stops the import unless --force, which keeps the ol
 });
 
 test('passphrase: from the environment, else asked twice; a short one is refused', async () => {
-  assert.equal(await S.readPassphrase({ env: { JOBPILOT_SECRETS_PASSPHRASE: 'from-env-123' }, ask: () => { throw new Error('asked'); } }), 'from-env-123');
+  assert.equal(await S.readPassphrase({ env: { COMETSCOUT_SECRETS_PASSPHRASE: 'from-env-123' }, ask: () => { throw new Error('asked'); } }), 'from-env-123');
   const answers = ['one-passphrase', 'another-one'];
   await assert.rejects(S.readPassphrase({ env: {}, confirm: true, ask: async () => answers.shift() }), /differ/);
   assert.equal(await S.readPassphrase({ env: {}, confirm: true, ask: async () => 'same-passphrase' }), 'same-passphrase');
   assert.throws(() => S.exportSecrets({ out: path.join(tmp, 'short.enc'), passphrase: 'short' }), /at least 8/);
 });
 
-test('the CLI takes the passphrase from JOBPILOT_SECRETS_PASSPHRASE, never from an argument, and needs a terminal otherwise', () => {
+test('the CLI takes the passphrase from COMETSCOUT_SECRETS_PASSPHRASE, never from an argument, and needs a terminal otherwise', () => {
   const out = path.join(tmp, 'cli.enc');
   let r = cli(['export-secrets', '--out', out]);
-  assert.equal(r.status, 1); assert.match(r.stdout, /no terminal to ask for the passphrase; set JOBPILOT_SECRETS_PASSPHRASE/);
-  r = cli(['export-secrets', '--out', out], { JOBPILOT_SECRETS_PASSPHRASE: PASS });
+  assert.equal(r.status, 1); assert.match(r.stdout, /no terminal to ask for the passphrase; set COMETSCOUT_SECRETS_PASSPHRASE/);
+  r = cli(['export-secrets', '--out', out], { COMETSCOUT_SECRETS_PASSPHRASE: PASS });
   assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /Encrypted \.env, data\/state\/hirify-cookies\.json/);
-  r = cli(['import-secrets', '--from', out, '--dry-run'], { JOBPILOT_SECRETS_PASSPHRASE: PASS });
+  r = cli(['import-secrets', '--from', out, '--dry-run'], { COMETSCOUT_SECRETS_PASSPHRASE: PASS });
   assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /Dry run, nothing written\. identical: \.env, data\/state\/hirify-cookies\.json/);
-  r = cli(['import-secrets', '--from', out], { JOBPILOT_SECRETS_PASSPHRASE: 'wrong passphrase' });
+  r = cli(['import-secrets', '--from', out], { COMETSCOUT_SECRETS_PASSPHRASE: 'wrong passphrase' });
   assert.equal(r.status, 1); assert.match(r.stdout, /Secrets import stopped: wrong passphrase/);
 });

@@ -9,17 +9,17 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-decoder-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-decoder-'));
 const DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = DATA;
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-01';
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', candidate_name: 'Sam Example', queue: { aliases: [['Acme Robotics', 'Acme']] } }));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = DATA;
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-01';
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC', candidate_name: 'Sam Example', queue: { aliases: [['Acme Robotics', 'Acme']] } }));
 for (const d of ['decoded', 'rejected', 'state']) fs.mkdirSync(path.join(DATA, d), { recursive: true });
 
 const decoded = (dir, file, company, role, verdict, day) => fs.writeFileSync(path.join(DATA, dir, file),
-  `---\ncompany: "${company}"\nrole: "${role}"\nfound: ${day}\n---\n\n# ${company} - ${role}\n\ntext\n\n## Decode Result\nDecoded ${day} by jobpilot (claude/sonnet).\nverdict: ${verdict}\nconfidence: high\nrationale: r\naction: a\n`);
+  `---\ncompany: "${company}"\nrole: "${role}"\nfound: ${day}\n---\n\n# ${company} - ${role}\n\ntext\n\n## Decode Result\nDecoded ${day} by CometScout (claude/sonnet).\nverdict: ${verdict}\nconfidence: high\nrationale: r\naction: a\n`);
 decoded('decoded', '2026-08-01--acme-robotics--product-manager-robotics.md', 'Acme Robotics', 'Product Manager, Robotics', 'strong-fit', '2026-08-01');
 decoded('rejected', '2026-09-20--acme--data-analyst.md', 'Acme', 'Data Analyst', 'weak-fit', '2026-09-20');
 decoded('decoded', '2026-09-25--driftwood--product-owner.md', 'Driftwood', 'Product Owner', 'strong-fit', '2026-09-25');
@@ -128,7 +128,7 @@ test('decoder.prompt_file replaces decoder/prompt.md, relative to the profile fo
 test('doctor reports the prompt in use and fails on a missing prompt_file', () => {
   const settings = path.join(tmp, 'doctor-settings.json');
   const run = decoder => spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'doctor'], { encoding: 'utf8', timeout: 120000,
-    env: { ...process.env, JOBPILOT_SETTINGS: settings }, input: '', ...(fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', decoder })), {}) }).stdout;
+    env: { ...process.env, COMETSCOUT_SETTINGS: settings }, input: '', ...(fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', decoder })), {}) }).stdout;
   assert.match(run({}), /^ok {3}decoder prompt: built-in \(decoder\/prompt\.md\)$/m);
   const own = path.join(tmp, 'my-prompt.md');
   assert.match(run({ prompt_file: own }), new RegExp(`^ok {3}decoder prompt: ${own.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));

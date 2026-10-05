@@ -8,24 +8,24 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-config-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'custom-settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ candidate_name: 'Test Person', picks: { per_day: 4 } }));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-config-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'custom-settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ candidate_name: 'Test Person', picks: { per_day: 4 } }));
 fs.writeFileSync(path.join(tmp, '.env'), 'export TEST_RTJ_API_TOKEN="abcdefghijkl" \nPLAIN_VALUE=hello\nnot a line\n');
 
 const c = await import('../lib/config.mjs');
 
-test('JOBPILOT_SETTINGS replaces settings.json and merges with defaults', () => {
+test('COMETSCOUT_SETTINGS replaces settings.json and merges with defaults', () => {
   assert.equal(c.SETTINGS.candidate_name, 'Test Person');
   assert.equal(c.SETTINGS.picks.per_day, 4);
   assert.equal(c.SETTINGS.picks.window_days, 14, 'default kept');
 });
 
-test('a missing JOBPILOT_SETTINGS file stops with a clear error', () => {
+test('a missing COMETSCOUT_SETTINGS file stops with a clear error', () => {
   const r = spawnSync(process.execPath, ['-e', `import(${JSON.stringify('file://' + path.join(ROOT, 'lib', 'config.mjs').replace(/\\/g, '/'))})`],
-    { env: { ...process.env, JOBPILOT_SETTINGS: path.join(tmp, 'missing.json') }, encoding: 'utf8' });
+    { env: { ...process.env, COMETSCOUT_SETTINGS: path.join(tmp, 'missing.json') }, encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /does not exist/);
 });

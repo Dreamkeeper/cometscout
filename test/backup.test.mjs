@@ -9,15 +9,15 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'cli.mjs');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-backup-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-backup-'));
 const home = path.join(tmp, 'home');
 fs.mkdirSync(path.join(home, 'profile'), { recursive: true });
 fs.writeFileSync(path.join(home, 'profile', 'profile.md'), '# Alex Example\n');
 fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ timezone: 'UTC', sources: {}, pack: { enabled: false } }));
 fs.writeFileSync(path.join(home, '.env'), 'RTJ_API_TOKEN=planted-backup-secret-42\n');
-process.env.JOBPILOT_HOME = home;
-process.env.JOBPILOT_DATA = path.join(home, 'data');
-delete process.env.JOBPILOT_SETTINGS;
+process.env.COMETSCOUT_HOME = home;
+process.env.COMETSCOUT_DATA = path.join(home, 'data');
+delete process.env.COMETSCOUT_SETTINGS;
 const { DATA } = await import('../lib/config.mjs');
 const B = await import('../lib/backup.mjs');
 const { readZip, readEntry } = await import('../lib/zip.mjs');
@@ -30,9 +30,9 @@ const cli = (args, env = {}) => spawnSync(process.execPath, [CLI, ...args], { en
 const manifestOf = async f => { const z = readZip(f); return JSON.parse(await readEntry(z, z.entries.find(e => e.name === 'manifest.json'))); };
 
 test('names carry date, time, version and label; labels are cleaned', () => {
-  assert.equal(B.backupName({ date: '2026-10-02', time: '183005' }, 'pre-update-v0.4.0', '0.3.1'), 'jobpilot-backup-2026-10-02-183005-v0.3.1--pre-update-v0.4.0.zip');
-  assert.deepEqual(B.parseName('jobpilot-backup-2026-10-02-183005-v0.3.1--pre-update-v0.4.0.zip'), { name: 'jobpilot-backup-2026-10-02-183005-v0.3.1--pre-update-v0.4.0.zip', date: '2026-10-02', time: '183005', version: '0.3.1', label: 'pre-update-v0.4.0' });
-  assert.equal(B.parseName('jobpilot-backup-2026-10-02-183005-v0.4.0-beta.1.zip').version, '0.4.0-beta.1');
+  assert.equal(B.backupName({ date: '2026-10-02', time: '183005' }, 'pre-update-v0.4.0', '0.3.1'), 'cometscout-backup-2026-10-02-183005-v0.3.1--pre-update-v0.4.0.zip');
+  assert.deepEqual(B.parseName('cometscout-backup-2026-10-02-183005-v0.3.1--pre-update-v0.4.0.zip'), { name: 'cometscout-backup-2026-10-02-183005-v0.3.1--pre-update-v0.4.0.zip', family: 'cometscout', date: '2026-10-02', time: '183005', version: '0.3.1', label: 'pre-update-v0.4.0' });
+  assert.equal(B.parseName('cometscout-backup-2026-10-02-183005-v0.4.0-beta.1.zip').version, '0.4.0-beta.1');
   assert.equal(B.parseName('notes.txt'), null);
   assert.equal(B.cleanLabel('Before Moving / Server!'), 'before-moving-server');
   assert.throws(() => B.cleanLabel('///'), /cannot be used/);
@@ -49,15 +49,15 @@ test('pruning a 120-day history keeps 7 daily, 4 weekly, 6 monthly and labelled 
   add('2026-09-15', '120000', 'pre-update-v0.2.0');    // 17 days old: kept
   add('2026-06-20', '120000', 'pre-update-v0.1.5');    // 104 days old: pruned
   const { keep, remove } = B.prunePlan(list, '2026-10-02');
-  const day = n => n.slice(16, 26);
+  const day = n => B.parseName(n).date;
   assert.deepEqual(keep.filter(n => !B.parseName(n).label).map(day), [
     '2026-10-02', '2026-10-01', '2026-09-30', '2026-09-29', '2026-09-28', '2026-09-27', '2026-09-26',   // 7 daily
     '2026-09-20', '2026-09-13',                                                                            // weekly (Mon to Sun) beyond those
     '2026-08-31', '2026-07-31', '2026-06-30',                                                              // monthly beyond those
   ]);
-  assert.deepEqual(keep.filter(n => B.parseName(n).label), ['jobpilot-backup-2026-09-15-120000-v0.1.0--pre-update-v0.2.0.zip']);
-  assert.ok(remove.includes('jobpilot-backup-2026-09-26-060000-v0.1.0.zip'));
-  assert.ok(remove.includes('jobpilot-backup-2026-06-20-120000-v0.1.0--pre-update-v0.1.5.zip'));
+  assert.deepEqual(keep.filter(n => B.parseName(n).label), ['cometscout-backup-2026-09-15-120000-v0.1.0--pre-update-v0.2.0.zip']);
+  assert.ok(remove.includes('cometscout-backup-2026-09-26-060000-v0.1.0.zip'));
+  assert.ok(remove.includes('cometscout-backup-2026-06-20-120000-v0.1.0--pre-update-v0.1.5.zip'));
   assert.equal(keep.length + remove.length, list.length);
 });
 
@@ -73,7 +73,7 @@ test('backup writes a v2 zip with its label into backups/, prunes old ones, neve
   fs.writeFileSync(path.join(dir, 'keep-me.txt'), 'not a backup');
   const now = new Date('2026-10-02T18:30:00Z');
   const r = await B.backup({ now, label: 'Manual Test' });
-  assert.equal(path.basename(r.file), `jobpilot-backup-2026-10-02-183000-v${APP_VERSION}--manual-test.zip`);
+  assert.equal(path.basename(r.file), `cometscout-backup-2026-10-02-183000-v${APP_VERSION}--manual-test.zip`);
   assert.equal(path.dirname(r.file), dir);
   const m = await manifestOf(r.file);
   assert.equal(m.label, 'manual-test'); assert.equal(m.version, 2);
@@ -81,7 +81,7 @@ test('backup writes a v2 zip with its label into backups/, prunes old ones, neve
   assert.ok(!Object.keys(m.files).some(f => f.includes('.env') || f.startsWith('backups')));
   assert.ok(!fs.readFileSync(r.file).includes('planted-backup-secret-42'));
   // 2025-01-01 to 01-10: today's backup is labelled, so the 7 daily slots take 01-10 to 01-04; weekly and monthly add nothing older
-  assert.deepEqual(r.pruned, ['03', '02', '01'].map(d => `jobpilot-backup-2025-01-${d}-100000-v0.1.0.zip`));
+  assert.deepEqual(r.pruned, ['03', '02', '01'].map(d => `cometscout-backup-2025-01-${d}-100000-v0.1.0.zip`));
   assert.ok(fs.existsSync(path.join(dir, 'keep-me.txt')), 'other files in backups/ are left alone');
   const second = await B.backup({ now, label: 'Manual Test' });
   assert.match(path.basename(second.file), /-183001-/, 'a second backup in the same second gets the next second');
@@ -91,7 +91,7 @@ test('backup writes a v2 zip with its label into backups/, prunes old ones, neve
 });
 
 test('offsite copy: a folder, a command with {file}; a failure is logged and not fatal', async () => {
-  const f = path.join(tmp, 'jobpilot-backup-2026-10-02-120000-v0.1.0.zip'); fs.writeFileSync(f, 'zip bytes');
+  const f = path.join(tmp, 'cometscout-backup-2026-10-02-120000-v0.1.0.zip'); fs.writeFileSync(f, 'zip bytes');
   const to = path.join(tmp, 'offsite');
   assert.equal(B.copyOffsite(f, to), 'copied');
   assert.equal(fs.readFileSync(path.join(to, path.basename(f)), 'utf8'), 'zip bytes');
@@ -106,17 +106,17 @@ test('cli.mjs run makes the nightly backup; a failed backup is alerted and does 
   const ok = path.join(tmp, 'run-home'); fs.mkdirSync(path.join(ok, 'profile'), { recursive: true });
   fs.writeFileSync(path.join(ok, 'profile', 'profile.md'), '# Alex Example\n');
   fs.writeFileSync(path.join(ok, 'settings.json'), JSON.stringify({ timezone: 'UTC', sources: {}, pack: { enabled: false } }));
-  const env = { JOBPILOT_HOME: ok, JOBPILOT_DATA: path.join(ok, 'data') };
+  const env = { COMETSCOUT_HOME: ok, COMETSCOUT_DATA: path.join(ok, 'data') };
   let r = cli(['run'], env);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /backup: jobpilot-backup-\d{4}-\d{2}-\d{2}-\d{6}-v\S+\.zip/);
+  assert.match(r.stdout, /backup: cometscout-backup-\d{4}-\d{2}-\d{2}-\d{6}-v\S+\.zip/);
   assert.equal(fs.readdirSync(path.join(ok, 'backups')).filter(n => n.endsWith('.zip')).length, 1);
   // backups/ is a file here, so the backup fails; Telegram is off, so the alert is logged
   fs.rmSync(path.join(ok, 'backups'), { recursive: true }); fs.writeFileSync(path.join(ok, 'backups'), 'in the way');
   r = cli(['run'], env);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /backup failed: /);
-  assert.match(r.stdout, /notify: Telegram delivery is off, not sent: jobpilot: the nightly backup failed/);
+  assert.match(r.stdout, /notify: Telegram delivery is off, not sent: cometscout: the nightly backup failed/);
   // backup.nightly: false turns it off
   fs.rmSync(path.join(ok, 'backups'));
   fs.writeFileSync(path.join(ok, 'settings.json'), JSON.stringify({ timezone: 'UTC', sources: {}, pack: { enabled: false }, backup: { nightly: false } }));
@@ -125,7 +125,7 @@ test('cli.mjs run makes the nightly backup; a failed backup is alerted and does 
   // a trial run on the example profile backs up nothing
   const trial = path.join(tmp, 'trial-home'); fs.mkdirSync(trial);
   fs.writeFileSync(path.join(trial, 'settings.json'), JSON.stringify({ timezone: 'UTC', sources: {}, pack: { enabled: false } }));
-  r = cli(['run', '--example'], { JOBPILOT_HOME: trial, JOBPILOT_DATA: path.join(trial, 'data') });
+  r = cli(['run', '--example'], { COMETSCOUT_HOME: trial, COMETSCOUT_DATA: path.join(trial, 'data') });
   assert.equal(r.status, 0, r.stdout + r.stderr); assert.ok(!fs.existsSync(path.join(trial, 'backups')));
 });
 
@@ -133,7 +133,7 @@ test('nightlyBackup calls the alert on failure and never throws', async () => {
   const blocker = path.join(tmp, 'blocker'); fs.writeFileSync(blocker, 'x');
   const sent = [];
   assert.equal(await B.nightlyBackup({ dir: path.join(blocker, 'backups'), alert: t => sent.push(t) }), null);
-  assert.match(sent[0], /^jobpilot: the nightly backup failed: /);
+  assert.match(sent[0], /^cometscout: the nightly backup failed: /);
   assert.equal(await B.nightlyBackup({ dir: path.join(blocker, 'b2'), alert: () => { throw new Error('telegram down'); } }), null);
 });
 
@@ -163,7 +163,7 @@ test('restore: refused while the run lock is held; dry run changes nothing; it b
   const lock = path.join(DATA, 'state', 'run.lock'); fs.writeFileSync(lock, String(process.pid));   // a live process
   const before = fs.readdirSync(dir).length;
   let r = cli(['restore', name]);
-  assert.equal(r.status, 1); assert.match(r.stdout, /another jobpilot run is in progress/);
+  assert.equal(r.status, 1); assert.match(r.stdout, /another CometScout run is in progress/);
   assert.equal(fs.readFileSync(JOB, 'utf8'), 'changed after the backup\n');
   assert.equal(fs.readdirSync(dir).length, before, 'no backup made while locked');
   fs.rmSync(lock);
@@ -199,7 +199,7 @@ test('a damaged backup is refused before the pre-restore backup is made; an unkn
   fs.rmSync(f);
 });
 
-test('restore also takes the path of any jobpilot export, such as a folder', async () => {
+test('restore also takes the path of any cometscout export, such as a folder', async () => {
   const { exportArchive } = await import('../lib/archive.mjs');
   const dir = path.join(tmp, 'export-folder'); await exportArchive({ out: dir, dataOnly: true });
   const r = await B.restore({ ref: dir, dryRun: true });

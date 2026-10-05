@@ -1,6 +1,8 @@
-# How to install jobpilot on a Debian virtual machine
+# How to install CometScout on a Debian virtual machine
 
-Every evening jobpilot collects job postings, judges each one against your profile, picks the best two and prepares a CV and draft answers for each application form. Every model step runs through your Claude or ChatGPT subscription; no separate API key is needed.
+> CometScout was called jobpilot until October 2026. An install in `~/jobpilot` keeps working; `deploy/install.sh` finds it, leaves it in place and says how to move it.
+
+Every evening CometScout collects job postings, judges each one against your profile, picks the best two and prepares a CV and draft answers for each application form. Every model step runs through your Claude or ChatGPT subscription; no separate API key is needed.
 
 ## What you need
 
@@ -60,12 +62,12 @@ codex login
 
 If the machine has no browser, follow the prompts of `codex login` for signing in without one.
 
-## 3. Install jobpilot
+## 3. Install CometScout
 
 ```bash
 cd ~
-git clone https://github.com/Dreamkeeper/jobpilot.git
-cd jobpilot
+git clone https://github.com/Dreamkeeper/cometscout.git
+cd cometscout
 bash deploy/install.sh
 ```
 
@@ -80,7 +82,7 @@ The check prints a list: `ok` means ready, `TODO` means something is left to do.
 
 ## 4. Try it on the example
 
-Until you have your own profile, jobpilot runs on a fictional example person (Alex Rivera):
+Until you have your own profile, CometScout runs on a fictional example person (Alex Rivera):
 
 ```bash
 node cli.mjs sources
@@ -95,7 +97,7 @@ The results land in `data/`: decoded jobs, the picks of the day, and packs with 
 Open the folder in Claude Code or Codex:
 
 ```bash
-cd ~/jobpilot && claude
+cd ~/cometscout && claude
 ```
 
 (or `codex` instead of `claude`) and say **"set me up"**.
@@ -113,7 +115,7 @@ The agent walks you through the steps, one question at a time:
 
 1. Create a bot with @BotFather and copy its token.
 2. Find your chat id, for example with @userinfobot.
-3. Open `.env` (`nano ~/jobpilot/.env`) and add two lines:
+3. Open `.env` (`nano ~/cometscout/.env`) and add two lines:
 
 ```
 TELEGRAM_BOT_TOKEN=token_from_BotFather
@@ -151,7 +153,7 @@ ssh -L 8765:127.0.0.1:8765 NAME@machine_address
 4. In that same SSH session run:
 
 ```bash
-cd ~/jobpilot && node tools/gmail-auth.mjs
+cd ~/cometscout && node tools/gmail-auth.mjs
 ```
 
 5. Open the link the script prints in the browser on your computer, sign in and allow read-only access. The access key is written into `.env` by itself and is never shown.
@@ -161,13 +163,13 @@ cd ~/jobpilot && node tools/gmail-auth.mjs
 node sources/linkedin-alerts.mjs --dry-run --max-fetch 3
 ```
 
-The same Gmail access lets jobpilot notice answers to your applications (received, rejection, interview, test task, offer): turn on `sources.outcomes`. See [Outcomes from Gmail](README.md#outcomes-from-gmail).
+The same Gmail access lets CometScout notice answers to your applications (received, rejection, interview, test task, offer): turn on `sources.outcomes`. See [Outcomes from Gmail](README.md#outcomes-from-gmail).
 
 The RealtimeJobs source is turned on the same way: the token `RTJ_API_TOKEN=...` in `.env` and `"rtj": { "enabled": true }` in the settings.
 
 Hirify (remote and relocation jobs) is read through your session on the site: copy the value of the `Cookie` header from your browser into a line `HIRIFY_COOKIE="..."` in `.env` (yourself, not in the chat), add your saved filters to the `"hirify"` block in `settings.json` and check with `node sources/hirify.mjs --dry-run`. Details, including what to do when the session expires: the [Hirify](README.md#hirify) section of the README.
 
-If you already run [career-ops](https://github.com/career-ops-hq/career-ops), jobpilot can pick up what it finds: put the path of your career-ops folder into `sources.career_ops.path` and turn the source on. jobpilot only reads `data/pipeline.md` and `data/scan-history.tsv` and never writes into the career-ops folder. Details: the [career-ops](README.md#career-ops) section of the README.
+If you already run [career-ops](https://github.com/career-ops-hq/career-ops), CometScout can pick up what it finds: put the path of your career-ops folder into `sources.career_ops.path` and turn the source on. CometScout only reads `data/pipeline.md` and `data/scan-history.tsv` and never writes into the career-ops folder. Details: the [career-ops](README.md#career-ops) section of the README.
 
 ## 8. Every day
 
@@ -182,6 +184,6 @@ If you already run [career-ops](https://github.com/career-ops-hq/career-ops), jo
 ## If something does not work
 
 - `node cli.mjs doctor` shows what is missing and how to fix it.
-- The evening run's log: `journalctl --user -u jobpilot -n 100`.
-- When the next run is: `systemctl --user list-timers jobpilot.timer`.
+- The evening run's log: `journalctl --user -u cometscout -n 100`.
+- When the next run is: `systemctl --user list-timers cometscout.timer`.
 - Run the whole pipeline by hand: `node cli.mjs run`.

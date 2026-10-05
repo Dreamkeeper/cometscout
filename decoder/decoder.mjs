@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num, isMain } from '../lib/config.mjs';
+import { envVar } from '../lib/legacy-names.mjs';
 import { loadJob, parseResult, frontMatter, norm, readApplications, laterOnly } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
@@ -148,7 +149,7 @@ async function decodeOne(file, prompt) {
   return value;
 }
 function resultBlock(v) {
-  return ['', '## Decode Result', `Decoded ${today()} by jobpilot (${SETTINGS.llm.provider}${SETTINGS.llm.model ? `/${SETTINGS.llm.model}` : ''}).`,
+  return ['', '## Decode Result', `Decoded ${today()} by CometScout (${SETTINGS.llm.provider}${SETTINGS.llm.model ? `/${SETTINGS.llm.model}` : ''}).`,
     `verdict: ${v.verdict}${v.gate ? ` (${v.gate})` : ''}`, `confidence: ${v.confidence}`, v.apply_priority ? `apply_priority: ${v.apply_priority}` : null,
     `rationale: ${v.rationale}`, `fit_signals: ${(v.fit_signals || []).join('; ')}`, `gaps: ${(v.gaps || []).join('; ') || 'none'}`, `action: ${v.action}`,
     v.hold_reason ? `hold_reason: ${v.hold_reason}` : null, v.fact_flags?.length ? `fact_flags: ${v.fact_flags.map(f => f.id).join(', ')}` : null].filter(x => x !== null).join('\n') + '\n';
@@ -325,7 +326,7 @@ async function main() {
     console.log([...prepLines(pk.prep, t), ...(pk.prep && !pk.picks.length ? [t('prep.wait', { n: pk.prep.wait })] : []), ...picksText(pk)].join('\n') || t('picks.none', { open: pk.open }));
     process.exit(0);
   }
-  // jobpilot's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
+  // CometScout's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
   // into data/inbox on its own schedule, set decoder.settle_sec (e.g. 60) so half-written files are left for later.
   const SETTLE_MS = Number(SETTINGS.decoder?.settle_sec || 0) * 1000;
   // Order: one job per company in turn (companies with the oldest waiting job first), oldest first within a company.
@@ -357,14 +358,14 @@ async function main() {
       if (DRY) { failed.push({ file: f, error: e.message }); continue; }
       tries[f] = (tries[f] || 0) + 1;
       if (tries[f] >= MAX_TRIES) {
-        try { const job = loadJob(f); fs.writeFileSync(path.join(DIRS.rejected, f), job.text.trimEnd() + `\n\n## Decode Result\nDecoded ${today()} by jobpilot: gave up after ${tries[f]} failed attempts.\nverdict: failed\nrationale: ${e.message.replace(/\s+/g, ' ').slice(0, 300)}\n`, 'utf8'); fs.rmSync(job.path); } catch { /* leave it */ }
+        try { const job = loadJob(f); fs.writeFileSync(path.join(DIRS.rejected, f), job.text.trimEnd() + `\n\n## Decode Result\nDecoded ${today()} by CometScout: gave up after ${tries[f]} failed attempts.\nverdict: failed\nrationale: ${e.message.replace(/\s+/g, ' ').slice(0, 300)}\n`, 'utf8'); fs.rmSync(job.path); } catch { /* leave it */ }
         delete tries[f]; gaveUp.push({ file: f, error: e.message });
       } else failed.push({ file: f, error: e.message });
     }
   }
   if (!DRY) fs.writeFileSync(TRIES_FILE, JSON.stringify(tries, null, 1));
-  // JOBPILOT_EVENING is set by cli.mjs run: off days (schedule.days) apply to the evening run only
-  const r = await finishRun({ done, failed, gaveUp, left: LEFT, dry: DRY, noTg: NO_TG, evening: process.env.JOBPILOT_EVENING === '1' });
+  // COMETSCOUT_EVENING is set by cli.mjs run: off days (schedule.days) apply to the evening run only
+  const r = await finishRun({ done, failed, gaveUp, left: LEFT, dry: DRY, noTg: NO_TG, evening: envVar('EVENING') === '1' });
   if (r.sendError) process.exitCode = 3;
   if (failed.length) process.exitCode = process.exitCode || 1;
 }

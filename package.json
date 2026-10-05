@@ -1,11 +1,15 @@
 {
-  "name": "jobpilot",
+  "name": "cometscout",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
   "author": "Dmitry Kvasnikov",
   "type": "module",
   "description": "Self-hosted job search pipeline: sources, AI decode against your profile, daily picks, tailored CV and form answers",
+  "bin": {
+    "cometscout": "cli.mjs",
+    "jobpilot": "cli.mjs"
+  },
   "engines": {
     "node": ">=20"
   },

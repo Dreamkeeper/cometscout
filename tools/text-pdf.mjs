@@ -40,7 +40,7 @@ export function textPdf(lines, { title = 'Document' } = {}) {
   }
   objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`;
   objs[pagesObj - 1] = `<< /Type /Pages /Kids [${kids.map(k => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`;
-  const info = add(`<< /Title (${esc(title)}) /Producer (jobpilot) >>`);
+  const info = add(`<< /Title (${esc(title)}) /Producer (CometScout) >>`);
   let body = '%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'; const offsets = [];
   objs.forEach((o, i) => { offsets.push(Buffer.byteLength(body, 'latin1')); body += `${i + 1} 0 obj\n${o}\nendobj\n`; });
   const xref = Buffer.byteLength(body, 'latin1');

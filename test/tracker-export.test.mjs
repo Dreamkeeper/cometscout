@@ -9,13 +9,13 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-tracker-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_RUN_DATE = '2026-10-02';
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
-const DATA = process.env.JOBPILOT_DATA;
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-tracker-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-02';
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
+const DATA = process.env.COMETSCOUT_DATA;
 const APPS = path.join(DATA, 'state', 'applications.json');
 const OVERRIDES = path.join(DATA, 'state', 'tracker-overrides.json');
 const OUT = path.join(tmp, 'out', 'pipeline.json');
@@ -244,7 +244,7 @@ test('a relative tracker_export.out is under the data folder; doctor shows it wi
   } finally { SETTINGS.tracker_export = keep; }
   const settings = path.join(tmp, 'doctor-settings.json');
   fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', tracker_export: { enabled: true, out: 'exports/pipeline.json' } }));
-  const doc = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: { ...process.env, JOBPILOT_SETTINGS: settings } });
+  const doc = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: { ...process.env, COMETSCOUT_SETTINGS: settings } });
   assert.match(doc.stdout, /^ok {3}tracker export: data\/exports\/pipeline\.json$/m, doc.stdout);
 });
 

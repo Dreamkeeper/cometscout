@@ -115,7 +115,7 @@ test('formatting: dates, tones, skip notes, lint hits, job text', () => {
   assert.equal(L.findItem(today, 'zz'), null);
 });
 
-test('the API client: JSON, the X-Jobpilot header on writes, errors with the server\'s message, a job without a pack', async () => {
+test('the API client: JSON, the X-CometScout header on writes, errors with the server\'s message, a job without a pack', async () => {
   const calls = [];
   const fake = async (url, opt = {}) => {
     calls.push({ url, opt });
@@ -133,7 +133,7 @@ test('the API client: JSON, the X-Jobpilot header on writes, errors with the ser
   await assert.rejects(api.status('x.md', 'skipped', 'too senior'), e => e instanceof ApiError && e.status === 409 && /not valid JSON/.test(e.message));
   const w = calls.find(c => c.url === '/api/status');
   assert.equal(w.opt.method, 'POST');
-  assert.equal(w.opt.headers['X-Jobpilot'], '1');
+  assert.equal(w.opt.headers['X-CometScout'], '1');
   assert.equal(w.opt.headers['Content-Type'], 'application/json');
   assert.deepEqual(JSON.parse(w.opt.body), { file: 'x.md', status: 'skipped', note: 'too senior' });
   await api.later('x.md', 3);
@@ -169,6 +169,13 @@ test('filters are remembered without the search text', () => {
   assert.deepEqual(L.filtersFromSaved(L.filtersToSave(f)), { ...f, q: '' });
   assert.deepEqual(L.filtersFromSaved({ q: 'old search', source: 5, hideLater: 'yes', extra: 1 }), L.DEFAULT_FILTERS, 'wrong types and the search are ignored');
   assert.deepEqual(L.filtersFromSaved(null), L.DEFAULT_FILTERS);
+  // the key from before the rename is read while the new one is empty; saving writes the new key only
+  const store = { 'jobpilot.workspace.filters': { verdict: 'long-shot' } }, get = k => store[k] ?? null;
+  assert.equal(L.FILTERS_KEY, 'cometscout.workspace.filters');
+  assert.deepEqual(L.loadFilters(get), { verdict: 'long-shot' });
+  store[L.FILTERS_KEY] = { verdict: 'strong-fit' };
+  assert.deepEqual(L.loadFilters(get), { verdict: 'strong-fit' });
+  assert.equal(L.loadFilters(() => null), null);
 });
 
 test('the pack view: pack.json when there is one; answers.md otherwise, never claiming what no file recorded', () => {
@@ -220,5 +227,5 @@ test('the API client: interview and settings', async () => {
     ['/api/settings', 'GET', null],
     ['/api/settings', 'POST', { days: [1, 2], prep_days: 0 }],
   ]);
-  assert.ok(calls.filter(c => c.opt.method === 'POST').every(c => c.opt.headers['X-Jobpilot'] === '1'));
+  assert.ok(calls.filter(c => c.opt.method === 'POST').every(c => c.opt.headers['X-CometScout'] === '1'));
 });

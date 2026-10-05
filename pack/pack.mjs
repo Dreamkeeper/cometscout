@@ -257,7 +257,7 @@ function toPdf(docx) {
   } else {
     const bin = process.env.SOFFICE || SETTINGS.pack.soffice || 'soffice';
     // one LibreOffice profile per process: two runs at once must not fight over one locked profile
-    const prof = `file://${path.join(os.tmpdir(), `jobpilot-lo-profile-${process.pid}`)}`;
+    const prof = `file://${path.join(os.tmpdir(), `cometscout-lo-profile-${process.pid}`)}`;
     const r = spawnSync(bin, [`-env:UserInstallation=${prof}`, '--headless', '--norestore', '--convert-to', 'pdf', '--outdir', path.dirname(docx), docx], { encoding: 'utf8', timeout: 180000 });
     if (r.status !== 0 || !fs.existsSync(pdf)) throw new Error(`LibreOffice PDF export failed: ${(r.stderr || r.stdout || '').slice(0, 300)}`);
   }
@@ -360,7 +360,7 @@ async function buildPack(file) {
     const iss = textIssues(a.answer); if (iss.length) flags.push(`Answer "${a.field}": ${iss.join('; ')}.`);
     answersLint.push({ field: a.field, ...lintFlags(`Answer "${a.field}"`, a.answer, flags) });
   }
-  const md = [`# ${fm.company}: ${fm.role}`, '', `Link: ${fm.url}`, `Built ${today} by jobpilot (${SETTINGS.llm.provider}/${MODEL}${cost ? `, USD ${cost.toFixed(2)}` : ''}). Form: ${form ? form.ats : 'not readable, open the link'}. Cover letter: ${clNeed}.`, '',
+  const md = [`# ${fm.company}: ${fm.role}`, '', `Link: ${fm.url}`, `Built ${today} by CometScout (${SETTINGS.llm.provider}/${MODEL}${cost ? `, USD ${cost.toFixed(2)}` : ''}). Form: ${form ? form.ats : 'not readable, open the link'}. Cover letter: ${clNeed}.`, '',
     `**CV leads with:** ${pack.positioning}`, '', '## Check before sending', ...(flags.length ? flags.map(f => `- ${f}`) : ['- nothing flagged']), '',
     '## Form answers (drafts)', ...(answers.length ? answers.flatMap(a => [`### ${a.field}${a.own_words ? ' (rewrite in your own words)' : ''}`, '', a.answer, ...(a.note ? [`_${a.note}_`] : []), '']) : ['(no fields to draft)', '']),
     ...(clNeed === 'text' && clText ? ['## Cover letter (paste as text)', clText, ''] : []),

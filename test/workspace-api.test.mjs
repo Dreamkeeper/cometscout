@@ -1,6 +1,6 @@
 // The workspace API (lib/workspace.mjs, lib/server.mjs) on a temp data folder: today's picks and the pool (closed roles
 // left out, later_until), the job and pack payloads, 404s, path traversal on /files/packs/, the Host header check,
-// POST without X-Jobpilot refused, /api/status writing what cli.mjs status writes, a broken applications.json refused,
+// POST without X-CometScout refused, /api/status writing what cli.mjs status writes, a broken applications.json refused,
 // and "later" entries that picks, dedupe, history and the tracker export do not count. Synthetic data only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,15 +12,15 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-ws-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-ws-'));
 const DATA = path.join(tmp, 'data');
 const DAY = new Date().toISOString().slice(0, 10);
 const addDays = n => { const d = new Date(`${DAY}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = DATA;
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = DAY;
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', picks: { per_day: 2, window_days: 14, max_shown: 3, exclude_location_regex: 'atlantis' } }));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = DATA;
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = DAY;
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC', picks: { per_day: 2, window_days: 14, max_shown: 3, exclude_location_regex: 'atlantis' } }));
 fs.mkdirSync(path.join(tmp, 'profile'), { recursive: true });
 fs.writeFileSync(path.join(tmp, 'profile', 'profile.md'), '# Sam Example (synthetic)\n');
 fs.writeFileSync(path.join(tmp, 'profile', 'fact-rules.json'), JSON.stringify({ rules: [{ id: 'team-size', pattern: 'team of \\d+', why: 'Sam never managed a team.' }] }));
@@ -32,7 +32,7 @@ const job = (dir, company, role, { verdict = 'strong-fit', priority = 2, locatio
   const d = addDays(-ago);
   const file = `${d}--${company.toLowerCase().replace(/\W+/g, '-')}--${role.toLowerCase().replace(/\W+/g, '-')}.md`;
   fs.writeFileSync(path.join(DATA, dir, file), ['---', `company: "${company}"`, `role: "${role}"`, `url: "https://jobs.example/${file}"`, `source: "${source}"`, `location: "${location}"`,
-    ...(band ? [`band: "${band}"`] : []), `found: ${d}`, '---', '', `# ${company} - ${role}`, '', 'Synthetic job text about the role.', '', '## Decode Result', `Decoded ${d} by jobpilot (claude/sonnet).`,
+    ...(band ? [`band: "${band}"`] : []), `found: ${d}`, '---', '', `# ${company} - ${role}`, '', 'Synthetic job text about the role.', '', '## Decode Result', `Decoded ${d} by CometScout (claude/sonnet).`,
     `verdict: ${verdict}`, 'confidence: high', `apply_priority: ${priority}`, 'rationale: Fits the synthetic profile.', 'fit_signals: APIs; logistics', 'gaps: none', 'action: Apply today.',
     ...(flags ? [`fact_flags: ${flags}`] : []), ''].join('\n'));
   return file;
@@ -89,7 +89,7 @@ function request(method, p, { headers = {}, body } = {}) {
     req.on('error', reject); if (body !== undefined) req.write(body); req.end();
   });
 }
-const post = (p, obj, headers = {}) => request('POST', p, { headers: { 'Content-Type': 'application/json', 'X-Jobpilot': '1', ...headers }, body: JSON.stringify(obj) });
+const post = (p, obj, headers = {}) => request('POST', p, { headers: { 'Content-Type': 'application/json', 'X-CometScout': '1', ...headers }, body: JSON.stringify(obj) });
 const resetApps = () => fs.writeFileSync(APPS, JSON.stringify(APPS0, null, 1));
 
 test('/api/today: the latest picks in their order, the pool without closed, excluded or old roles', async () => {
@@ -202,24 +202,34 @@ test('only the bound host and port are answered (DNS rebinding); loopback names 
   await assert.rejects(startServer({ host: '0.0.0.0', port: 0, log: () => {} }), /refusing to listen on 0\.0\.0\.0/);
 });
 
-test('POST needs X-Jobpilot: 1 and a JSON body; nothing is written otherwise', async () => {
+test('POST needs X-CometScout: 1 and a JSON body; nothing is written otherwise', async () => {
   resetApps();
   const before = fs.readFileSync(APPS, 'utf8');
   const body = { file: F.pool, status: 'applied' };
-  assert.equal((await post('/api/status', body, { 'X-Jobpilot': '' })).status, 403);
+  assert.equal((await post('/api/status', body, { 'X-CometScout': '' })).status, 403);
   assert.equal((await request('POST', '/api/status', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).status, 403, 'no header');
-  assert.equal((await request('POST', '/api/status', { headers: { 'X-Jobpilot': '1', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'file=x&status=applied' })).status, 415, 'a form post');
-  assert.equal((await request('POST', '/api/status', { headers: { 'X-Jobpilot': '1', 'Content-Type': 'text/plain' }, body: JSON.stringify(body) })).status, 415);
-  assert.equal((await request('POST', '/api/status', { headers: { 'X-Jobpilot': '1', 'Content-Type': 'application/json' }, body: '{nope' })).status, 400);
-  assert.equal((await request('POST', '/api/status', { headers: { 'X-Jobpilot': '1', 'Content-Type': 'application/json' }, body: '[1]' })).status, 400);
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-CometScout': '1', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'file=x&status=applied' })).status, 415, 'a form post');
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-CometScout': '1', 'Content-Type': 'text/plain' }, body: JSON.stringify(body) })).status, 415);
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-CometScout': '1', 'Content-Type': 'application/json' }, body: '{nope' })).status, 400);
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-CometScout': '1', 'Content-Type': 'application/json' }, body: '[1]' })).status, 400);
   assert.equal((await post('/api/status', { file: F.pool, status: 'hired' })).status, 400, 'unknown status');
   assert.equal((await post('/api/status', { file: F.inbox, status: 'applied', note: 3 })).status, 400, 'note must be text');
   assert.equal((await post('/api/status', { file: '../x.md', status: 'applied' })).status, 404);
   assert.equal((await post('/api/status', { file: 'nope.md', status: 'applied' })).status, 404);
   assert.equal((await post('/api/nothing', body)).status, 404);
-  assert.equal((await request('POST', '/api/status', { headers: { 'X-Jobpilot': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, note: 'x'.repeat(70000) }) })).status, 413);
-  assert.equal((await request('PUT', '/api/status', { headers: { 'X-Jobpilot': '1' } })).status, 405);
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-CometScout': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, note: 'x'.repeat(70000) }) })).status, 413);
+  assert.equal((await request('PUT', '/api/status', { headers: { 'X-CometScout': '1' } })).status, 405);
   assert.equal(fs.readFileSync(APPS, 'utf8'), before);
+});
+
+test('the header from before the rename (X-Jobpilot: 1) is still accepted; X-CometScout is what the client sends', async () => {
+  resetApps();
+  const body = JSON.stringify({ file: F.pool, status: 'applied' });
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-Jobpilot': '1', 'Content-Type': 'application/json' }, body })).status, 200);
+  resetApps();
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-CometScout': '1', 'Content-Type': 'application/json' }, body })).status, 200);
+  resetApps();
+  assert.equal((await request('POST', '/api/status', { headers: { 'X-Jobpilot': '0', 'Content-Type': 'application/json' }, body })).status, 403);
 });
 
 test('/api/status writes exactly what cli.mjs status writes for the same input, apart from the event source', async () => {
@@ -391,12 +401,12 @@ test('while the run lock is held, writes answer 409 "busy" and applications.json
   try {
     for (const r of [await post('/api/status', { file: F.pool, status: 'applied' }), await post('/api/later', { file: F.pool, days: 1 })]) {
       assert.equal(r.status, 409);
-      assert.equal(r.json.error, 'jobpilot is busy, try again in a minute');
+      assert.equal(r.json.error, 'CometScout is busy, try again in a minute');
     }
     assert.equal(fs.readFileSync(APPS, 'utf8'), before);
     assert.equal((await request('GET', '/api/today')).status, 200);
     const cli = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'decode', '--no-telegram'], { encoding: 'utf8', env: process.env, timeout: 60000 });
-    assert.match(cli.stdout, /another jobpilot run is in progress/, 'the command line sees the same lock');
+    assert.match(cli.stdout, /another CometScout run is in progress/, 'the command line sees the same lock');
     fs.writeFileSync(LOCK, '999999999');   // a pid that is not running: a stale lock
     assert.equal((await post('/api/later', { file: F.pool, days: 1 })).status, 200);
   } finally { fs.rmSync(LOCK, { force: true }); resetApps(); }

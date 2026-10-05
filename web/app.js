@@ -6,7 +6,7 @@ import { html } from './lib/html.js';
 import { createApi } from './lib/api.js';
 import { makeT } from './lib/labels.js';
 import { keyAction } from './lib/keys.js';
-import { groupItems, order, stepFile, nextAfterAction, findItem, skipNote, statusName, formatDate, SKIP_REASONS, filtersToSave, filtersFromSaved, toLoad } from './lib/logic.js';
+import { groupItems, order, stepFile, nextAfterAction, findItem, skipNote, statusName, formatDate, SKIP_REASONS, filtersToSave, filtersFromSaved, loadFilters, FILTERS_KEY, toLoad } from './lib/logic.js';
 import { List } from './components/List.js';
 import { JobPane, JobHeader } from './components/JobPane.js';
 import { PackPane } from './components/PackPane.js';
@@ -14,7 +14,6 @@ import { ActionBar, SkipDialog, LaterDialog, HelpDialog, InterviewDialog } from 
 import { SettingsDialog } from './components/Settings.js';
 
 const api = createApi();
-const FILTERS_KEY = 'jobpilot.workspace.filters';
 const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode: not remembered */ } };
 
@@ -38,7 +37,7 @@ function App() {
   const [today, setToday] = useState(null);
   const [error, setError] = useState(null);
   // the filters are remembered, the search text is not
-  const [filters, setFiltersState] = useState(() => filtersFromSaved(load(FILTERS_KEY)));
+  const [filters, setFiltersState] = useState(() => filtersFromSaved(loadFilters(load)));
   const setFilters = f => { setFiltersState(f); save(FILTERS_KEY, filtersToSave(f)); };
   const [selected, setSelected] = useState(null);
   const [jobs, setJobs] = useState({});      // file -> { data } | { error }
@@ -58,7 +57,7 @@ function App() {
   const refresh = useCallback(async () => {
     try {
       const [l, d] = await Promise.all([api.labels(), api.today()]);
-      setLabels(l); setToday(d); setError(null); document.title = `jobpilot: ${makeT(l.labels)('ws.title')}`;
+      setLabels(l); setToday(d); setError(null); document.title = `CometScout: ${makeT(l.labels)('ws.title')}`;
       return d;
     } catch (e) { setError(e.message); return null; }
   }, []);
@@ -160,7 +159,7 @@ function App() {
   return html`
     <div class=${`app layout-${layout}${layout === 'narrow' ? (detail ? ' show-detail' : ' show-list') : ''}`}>
       <header class="top">
-        <span class="brand">jobpilot</span>
+        <span class="brand">CometScout</span>
         <span class="title">${t('ws.title')}${today?.date ? ` · ${formatDate(today.date, locale)}` : ''}</span>
         <button type="button" class="btn btn-small" onClick=${() => setDialog('settings')}>${t('ws.settings')}</button>
         <button type="button" class="btn btn-small help-btn" onClick=${() => setDialog('help')} title="?">?</button>
