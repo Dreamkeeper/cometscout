@@ -34,8 +34,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today, fromEnvFile } from './lib/config.mjs';
-import { envSet, oldEnvVars } from './lib/legacy-names.mjs';
+import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, ENV_IGNORED, readJson, secret, today, fromEnvFile } from './lib/config.mjs';
+import { envSet, envVar, oldEnvVars } from './lib/legacy-names.mjs';
 import { readApplications } from './lib/queue.mjs';
 import { setStatus as recordStatus, addInterview } from './lib/applications.mjs';
 import { runBot } from './lib/bot.mjs';
@@ -69,6 +69,7 @@ const node = (file, extra = []) => spawnSync(process.execPath, [path.join(CODE, 
 {
   const active = path.join(ROOT, 'app', 'current', 'cli.mjs'), real = p => { try { return fs.realpathSync(p); } catch { return null; } };
   if (real(CODE) === real(ROOT) && real(active) && real(active) !== real(fileURLToPath(import.meta.url)) && !(cmd === 'update' && rest.includes('--adopt'))) {
+    process.stderr.write(`cometscout: running the installed release (${real(active)}); git pull here no longer changes it, use node cli.mjs update\n`);
     const r = spawnSync(process.execPath, [active, ...process.argv.slice(2)], { stdio: 'inherit' });
     process.exit(r.status ?? 1);
   }
@@ -158,6 +159,9 @@ function doctor() {
     if (lib.warns.length) warn(`vetted CV text has ${lib.warns.length} lint warning(s): ${lib.warns.map(w => `${w.item} (${w.id}${w.id.endsWith('-length') ? `, ${w.match}` : ''})`).join(', ')}`);
   }
   ok(!ENV_PROBLEMS.length, '.env lines', `these lines are not KEY=value and were ignored: ${ENV_PROBLEMS.join(', ')}`);
+  // an update's verify step sets COMETSCOUT_LLM_FAKE on purpose (with COMETSCOUT_LOCK_PARENT)
+  ok(!ENV_IGNORED.length && (!envVar('LLM_FAKE') || !!envVar('LOCK_PARENT')), 'real model calls (no COMETSCOUT_LLM_FAKE)',
+    ENV_IGNORED.length ? `${ENV_IGNORED.join(', ')} in .env is ignored (it is only for the update check and tests): remove the line` : 'unset COMETSCOUT_LLM_FAKE: with it every verdict is a canned answer');
   const enabled = Object.keys(SOURCES).filter(k => k !== 'outcomes' && SETTINGS.sources[k]?.enabled);   // outcomes finds no jobs
   ok(enabled.length > 0, `sources enabled: ${enabled.join(', ') || 'none'}`, 'enable at least one source in settings.json');
   const unknown = Object.keys(SETTINGS.sources).filter(k => !SOURCES[k]);

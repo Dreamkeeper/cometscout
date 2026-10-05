@@ -123,11 +123,26 @@ test('launchDetached: systemd-run --user on systemd hosts, else a detached child
   assert.equal(runs[0][0], 'systemd-run');
   assert.ok(runs[0].includes('--user') && runs[0].includes('--collect') && runs[0].includes(`--setenv=COMETSCOUT_HOME=${tmp}`));
   assert.deepEqual(runs[0].slice(-3), ['update', '--to', 'v0.3.0']);
+  // a systemd host where systemd-run fails: refused, never a child left in the bot's cgroup (the update restarts the bot)
+  const refused = U.launchDetached(['update'], { systemd: true, now: NOW, run: () => ({ status: 1 }), spawn: () => assert.fail('no spawn') });
+  assert.deepEqual([refused.ok, refused.how], [false, 'refused']); assert.match(refused.message, /node cli\.mjs update in a shell/);
   const spawned = [];
-  const d = U.launchDetached(['update'], { systemd: true, now: NOW, run: () => ({ status: 1 }), spawn: (cmd, args, opts) => { spawned.push({ args, opts }); return { unref() {} }; } });
-  assert.equal(d.how, 'detached', 'systemd-run failing falls back to a detached child');
+  const d = U.launchDetached(['update'], { systemd: false, now: NOW, spawn: (cmd, args, opts) => { spawned.push({ args, opts }); return { unref() {} }; } });
+  assert.equal(d.how, 'detached', 'no systemd: a detached child');
   assert.equal(spawned[0].opts.detached, true); assert.equal(spawned[0].opts.env.COMETSCOUT_HOME, tmp);
   assert.ok(fs.existsSync(d.log));
+  assert.equal(U.updateAction('now', '0.3.0', { launch: () => refused, busy: () => null, current: '0.2.0' }).ok, false);
+});
+
+test('defaultVerify: a doctor TODO the previous release did not print fails; the same TODOs pass', () => {
+  const out = { old: 'ok  Node 20\nTODO profile/profile.md missing', same: 'ok  Node 22\nTODO profile/profile.md missing', worse: 'TODO profile/profile.md missing\nTODO settings.json: schedule.days is not a list' };
+  const cli = which => (dir, args) => ({ ok: true, out: args[0] === 'doctor' ? out[dir === 'old' ? 'old' : which] : '' });
+  assert.equal(U.defaultVerify('new', { cli: cli('same'), before: null }).ok, true, 'no previous release: exit codes only');
+  fs.mkdirSync(path.join(tmp, 'old-release'), { recursive: true }); fs.writeFileSync(path.join(tmp, 'old-release', 'cli.mjs'), '');
+  const asOld = which => (dir, args) => cli(which)(dir === path.join(tmp, 'old-release') ? 'old' : dir, args);
+  assert.equal(U.defaultVerify('new', { cli: asOld('same'), before: path.join(tmp, 'old-release') }).ok, true);
+  const bad = U.defaultVerify('new', { cli: asOld('worse'), before: path.join(tmp, 'old-release') });
+  assert.deepEqual([bad.ok, bad.step], [false, 'doctor']); assert.match(bad.detail, /new TODO: TODO settings\.json: schedule\.days is not a list/);
 });
 
 test('botRunning: bot.json touched in the last 3 minutes', () => {

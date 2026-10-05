@@ -198,7 +198,7 @@ const DEAD_TEXT = /No longer accepting applications|This job is no longer availa
 const HH_PAGE = /(^|[/.])hh\.ru\/vacancy\//i, HH_DEAD = /data-qa="vacancy-title-archived-text"|В архиве с|Вакансия в архиве|vacancy-archived/;
 const HIRIFY_PAGE = /(^|[/.])hirify\.me\/jobs\//i, HIRIFY_DEAD = /Эта вакансия в архиве|This vacancy is archived/i;
 export async function linkAlive(url, { fetch = globalThis.fetch } = {}) {
-  if (!/^https?:/.test(url || '')) return true;
+  if (!/^https?:/.test(url || '') || envVar('NO_LINK_CHECK')) return true;   // NO_LINK_CHECK: the update's verify step
   try {
     const ash = String(url).match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([0-9a-f-]{36})/i);
     if (ash) {
