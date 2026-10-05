@@ -84,8 +84,10 @@ test('cli.mjs timer replaces old units: the old timer and bot are stopped and di
   const runs = [];
   const r = installTimer({ time: '19:30', tz: 'UTC', bot: true, dir, run: (cmd, args) => runs.push([cmd, ...args].join(' ')), stdio: 'ignore' });
   assert.equal(r.code, 0);
-  assert.deepEqual(runs, ['systemctl --user stop jobpilot.timer', 'systemctl --user disable jobpilot.timer', 'systemctl --user stop jobpilot-bot.service', 'systemctl --user disable jobpilot-bot.service',
-    'systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-bot.service']);
+  // new units first; the old bot is stopped last and without blocking (this may be running inside it)
+  assert.deepEqual(runs, ['systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-bot.service',
+    'systemctl --user stop jobpilot.timer', 'systemctl --user disable jobpilot.timer', 'systemctl --user disable jobpilot-bot.service',
+    'systemctl --user daemon-reload', 'systemctl --user stop --no-block jobpilot-bot.service']);
   assert.ok(r.lines.some(l => /Removed the units from before the rename: jobpilot\.timer/.test(l)));
   for (const u of L.OLD_UNITS) assert.ok(!fs.existsSync(path.join(dir, u)), u);
   assert.ok(!fs.existsSync(path.join(dir, 'timers.target.wants', 'jobpilot.timer')));
@@ -190,9 +192,11 @@ test('the commands: cometscout and jobpilot both point at cli.mjs; help exits 0'
 
 test('install.sh: the new names, JOBPILOT_TIME still read, an old ~/jobpilot install found and left in place', () => {
   const sh = fs.readFileSync(path.join(ROOT, 'deploy', 'install.sh'), 'utf8');
-  assert.match(sh, /node cli\.mjs timer "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}"/);
+  assert.match(sh, /node cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}"/);
   assert.match(sh, /OLD_HOME="\$HOME\/jobpilot"/);
   assert.match(sh, /It is left as it is/);
+  // the old install keeps its units (and keeps running) until it is moved
+  assert.match(sh, /KEEP_OLD="--keep-old-units"/);
   assert.match(sh, /node cli\.mjs export --out .* node cli\.mjs import --from /s);
   assert.ok(fs.existsSync(path.join(ROOT, 'deploy', 'cometscout-failure@.service')));
 });
@@ -206,4 +210,20 @@ test('export-secrets: the default file name is cometscout-secrets-<date>.enc; th
   const out = path.join(cwd, 'cometscout-secrets-2026-10-05.enc');
   assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).format, 'cometscout-secrets');
   assert.equal(S.importSecrets({ from: out, passphrase: 'old-variable-pass', dryRun: true }).dryRun, true);
+});
+
+test('timer: a failed systemctl leaves the old units running; --keep-old-units keeps them on purpose', () => {
+  const mk = name => { const d = path.join(tmp, name); fs.mkdirSync(d, { recursive: true }); for (const u of L.OLD_UNITS) fs.writeFileSync(path.join(d, u), '[Unit]\n'); return d; };
+  const dir = mk('units-fail'), runs = [];
+  const r = installTimer({ time: '19:30', tz: 'UTC', bot: false, dir, stdio: 'ignore', run: (cmd, args) => { runs.push(args.join(' ')); return { status: args.includes('enable') ? 1 : 0 }; } });
+  assert.equal(r.code, 1);
+  assert.match(r.lines.join('\n'), /systemctl --user failed: enable --now cometscout\.timer.*nothing old was removed/s);
+  assert.ok(!runs.some(x => /jobpilot/.test(x)), 'no old unit touched');
+  for (const u of L.OLD_UNITS) assert.ok(fs.existsSync(path.join(dir, u)), u);
+  const keep = mk('units-keep'), runs2 = [];
+  const k = installTimer({ time: '19:30', tz: 'UTC', bot: false, dir: keep, stdio: 'ignore', keepOld: true, run: (cmd, args) => { runs2.push(args.join(' ')); return { status: 0 }; } });
+  assert.equal(k.code, 0);
+  assert.deepEqual(runs2, ['--user daemon-reload', '--user enable --now cometscout.timer']);
+  assert.match(k.lines.join('\n'), /Kept the units of the older install/);
+  for (const u of L.OLD_UNITS) assert.ok(fs.existsSync(path.join(keep, u)), u);
 });

@@ -10,11 +10,13 @@ cd "$(dirname "$0")/.."
 HOME_DIR="$(pwd)"
 
 OLD_HOME="$HOME/jobpilot"
+KEEP_OLD=""
 if [ -d "$OLD_HOME" ] && [ "$(cd "$OLD_HOME" && pwd -P)" != "$(pwd -P)" ] && { [ -f "$OLD_HOME/settings.json" ] || [ -d "$OLD_HOME/data" ]; }; then
   echo "==> Found an older install in $OLD_HOME (CometScout was called jobpilot). It is left as it is."
   echo "    To move it here: in $OLD_HOME run node cli.mjs export --out ~/move.zip and node cli.mjs export-secrets --out ~/move-secrets.enc,"
   echo "    then here: node cli.mjs import --from ~/move.zip and node cli.mjs import-secrets --from ~/move-secrets.enc."
-  echo "    node cli.mjs timer (run below) replaces its systemd units with the CometScout ones."
+  echo "    Its systemd units keep running next to the new ones until you move it; then run node cli.mjs timer here to remove them."
+  KEEP_OLD="--keep-old-units"
 fi
 
 echo "==> Packages (Python, LibreOffice for PDF export, fonts)"
@@ -52,7 +54,7 @@ echo "==> Daily timer and failure alert (systemd user units)"
 # The run unit gets OnFailure=cometscout-failure@%n.service: a failed run sends a Telegram alert through
 # "node cli.mjs notify" (template: deploy/cometscout-failure@.service, installed with the paths filled in).
 sudo loginctl enable-linger "$USER"
-node cli.mjs timer "${COMETSCOUT_TIME:-${JOBPILOT_TIME:-}}" || true
+node cli.mjs timer ${KEEP_OLD} "${COMETSCOUT_TIME:-${JOBPILOT_TIME:-}}" || true
 
 echo "==> Check"
 node cli.mjs doctor

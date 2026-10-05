@@ -8,7 +8,7 @@
 //                                    # add --manual to record a role that is not in the queue (it does not affect picks)
 //   node cli.mjs list                # what is recorded
 //   node cli.mjs doctor              # check the setup, one line per item
-//   node cli.mjs timer [HH:MM]       # (re)install the daily timer from settings.json (schedule.time, timezone); with Telegram on, also the bot unit
+//   node cli.mjs timer [HH:MM] [--keep-old-units]  # (re)install the daily timer from settings.json (schedule.time, timezone); with Telegram on, also the bot unit; removes the units from before the rename unless --keep-old-units
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
 //   node cli.mjs export [--out file.zip|folder] [--data-only]   # data, profile and settings; .env is never exported
 //   node cli.mjs export --csv <file.csv>                        # applications as a spreadsheet
@@ -99,8 +99,9 @@ function setStatus(company, status, words, note, manual) {
   return r.code;
 }
 
-function timer(at) {
-  const r = installTimer({ time: at || scheduleOf().time });
+function timer(...a) {
+  const keepOld = a.includes('--keep-old-units'), at = a.find(x => x && !x.startsWith('--'));
+  const r = installTimer({ time: at || scheduleOf().time, keepOld });
   for (const l of r.lines) console.log(l);
   if (!r.code) spawnSync('systemctl', ['--user', 'list-timers', UNITS.timer, '--no-pager'], { stdio: 'inherit' });
   return r.code;
@@ -245,7 +246,7 @@ const codes = {
   },
   list: () => { for (const a of Object.values(readJson(APPS, {}))) console.log(`${a.updated || '?'}  ${String(a.status || '?').padEnd(9)} ${a.company}: ${a.role}${a.events?.length ? `  (${a.events.length} event(s), last ${a.events[a.events.length - 1].date || '?'})` : ''}`); return 0; },
   doctor: () => { doctor(); return 0; },
-  timer: () => timer(rest[0]),
+  timer: () => timer(...rest),
   reset: locked(() => {
     if (!rest.includes('--yes')) { console.log(`This deletes everything in ${DATA} (queue, decodes, picks, packs, seen lists, applications). Run again with --yes to confirm.`); return 1; }
     for (const d of Object.values(DIRS)) for (const f of fs.readdirSync(d)) if (f !== 'run.lock') fs.rmSync(path.join(d, f), { recursive: true, force: true });

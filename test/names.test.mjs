@@ -15,7 +15,7 @@ const WHOLE = [/^lib\/legacy-names\.mjs$/, /^test\//, /^docs\/tasks\/(0[1-9]|1[0
 const ALLOWED = {
   'package.json': [/^\s*"jobpilot": "cli\.mjs",?$/],
   'package-lock.json': [/^\s*"jobpilot": "cli\.mjs",?$/],
-  'deploy/install.sh': [/CometScout was called jobpilot/, /^OLD_HOME="\$HOME\/jobpilot"$/, /^node cli\.mjs timer "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}" \|\| true$/],
+  'deploy/install.sh': [/CometScout was called jobpilot/, /^OLD_HOME="\$HOME\/jobpilot"$/, /^node cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}" \|\| true$/],
   'web/lib/logic.js': [/^const OLD_FILTERS_KEY = 'jobpilot\.workspace\.filters';$/],
 };
 // one line per doc may say what the product was called
