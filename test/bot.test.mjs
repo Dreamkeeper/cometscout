@@ -121,3 +121,19 @@ test('the bot speaks the locale', async () => {
   await bot.handle(msg('/schedule'));
   assert.equal(transport.calls[0].params.text, 'Дни сводки: пн, вт\nВремя: 18:00 (UTC)\nПодготовка к собеседованию: выключена');
 });
+
+test('prototype names are not commands or buttons; a press that changes nothing edits nothing', async () => {
+  const { transport, bot } = make();
+  await bot.handle(msg('/__proto__')); await bot.handle(msg('/constructor'));
+  assert.deepEqual(transport.calls.map(c => c.method), ['sendMessage', 'sendMessage']);
+  assert.match(transport.calls[0].params.text, /^Unknown command/); assert.match(transport.calls[1].params.text, /^Unknown command/);
+  transport.calls.length = 0;
+  const before = fs.readFileSync(process.env.JOBPILOT_SETTINGS, 'utf8');
+  const r = await bot.handle(press('constructor:x'));
+  assert.equal(r.ok, false);
+  assert.equal(fs.readFileSync(process.env.JOBPILOT_SETTINGS, 'utf8'), before);
+  transport.calls.length = 0;
+  const cur = settings().picks?.prep?.days_before ?? 2;
+  await bot.handle(press(`prep:${cur}`));
+  assert.deepEqual(transport.calls.map(c => c.method), ['answerCallbackQuery'], 'no editMessageText when the view is the same');
+});

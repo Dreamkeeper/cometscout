@@ -387,7 +387,7 @@ Corrections go in `data/state/tracker-overrides.json`. `company` matches the com
 }
 ```
 
-Price keys are source names as the job files carry them (`rtj`, `linkedin`, `hh`, `hirify`, `ats:greenhouse` ...). A source with a `:` and no price of its own uses the price of the part before it, so `openclaw` prices `openclaw:web-search`. `feed: false` is a paid service that is not a job feed; it is listed under the table. To know which jobs two sources found, every job a source hands over, a duplicate too, is logged to `data/state/sightings.jsonl` (kept 120 days; `node cli.mjs run` drops older lines before its sources start). `--send` also sends a short version to Telegram (one line per source) on the 1st of the month and when a `renews` date is 7 days away or less, once each time. With `enabled`, `node cli.mjs run` does that after the digest.
+Price keys are source names as the job files carry them (`rtj`, `linkedin`, `hh`, `hirify`, `ats:greenhouse` ...). A source with a `:` and no price of its own uses the price of the part before it, so `openclaw` prices `openclaw:web-search`. `feed: false` is a paid service that is not a job feed; it is listed under the table. To know which jobs two sources found, every job a source hands over, a duplicate too, is logged to `data/state/sightings.jsonl` (kept 120 days; `node cli.mjs run` drops older lines before its sources start). `--send` also sends a short version to Telegram (one line per source) once a month (on the first digest day of its first week) and when a `renews` date is 7 days away or less, once each time. With `enabled`, `node cli.mjs run` does that after the digest.
 
 ### Running unattended: health ping and failure alert
 

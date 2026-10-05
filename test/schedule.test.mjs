@@ -142,7 +142,7 @@ test('the timer units: the bot unit only with Telegram on; installTimer writes t
   assert.ok(!plain['jobpilot-bot.service']);
   const u = unitFiles({ root: '/srv/jp', node: '/usr/bin/node', time: '18:30', envPath: '/usr/bin', bot: true });
   assert.match(u['jobpilot-bot.service'], /^ExecStart=\/usr\/bin\/node \/srv\/jp\/cli\.mjs bot$/m);
-  assert.match(u['jobpilot-bot.service'], /^Restart=always$/m);
+  assert.match(u['jobpilot-bot.service'], /^Restart=on-failure$/m);
   const dir = path.join(tmp, 'units'), runs = [];
   const r = installTimer({ time: '07:15', tz: 'UTC', bot: true, dir, run: (cmd, args) => runs.push([cmd, ...args].join(' ')), stdio: 'ignore' });
   assert.equal(r.code, 0);
@@ -150,4 +150,14 @@ test('the timer units: the bot unit only with Telegram on; installTimer writes t
   assert.ok(fs.existsSync(path.join(dir, 'jobpilot-bot.service')));
   assert.deepEqual(runs, ['systemctl --user daemon-reload', 'systemctl --user enable --now jobpilot.timer', 'systemctl --user enable --now jobpilot-bot.service']);
   assert.equal(installTimer({ time: '7:15', dir, run: () => {} }).code, 1);
+});
+
+test('settings writer keeps CRLF line endings', () => {
+  const crlf = path.join(tmp, 'settings-crlf.json');
+  fs.writeFileSync(crlf, '{\r\n  "timezone": "Europe/Madrid",\r\n  "schedule": { "days": [1, 2, 3, 4, 5, 6, 7], "time": "18:00" }\r\n}\r\n');
+  const r = writeSettings({ days: [1, 2, 3, 4, 5] }, { file: crlf, reinstall: () => ({ done: true }) });
+  assert.equal(r.ok, true);
+  const out = fs.readFileSync(crlf, 'utf8');
+  assert.ok(!/[^\r]\n/.test(out), 'every newline is CRLF');
+  assert.deepEqual(JSON.parse(out).schedule.days, [1, 2, 3, 4, 5]);
 });
