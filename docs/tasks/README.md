@@ -24,3 +24,4 @@ How to work on one:
 | 12 | `12-releases-and-updates.md` release notes, update check and notification (notify only), update with backup, migrations, verify and automatic rollback, manual rollback, What is new | 11 |
 | 13 | `13-coach-onboarding.md` interview coach as an optional onboarding step: upstream installer, hand-off file from the profile, CV library, voice and applications | none |
 | 14 | `14-accepted-status.md` status "accepted" for jobs the user holds: hand-off section, Today and follow-ups skip them, tracker and scorecard mapping | none |
+| 15 | `15-digest-days-and-interview-prep.md` digest days and time as settings (workspace + Telegram bot commands), off days decode silently, interview prep mode before new applications, interview date and time recording | 14 |
