@@ -192,7 +192,7 @@ test('the commands: cometscout and jobpilot both point at cli.mjs; help exits 0'
 
 test('install.sh: the new names, JOBPILOT_TIME still read, an old ~/jobpilot install found and left in place', () => {
   const sh = fs.readFileSync(path.join(ROOT, 'deploy', 'install.sh'), 'utf8');
-  assert.match(sh, /node cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}"/);
+  assert.match(sh, /node app\/current\/cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}"/);
   assert.match(sh, /OLD_HOME="\$HOME\/jobpilot"/);
   assert.match(sh, /It is left as it is/);
   // the old install keeps its units (and keeps running) until it is moved

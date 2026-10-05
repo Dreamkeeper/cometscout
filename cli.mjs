@@ -19,11 +19,17 @@
 //   node cli.mjs sources-report [--send]                     # which source earns its price (data/reports/source-scorecard.md)
 //   node cli.mjs notify <text>                               # send one Telegram message (the failure alert unit uses it)
 //   node cli.mjs serve [--port 8787] [--host 127.0.0.1]      # the workspace (preview): today's picks, decode and pack in the browser
+//   node cli.mjs serve --check                               # start it on a free port, ask it for the page and today's data, stop (the update's check)
 //   node cli.mjs coach-handoff [--out <file>]                # profile, CV, voice and applications for the interview coach's kickoff
 //                                    # (default: materials/cometscout-handoff.md in the coach's folder; the run refreshes it when modules.coach.enabled)
 //   node cli.mjs interview <company> <YYYY-MM-DD> [HH:MM] [role words] [--round "..."] [--manual]
 //                                    # record a booked interview (time in settings.timezone); prep mode uses it
-//   node cli.mjs bot                 # the Telegram bot: /schedule, /time, /interview, /help (cli.mjs timer installs it as a service)
+//   node cli.mjs bot                 # the Telegram bot: /schedule, /time, /interview, /update, /help (cli.mjs timer installs it as a service)
+//   node cli.mjs update [--to vX.Y.Z]                        # back up, install side by side, migrate, switch, verify; rolls back by itself on failure
+//   node cli.mjs update --check | --tonight [vX.Y.Z] | --skip vX.Y.Z   # ask GitHub now; install after tonight's run; never offer this version again
+//   node cli.mjs update --adopt [--no-units] [--keep-old-units]         # move a git-clone install's code into app/releases (once)
+//   node cli.mjs rollback [--to vX.Y.Z] [--restore-data [--yes]]        # switch the code back; --restore-data also restores the pre-update backup
+//   node cli.mjs migrate [--dry-run]                         # apply this version's data migrations (an update runs it)
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -51,11 +57,22 @@ import { sendText, telegramOn } from './lib/telegram.mjs';
 import { startServer, vendorCheck } from './lib/server.mjs';
 import { takeLock } from './lib/lock.mjs';
 import { coachDoctor, coachHandoff, refreshHandoff } from './lib/coach.mjs';
+import { updateCommands } from './lib/update-cli.mjs';
+import { afterRun as updateAfterRun, updateDoctor } from './lib/update.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (COMETSCOUT_HOME) is where profile/ and settings live, which may be elsewhere.
 const CODE = path.dirname(fileURLToPath(import.meta.url));
 const node = (file, extra = []) => spawnSync(process.execPath, [path.join(CODE, file), ...extra], { stdio: 'inherit' }).status;
+// A git clone that is its own home and has moved its code to app/releases (cli.mjs update --adopt) hands every command
+// to app/current, so "node cli.mjs ..." in the home always runs the active release; --adopt itself runs here.
+{
+  const active = path.join(ROOT, 'app', 'current', 'cli.mjs'), real = p => { try { return fs.realpathSync(p); } catch { return null; } };
+  if (real(CODE) === real(ROOT) && real(active) && real(active) !== real(fileURLToPath(import.meta.url)) && !(cmd === 'update' && rest.includes('--adopt'))) {
+    const r = spawnSync(process.execPath, [active, ...process.argv.slice(2)], { stdio: 'inherit' });
+    process.exit(r.status ?? 1);
+  }
+}
 // outcomes reads application results from Gmail; it runs with the sources, so the decoder already knows what closed
 // career_ops: reads a career-ops checkout, never writes to it
 // hh_alerts: hh.ru alert emails (Gmail + the public vacancy page); hirify: saved filters, read with the user's session cookie
@@ -178,6 +195,7 @@ function doctor() {
   ok(!!spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['--version']).stdout, 'Python 3 (packs the DOCX files)', 'install python3');
   for (const b of backupDoctor()) if (b.level === 'warn') warn(`${b.text}  ->  ${b.fix}`); else ok(b.level === 'ok', b.text, b.fix);
   for (const c of coachDoctor()) ok(c.level === 'ok', c.text, c.fix);   // modules.coach (optional)
+  for (const u of updateDoctor()) ok(u.level === 'ok', u.text, u.fix);   // app/releases and the update check (lib/update.mjs)
   // leftovers from before the rename to CometScout (lib/legacy-names.mjs): they still work, for a release or two
   for (const u of oldUnitsDoctor()) warn(`${u.text}  ->  ${u.fix}`);
   for (const v of oldEnvVars()) warn(`${v.old} is read as ${v.new}  ->  rename it in ${fromEnvFile(v.old) ? '.env' : 'your environment (shell profile, systemd unit or hook)'}`);
@@ -208,6 +226,8 @@ async function evening() {
   const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];
   if (closing.length) console.log(`cometscout: run finished; ${closing.join('; ')}`);
   await nightlyBackup({ alert: text => notify(text, { send: sendText, on: telegramOn }) });   // backup.nightly; never fails the run
+  // the update check (settings.update); a newer version is announced once, a Tonight update starts after this run; never fails the run
+  if (!PROFILE.isExample) await updateAfterRun({ quiet: off });
   return failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
 }
 
@@ -215,6 +235,7 @@ async function evening() {
 async function serve() {
   // a flag given without a value ("--port" last, or followed by another flag) is an error, never the default
   const opt = n => { const i = rest.indexOf(`--${n}`); if (i < 0) return undefined; const v = rest[i + 1]; return v === undefined || v.startsWith('--') ? '' : v; };
+  if (rest.includes('--check')) return serveCheck();
   const port = opt('port') ?? '8787', host = opt('host') ?? '127.0.0.1', unsafeNoAuth = rest.includes('--unsafe-no-auth');
   if (port === '') { console.log('--port needs a number, e.g. --port 8787'); return 1; }
   if (!/^\d{1,5}$/.test(port) || Number(port) > 65535) { console.log(`--port must be a number from 0 to 65535, got "${port}"`); return 1; }
@@ -225,6 +246,19 @@ async function serve() {
   const stop = () => { s.close().then(() => process.exit(0)); };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
   await new Promise(() => {});
+}
+
+/** serve --check: the workspace starts, answers the page and /api/today, and stops. */
+async function serveCheck() {
+  let s; try { s = await startServer({ host: '127.0.0.1', port: 0, log: () => {} }); } catch (e) { console.log(`serve --check: ${e.message}`); return 1; }
+  try {
+    for (const p of ['', 'api/today', 'api/labels']) {
+      const r = await fetch(s.url + p, { signal: AbortSignal.timeout(20000) });
+      if (r.status !== 200) { console.log(`serve --check: /${p} answered ${r.status}: ${(await r.text()).slice(0, 200)}`); return 1; }
+      await r.arrayBuffer();
+    }
+    console.log('serve --check: the workspace answers'); return 0;
+  } catch (e) { console.log(`serve --check: ${e.message}`); return 1; } finally { await s.close(); }
 }
 
 const locked = fn => () => { const busy = lock(); if (busy) { console.log(busy); return 1; } return fn(); };
@@ -285,6 +319,7 @@ const codes = {
     return coachHandoff({ out: i >= 0 ? rest[i + 1] : undefined });
   },
   ...archiveCommands({ rest, locked }),
+  ...updateCommands({ rest, locked }),
 };
 const help = !cmd || ['help', '--help', '-h'].includes(cmd);
 if (help || !codes[cmd]) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).join('\n')); process.exit(help ? 0 : 1); }

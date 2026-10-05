@@ -39,7 +39,7 @@ Updates are notify only: a daily check, release notes in the bot and the workspa
 |---|---|---|
 | Export v2 (ZIP), import with conflict modes, encrypted secrets export, nightly backups, restore | `docs/tasks/11-export-v2-and-backups.md` | ✅ |
 | The rename to CometScout in the code: new names written and printed, the old ones still read (`lib/legacy-names.mjs`), old units replaced by `cli.mjs timer` | `docs/tasks/16-rename-to-cometscout.md` | ✅ |
-| Releases, update notifications, update and rollback, What is new | `docs/tasks/12-releases-and-updates.md` | ⏳ (after 11 and 16) |
+| Releases (`release.json`, generated `CHANGELOG.md`, `docs/RELEASING.md`), the `app/releases` layout with `app/current` and `update --adopt`, the update check with the Telegram notice and bot buttons, `cli.mjs update` (backup, side-by-side install, migrations, verify, automatic rollback), `cli.mjs rollback`, What is new in the workspace | `docs/tasks/12-releases-and-updates.md` | ✅ |
 
 ## Evals (M3)
 

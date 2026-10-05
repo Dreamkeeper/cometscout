@@ -2,6 +2,7 @@
 // Decoder: judge each new job in data/inbox against the candidate profile, move it to decoded/ or rejected/,
 // choose today's "Apply today" picks, write a digest and send it to Telegram.
 // Usage: node decoder/decoder.mjs [--dry-run] [--no-telegram] [--picks] [--cap 30]
+//        node decoder/decoder.mjs --dry-run --file <queue file name>   # decode one job again, write nothing (the update's check)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +22,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const flag = n => args.includes(`--${n}`);
 const DRY = flag('dry-run'), NO_TG = flag('no-telegram') || DRY, PICKS_ONLY = flag('picks');
+const ONE = (i => (i >= 0 ? args[i + 1] || '' : null))(args.indexOf('--file'));
 const CAP = num((i => (i >= 0 ? args[i + 1] : null))(args.indexOf('--cap')) ?? SETTINGS.decoder?.cap, 30, 1);
 const MAX_TRIES = num(SETTINGS.decoder?.max_tries, 3, 1);
 const MIN_TEXT = 300;
@@ -325,6 +327,12 @@ async function main() {
     const pk = await choosePicks(), t = translator();
     console.log([...prepLines(pk.prep, t), ...(pk.prep && !pk.picks.length ? [t('prep.wait', { n: pk.prep.wait })] : []), ...picksText(pk)].join('\n') || t('picks.none', { open: pk.open }));
     process.exit(0);
+  }
+  if (ONE !== null) {
+    // one queue file (inbox, decoded or rejected), decoded again with nothing written: no move, no digest, no hook
+    if (!DRY || !ONE || ONE !== path.basename(ONE)) { log('decoder: --file needs --dry-run and a file name from data/inbox, decoded or rejected'); process.exit(1); }
+    try { const v = await decodeOne(ONE, buildPrompt() + contextBlock()); log(`${ONE}: ${v.verdict} (dry run, nothing written)`); process.exit(0); }
+    catch (e) { log(`${ONE}: FAILED ${e.message}`); process.exit(1); }
   }
   // CometScout's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
   // into data/inbox on its own schedule, set decoder.settle_sec (e.g. 60) so half-written files are left for later.

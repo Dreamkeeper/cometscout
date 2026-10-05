@@ -18,7 +18,7 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`, `interview`, `bot`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`, `interview`, `bot`, `update`, `rollback`, `migrate`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
@@ -35,6 +35,10 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 | `lib/archive.mjs` | Export / import (`cometscout-export` v2 zip or folder; reads v1 folders and tar.gz), conflict modes |
 | `lib/zip.mjs` | ZIP reader and writer on `node:zlib` (DEFLATE/STORE, UTF-8 names, CRC-32, ZIP64, zip-slip refusals) |
 | `lib/backup.mjs`, `lib/secrets.mjs`, `lib/csv.mjs` | Backups (prune, restore, offsite copy, doctor lines), encrypted `.env` export, applications as CSV |
+| `release.json`, `CHANGELOG.md`, `tools/changelog.mjs`, `lib/release.mjs` | Release notes, one entry per version (the only source); the changelog and GitHub release texts are generated from it; versions, validation, notes per locale |
+| `lib/layout.mjs` | Where the code lives: `app/releases/vX.Y.Z/` in the home and the `app/current` link, file lists for local edits, pruning, `update --adopt` |
+| `lib/update.mjs`, `lib/update-cli.mjs` | The update check (GitHub releases API, channels, cache), the notice and buttons, the detached launch, `update` (preflight, backup, install, migrate, switch, verify, rollback), `rollback`, What is new |
+| `lib/migrate.mjs`, `migrations/` | Data migrations: `migrations/NNN-name.mjs` exporting `{ id, up(ctx) }`, applied once each, recorded in `data/state/schema.json` |
 | `lib/archive-cli.mjs` | The export, import, secrets and backup commands of `cli.mjs` |
 | `lib/telegram.mjs`, `lib/gmail.mjs` | Delivery, read-only Gmail |
 | `lib/i18n.mjs` | `settings.locale` label tables (`en`, `ru`) for the digest, picks, pack messages and the scorecard's Telegram text |
@@ -58,6 +62,16 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 4. `--dry-run` must write nothing.
 5. Tests with synthetic fixtures under `test/fixtures/<name>/`; no network in tests (inject `fetch` or read fixtures).
 6. Document the settings keys in the file header, `settings.example.json` (disabled by default) and `README.md`.
+
+## Data migrations
+
+A release that changes stored data ships a migration: `migrations/NNN-name.mjs` (the next free number) exporting `id` (the file name without `.mjs`) and `async up(ctx)`, and lists the id in its `release.json` entry. `ctx` has `root`, `data`, `state(name)`, `settingsFile`, `readJson`, `writeJson` (atomic) and `log`. `node cli.mjs migrate` (an update runs the new release's own) applies the ones `data/state/schema.json` does not list yet, in order, and records each right after it ran. Write each one so it can run again safely (check before you write).
+
+**Expand, then contract.** A release only adds files and fields that the previous release ignores. Removing or renaming a file or a field waits for the release after that, once no supported version reads the old shape. So the previous release always runs on the newer data, and switching the code back (`cli.mjs rollback`, or an update that failed its checks) is always safe. A migration never deletes or rewrites data the previous release needs.
+
+## Releases
+
+`docs/RELEASING.md` is the maintainer's checklist: the `package.json` version, the `release.json` entry (`test/release.test.mjs` fails without it), `node tools/changelog.mjs`, the tag and the GitHub release with its sha256.
 
 ## Before you open a pull request
 

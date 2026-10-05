@@ -6,3 +6,5 @@ data/
 backups/
 node_modules/
 *.log
+# the release folders of an install (cli.mjs update)
+app/
