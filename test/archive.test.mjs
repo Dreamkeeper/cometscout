@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const CODE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(CODE, 'cli.mjs');
 const PKG = JSON.parse(fs.readFileSync(path.join(CODE, 'package.json'), 'utf8'));
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-archive-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-archive-'));
 const home = path.join(tmp, 'home');
 const PLANTED = 'planted-secret-value-7f3a9c';
 const COOKIE = 'planted-cookie-value-1b2c3d';
@@ -20,9 +20,9 @@ fs.mkdirSync(path.join(home, 'profile'), { recursive: true });
 fs.writeFileSync(path.join(home, 'profile', 'profile.md'), '# Alex Example\nsynthetic facts');
 fs.writeFileSync(path.join(home, '.env'), `RTJ_API_TOKEN=${PLANTED}\n`);
 fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ candidate_name: 'Alex Example', timezone: 'UTC' }));
-process.env.JOBPILOT_HOME = home;
-process.env.JOBPILOT_DATA = path.join(home, 'data');
-delete process.env.JOBPILOT_SETTINGS;
+process.env.COMETSCOUT_HOME = home;
+process.env.COMETSCOUT_DATA = path.join(home, 'data');
+delete process.env.COMETSCOUT_SETTINGS;
 const { DATA } = await import('../lib/config.mjs');
 const { exportArchive, importArchive, openArchive, defaultExportName, collect, SCHEMA_VERSION } = await import('../lib/archive.mjs');
 const { readZip, readEntry } = await import('../lib/zip.mjs');
@@ -43,7 +43,7 @@ put('state/half.json.tmp', '{');
 const cli = (args, env = {}) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', cwd: tmp, env: { ...process.env, ...env } });
 function freshHome(name) {
   const h = path.join(tmp, name); fs.mkdirSync(h, { recursive: true });
-  return { home: h, env: { JOBPILOT_HOME: h, JOBPILOT_DATA: path.join(h, 'data') } };
+  return { home: h, env: { COMETSCOUT_HOME: h, COMETSCOUT_DATA: path.join(h, 'data') } };
 }
 async function allEntries(zipFile) {
   const z = readZip(zipFile); const out = {};
@@ -58,7 +58,7 @@ test('a v2 zip carries data, profile and settings with a full manifest; never se
   const r = await exportArchive({ out });
   const files = await allEntries(out);
   const m = JSON.parse(files['manifest.json'].toString('utf8'));
-  assert.equal(m.format, 'jobpilot-export'); assert.equal(m.version, 2);
+  assert.equal(m.format, 'cometscout-export'); assert.equal(m.version, 2);
   assert.equal(m.app_version, PKG.version); assert.equal(m.schema_version, SCHEMA_VERSION);
   assert.ok(m.exported_at && m.source_host);
   assert.deepEqual(m.contents, ['data', 'profile', 'settings']);
@@ -71,7 +71,7 @@ test('a v2 zip carries data, profile and settings with a full manifest; never se
   const raw = fs.readFileSync(out);
   assert.ok(!Object.keys(files).some(n => /(^|\/)\.env/.test(n) || n.includes('hirify-cookies') || n.includes('run.lock') || n.endsWith('.tmp')));
   for (const blob of [raw, ...Object.values(files)]) for (const s of [PLANTED, COOKIE, '.env']) assert.ok(!blob.includes(s), `found ${s}`);
-  assert.match(defaultExportName(), new RegExp(`^jobpilot-export-\\d{4}-\\d{2}-\\d{2}-v${PKG.version.replace(/\./g, '\\.')}\\.zip$`));
+  assert.match(defaultExportName(), new RegExp(`^cometscout-export-\\d{4}-\\d{2}-\\d{2}-v${PKG.version.replace(/\./g, '\\.')}\\.zip$`));
 });
 
 test('--data-only leaves profile and settings out', async () => {
@@ -115,7 +115,7 @@ test('v1 archives still import: a folder and a tar.gz', async t => {
   const a = freshHome('v1-folder');
   const r = cli(['import', '--from', dir], a.env);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /jobpilot-export v1/); assert.match(r.stdout, /2 new/);
+  assert.match(r.stdout, /jobpilot-export-v1/); assert.match(r.stdout, /2 new/);
   assert.equal(fs.readFileSync(path.join(a.home, 'data', 'decoded', '2026-08-01--globex--pm.md'), 'utf8'), files['data/decoded/2026-08-01--globex--pm.md']);
   const tgz = path.join(tmp, 'v1.tar.gz');
   const t1 = spawnSync('tar', ['-czf', path.basename(tgz), '-C', dir, '.'], { cwd: tmp, encoding: 'utf8' });
@@ -166,7 +166,7 @@ test('conflict modes: keep, theirs (the replaced file is backed up first), both'
   r = await importArchive({ from: out, onConflict: 'theirs' });
   assert.equal(fs.readFileSync(JOB, 'utf8'), ORIGINAL);
   assert.ok(r.saved && fs.existsSync(r.saved), 'replaced files saved first');
-  assert.match(path.basename(r.saved), /^jobpilot-backup-.*--pre-import\.zip$/);
+  assert.match(path.basename(r.saved), /^cometscout-backup-.*--pre-import\.zip$/);
   assert.equal(path.dirname(r.saved), path.join(home, 'backups'));
   const saved = await allEntries(r.saved);
   assert.equal(saved['data/decoded/2026-09-01--acme--pm.md'].toString(), 'local edit\n');
@@ -195,15 +195,15 @@ test('a newer schema or format is refused, and so is a damaged archive or an uns
   const mk = (name, edit) => {
     const dir = path.join(tmp, name); v1Folder(dir);
     const m = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
-    Object.assign(m, { format: 'jobpilot-export', version: 2, schema_version: SCHEMA_VERSION });
+    Object.assign(m, { format: 'cometscout-export', version: 2, schema_version: SCHEMA_VERSION });
     edit(m, dir); fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(m)); return dir;
   };
   const target = freshHome('refuse-home');
   const tryImport = dir => cli(['import', '--from', dir], target.env);
   let r = tryImport(mk('newer-schema', m => { m.schema_version = SCHEMA_VERSION + 1; }));
-  assert.equal(r.status, 1); assert.match(r.stdout, /newer data schema .*update jobpilot first/);
+  assert.equal(r.status, 1); assert.match(r.stdout, /newer data schema .*update CometScout first/);
   r = tryImport(mk('newer-format', m => { m.version = 3; }));
-  assert.match(r.stdout, /made by a newer jobpilot/);
+  assert.match(r.stdout, /made by a newer CometScout/);
   r = tryImport(mk('damaged', (m, dir) => fs.appendFileSync(path.join(dir, 'data', 'state', 'rtj-state.json'), 'x')));
   assert.match(r.stdout, /archive is damaged: 1 file.*rtj-state\.json.*nothing was imported/);
   r = tryImport(mk('unsafe', m => { m.files['../outside.txt'] = sha(Buffer.from('x')); }));
@@ -232,7 +232,7 @@ test('on Windows a name that cannot be a file there is skipped with the reason; 
   const z = path.join(tmp, 'linux-names.zip'); const w = await ZipWriter.open(z);
   const files = { 'data/decoded/what?.md': 'question mark\n', 'data/decoded/2026-09-20--fine--pm.md': 'fine\n', 'data/packs/a:b/cv.md': 'colon\n' };
   for (const [rel, body] of Object.entries(files)) w.addBuffer(rel, body);
-  w.addBuffer('manifest.json', JSON.stringify({ format: 'jobpilot-export', version: 2, schema_version: SCHEMA_VERSION, contents: ['data'], files: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, sha(Buffer.from(v))])) }));
+  w.addBuffer('manifest.json', JSON.stringify({ format: 'cometscout-export', version: 2, schema_version: SCHEMA_VERSION, contents: ['data'], files: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, sha(Buffer.from(v))])) }));
   await w.close();
   const r = await importArchive({ from: z, platform: 'win32' });
   assert.deepEqual(r.plan.add, ['data/decoded/2026-09-20--fine--pm.md']);

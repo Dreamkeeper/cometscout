@@ -7,13 +7,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-llm-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-llm-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
 const fake = path.join(tmp, 'fake-claude.mjs');
 fs.writeFileSync(fake, `let s = ''; process.stdin.on('data', d => s += d).on('end', () => process.stdout.write(JSON.stringify({ structured_output: { echo: s.trim(), args: process.argv.slice(2).length }, total_cost_usd: 0.01 })));\n`, { mode: 0o644 });
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ llm: { provider: 'claude', bin: fake } }));
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ llm: { provider: 'claude', bin: fake } }));
 
 const { callJson, binCommand } = await import('../lib/llm.mjs');
 

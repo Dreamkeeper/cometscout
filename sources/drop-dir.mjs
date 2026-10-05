@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Source: an external tool (an OpenClaw agent, a career-ops scan, a script someone writes) drops files into a
-// folder; jobpilot picks them up. Two kinds of file in settings.sources.drop_dir.dir:
-//   1. A job file in jobpilot's own format (*.md): front matter (company, role, url, source, location, ...) + body.
+// folder; CometScout picks them up. Two kinds of file in settings.sources.drop_dir.dir:
+//   1. A job file in CometScout's own format (*.md): front matter (company, role, url, source, location, ...) + body.
 //      Validated and queued with writeJob (its own dedupe applies), then moved to processed/.
 //   2. A "*.queue.json" file: { candidates: [{ title, url, company?, location?, source_key? }] }. Each candidate's
 //      full text is fetched from its ATS (or the page itself) with fetchDetail. The company is the one given, else
@@ -66,7 +66,7 @@ function moveToFailed(file, failedDir, reason) {
   return dest;
 }
 
-/** A job file in jobpilot's own format: front matter + body. */
+/** A job file in CometScout's own format: front matter + body. */
 export function handleJobFile(file, { processedDir, failedDir = path.join(path.dirname(file), 'failed'), dryRun = false } = {}) {
   processedDir ||= path.join(path.dirname(file), 'processed');
   const txt = readText(file).replace(/\r\n/g, '\n');

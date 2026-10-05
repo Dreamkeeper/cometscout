@@ -8,7 +8,7 @@ export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
     let res;
     try {
       res = await fetch(base + path, method === 'GET' ? { headers: { Accept: 'application/json' } }
-        : { method, headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Jobpilot': '1' }, body: JSON.stringify(body) });
+        : { method, headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CometScout': '1' }, body: JSON.stringify(body) });
     } catch (e) { throw new ApiError(e?.message || 'network error', 0); }
     let data = null; try { data = await res.json(); } catch { /* not JSON */ }
     if (!res.ok) throw new ApiError(data?.error || `HTTP ${res.status}`, res.status);

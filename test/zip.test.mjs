@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { ZipWriter, readZip, readEntry, extractEntry, extractZip, entryPath, crc32, unsafeName, CP437_HIGH } from '../lib/zip.mjs';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-zip-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-zip-'));
 const at = (...p) => path.join(tmp, ...p);
 // Names are compared as zip names, always with "/"
 const NAMES = { bin: 'data/packs/2026-09-01--acme/cv.pdf', ru: 'data/packs/Резюме/письмо.md', ja: 'profile/日本語/メモ.txt', empty: 'data/state/empty.json' };

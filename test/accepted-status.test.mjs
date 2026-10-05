@@ -10,15 +10,15 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-accepted-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-accepted-'));
 const DATA = path.join(tmp, 'data');
 const DAY = new Date().toISOString().slice(0, 10);
 const addDays = n => { const d = new Date(`${DAY}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = DATA;
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = DAY;
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', sources: { outcomes: { enabled: true, max_emails: 50 } }, picks: { per_day: 2, window_days: 14, max_shown: 3 } }));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = DATA;
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = DAY;
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC', sources: { outcomes: { enabled: true, max_emails: 50 } }, picks: { per_day: 2, window_days: 14, max_shown: 3 } }));
 for (const d of ['decoded', 'rejected', 'inbox', 'state', 'packs']) fs.mkdirSync(path.join(DATA, d), { recursive: true });
 const APPS = path.join(DATA, 'state', 'applications.json');
 const readApps = () => JSON.parse(fs.readFileSync(APPS, 'utf8'));
@@ -27,7 +27,7 @@ const cli = (args, env = {}) => spawnSync(process.execPath, [path.join(ROOT, 'cl
 const job = (company, role) => {
   const file = `${DAY}--${company.toLowerCase()}--${role.toLowerCase().replace(/\W+/g, '-')}.md`;
   fs.writeFileSync(path.join(DATA, 'decoded', file), ['---', `company: "${company}"`, `role: "${role}"`, `url: "https://jobs.example/${file}"`, 'source: "ats_boards"', 'location: "Remote"',
-    `found: ${DAY}`, '---', '', `# ${company} - ${role}`, '', 'Synthetic job text.', '', '## Decode Result', `Decoded ${DAY} by jobpilot (claude/sonnet).`,
+    `found: ${DAY}`, '---', '', `# ${company} - ${role}`, '', 'Synthetic job text.', '', '## Decode Result', `Decoded ${DAY} by CometScout (claude/sonnet).`,
     'verdict: strong-fit', 'confidence: high', 'apply_priority: 2', 'rationale: Fits the synthetic profile.', 'fit_signals: APIs', 'gaps: none', 'action: Apply today.', ''].join('\n'));
   return file;
 };
@@ -130,7 +130,7 @@ test('export then import carries an accepted application unchanged', async () =>
   assert.equal(exp.status, 0, exp.stdout + exp.stderr);
   const other = path.join(tmp, 'other-home');
   fs.mkdirSync(other, { recursive: true });
-  const imp = cli(['import', '--from', out], { JOBPILOT_HOME: other, JOBPILOT_DATA: path.join(other, 'data'), JOBPILOT_SETTINGS: '' });
+  const imp = cli(['import', '--from', out], { COMETSCOUT_HOME: other, COMETSCOUT_DATA: path.join(other, 'data'), COMETSCOUT_SETTINGS: '' });
   assert.equal(imp.status, 0, imp.stdout + imp.stderr);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(other, 'data', 'state', 'applications.json'), 'utf8')), before);
 });

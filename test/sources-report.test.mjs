@@ -10,19 +10,19 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-scorecard-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-01';
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-scorecard-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-01';
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({
   timezone: 'UTC',
   sources_report: {
     enabled: true, window_days: 30,
     prices: { rtj: { price_month: 10, currency: 'USD', renews: '2026-10-05', decision: 'under review' }, 'premium-plan': { feed: false, price_month: 20, currency: 'EUR' } },
   },
 }));
-const DATA = process.env.JOBPILOT_DATA;
+const DATA = process.env.COMETSCOUT_DATA;
 const STATE = n => path.join(DATA, 'state', n);
 const SIGHTINGS = STATE('sightings.jsonl');
 for (const d of ['inbox', 'decoded', 'rejected', 'state']) fs.mkdirSync(path.join(DATA, d), { recursive: true });
@@ -31,7 +31,7 @@ for (const d of ['inbox', 'decoded', 'rejected', 'state']) fs.mkdirSync(path.joi
 fs.writeFileSync(SIGHTINGS, [{ date: '2026-05-01', source: 'rtj', company: 'Old', role: 'Old', result: 'written' }, { date: '2026-09-29', source: 'hh', company: 'Recent', role: 'PM', result: 'written' }].map(s => JSON.stringify(s)).join('\n') + '\n');
 // Queue files written before sightings existed: the same Zeta Labs role from two sources, and one outside the window.
 const queueFile = (dir, file, fm, verdict) => fs.writeFileSync(path.join(DATA, dir, file),
-  `---\n${Object.entries(fm).map(([k, v]) => `${k}: ${k === 'found' ? v : `"${v}"`}`).join('\n')}\n---\n\n# ${fm.company} - ${fm.role}\n\ntext\n${verdict ? `\n## Decode Result\nDecoded ${fm.found} by jobpilot (test).\nverdict: ${verdict}\nconfidence: high\n` : ''}`);
+  `---\n${Object.entries(fm).map(([k, v]) => `${k}: ${k === 'found' ? v : `"${v}"`}`).join('\n')}\n---\n\n# ${fm.company} - ${fm.role}\n\ntext\n${verdict ? `\n## Decode Result\nDecoded ${fm.found} by CometScout (test).\nverdict: ${verdict}\nconfidence: high\n` : ''}`);
 queueFile('decoded', '2026-09-25--zeta-labs--product-manager.md', { company: 'Zeta Labs', role: 'Product Manager', url: 'https://jobs.example/z/1', source: 'linkedin', found: '2026-09-25' }, 'strong-fit');
 queueFile('decoded', '2026-09-28--zeta-labs--product-manager.md', { company: 'Zeta Labs', role: 'Product Manager', url: 'https://boards.example/zeta/9', source: 'rtj', found: '2026-09-28' }, 'investable-stretch');
 queueFile('decoded', '2026-08-01--epsilon--designer.md', { company: 'Epsilon', role: 'Designer', url: 'https://jobs.example/e/1', source: 'ats:greenhouse', found: '2026-08-01' }, 'strong-fit');
@@ -44,7 +44,7 @@ const { translator } = await import('../lib/i18n.mjs');
 // Decode a job by hand: move it from the inbox with a result block.
 const decode = (file, verdict) => {
   const t = fs.readFileSync(path.join(DATA, 'inbox', file), 'utf8'); fs.rmSync(path.join(DATA, 'inbox', file));
-  fs.writeFileSync(path.join(DATA, ['weak-fit', 'gate-reject'].includes(verdict) ? 'rejected' : 'decoded', file), `${t}\n## Decode Result\nDecoded 2026-10-01 by jobpilot (test).\nverdict: ${verdict}\n`);
+  fs.writeFileSync(path.join(DATA, ['weak-fit', 'gate-reject'].includes(verdict) ? 'rejected' : 'decoded', file), `${t}\n## Decode Result\nDecoded 2026-10-01 by CometScout (test).\nverdict: ${verdict}\n`);
 };
 
 test('writeJob records a sighting per call, duplicates included, and only appends', () => {
@@ -64,14 +64,14 @@ test('writeJob records a sighting per call, duplicates included, and only append
 });
 
 test('cli.mjs run trims sightings once, before the sources start', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-scorecard-run-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-scorecard-run-'));
   fs.mkdirSync(path.join(home, 'profile')); fs.writeFileSync(path.join(home, 'profile', 'profile.md'), '# Test Person\n\nSynthetic profile.\n');
   fs.mkdirSync(path.join(home, 'data', 'state'), { recursive: true });
   const file = path.join(home, 'data', 'state', 'sightings.jsonl');
   fs.writeFileSync(file, [{ date: '2026-01-01', source: 'rtj', company: 'Old' }, { date: '2026-09-30', source: 'rtj', company: 'Kept' }].map(x => JSON.stringify(x)).join('\n') + '\n');
   fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ timezone: 'UTC', pack: { enabled: false } }));
   const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'run'], { encoding: 'utf8',
-    env: { ...process.env, JOBPILOT_HOME: home, JOBPILOT_DATA: path.join(home, 'data'), JOBPILOT_SETTINGS: path.join(home, 'settings.json') } });
+    env: { ...process.env, COMETSCOUT_HOME: home, COMETSCOUT_DATA: path.join(home, 'data'), COMETSCOUT_SETTINGS: path.join(home, 'settings.json') } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l).company), ['Kept']);
 });

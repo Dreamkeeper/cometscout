@@ -7,11 +7,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-schedule-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-05';
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-schedule-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-05';
 const SETTINGS_TEXT = `{
   "_comment": "Synthetic settings for a test.",
   "candidate_name": "Sam Example",
@@ -24,14 +24,14 @@ const SETTINGS_TEXT = `{
   "my_own_key": { "kept": true, "list": [1,2,3] }
 }
 `;
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, SETTINGS_TEXT);
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, SETTINGS_TEXT);
 
 const S = await import('../lib/schedule.mjs');
 const J = await import('../lib/jsonedit.mjs');
 const { writeSettings, scheduleView } = await import('../lib/settings-writer.mjs');
 const { SETTINGS } = await import('../lib/config.mjs');
 const { unitFiles, installTimer } = await import('../lib/ops.mjs');
-const FILE = process.env.JOBPILOT_SETTINGS;
+const FILE = process.env.COMETSCOUT_SETTINGS;
 
 test('schedule: days and time with defaults; run_time is read as schedule.time', () => {
   assert.deepEqual(S.scheduleOf({}), { days: [1, 2, 3, 4, 5, 6, 7], time: '18:00', legacy: false });
@@ -139,16 +139,16 @@ test('settings writer: validates, moves run_time into schedule, keeps unknown ke
 
 test('the timer units: the bot unit only with Telegram on; installTimer writes them and enables the bot', () => {
   const plain = unitFiles({ root: '/srv/jp', node: '/usr/bin/node', time: '18:30', envPath: '/usr/bin' });
-  assert.ok(!plain['jobpilot-bot.service']);
+  assert.ok(!plain['cometscout-bot.service']);
   const u = unitFiles({ root: '/srv/jp', node: '/usr/bin/node', time: '18:30', envPath: '/usr/bin', bot: true });
-  assert.match(u['jobpilot-bot.service'], /^ExecStart=\/usr\/bin\/node \/srv\/jp\/cli\.mjs bot$/m);
-  assert.match(u['jobpilot-bot.service'], /^Restart=on-failure$/m);
+  assert.match(u['cometscout-bot.service'], /^ExecStart=\/usr\/bin\/node \/srv\/jp\/cli\.mjs bot$/m);
+  assert.match(u['cometscout-bot.service'], /^Restart=on-failure$/m);
   const dir = path.join(tmp, 'units'), runs = [];
   const r = installTimer({ time: '07:15', tz: 'UTC', bot: true, dir, run: (cmd, args) => runs.push([cmd, ...args].join(' ')), stdio: 'ignore' });
   assert.equal(r.code, 0);
-  assert.match(fs.readFileSync(path.join(dir, 'jobpilot.timer'), 'utf8'), /OnCalendar=\*-\*-\* 07:15:00 UTC/);
-  assert.ok(fs.existsSync(path.join(dir, 'jobpilot-bot.service')));
-  assert.deepEqual(runs, ['systemctl --user daemon-reload', 'systemctl --user enable --now jobpilot.timer', 'systemctl --user enable --now jobpilot-bot.service']);
+  assert.match(fs.readFileSync(path.join(dir, 'cometscout.timer'), 'utf8'), /OnCalendar=\*-\*-\* 07:15:00 UTC/);
+  assert.ok(fs.existsSync(path.join(dir, 'cometscout-bot.service')));
+  assert.deepEqual(runs, ['systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-bot.service']);
   assert.equal(installTimer({ time: '7:15', dir, run: () => {} }).code, 1);
 });
 

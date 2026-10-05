@@ -12,11 +12,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 const FIX = path.join(HERE, 'fixtures', 'lint');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-lint-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-lint-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
 
 const L = await import('../lib/lint.mjs');
 const RULES_JSON = JSON.parse(fs.readFileSync(path.join(FIX, 'lint-rules.json'), 'utf8'));
@@ -149,7 +149,7 @@ function home(name, { lintRules = RULES_JSON, settings = {} } = {}) {
   fs.writeFileSync(path.join(h, 'settings.json'), JSON.stringify({ timezone: 'UTC', candidate_name: 'Jordan Vale', ...settings }));
   return h;
 }
-const envFor = h => ({ ...process.env, JOBPILOT_HOME: h, JOBPILOT_DATA: path.join(h, 'data'), JOBPILOT_SETTINGS: path.join(h, 'settings.json'), PACK_NO_PDF: '1', JOBPILOT_RUN_DATE: '2026-10-02' });
+const envFor = h => ({ ...process.env, COMETSCOUT_HOME: h, COMETSCOUT_DATA: path.join(h, 'data'), COMETSCOUT_SETTINGS: path.join(h, 'settings.json'), PACK_NO_PDF: '1', COMETSCOUT_RUN_DATE: '2026-10-02' });
 const doctor = h => spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: envFor(h), timeout: 60000 }).stdout;
 
 test('doctor: rule counts, a broken pattern, vetted text that breaks a rule, warnings once, \b next to Cyrillic', () => {
@@ -308,9 +308,9 @@ test('run: a refused pack is listed in run_done and the closing line, and does n
   const st = JSON.parse(fs.readFileSync(path.join(h, 'settings.json'), 'utf8'));
   fs.writeFileSync(path.join(h, 'settings.json'), JSON.stringify({ ...st, hooks: { run_done: `node "${appender}" "${hookOut}"` } }));
   const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'run'], { encoding: 'utf8', timeout: 120000,
-    env: { ...tgEnv(h), JOBPILOT_RUN_DATE: day, NODE_OPTIONS: `--import=${pathToFileURL(path.join(h, 'mock-fetch.mjs')).href}` } });
+    env: { ...tgEnv(h), COMETSCOUT_RUN_DATE: day, NODE_OPTIONS: `--import=${pathToFileURL(path.join(h, 'mock-fetch.mjs')).href}` } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /jobpilot: run finished; refused pack\(s\): ExampleCare, Product Manager \(big-team\)/);
+  assert.match(r.stdout, /cometscout: run finished; refused pack\(s\): ExampleCare, Product Manager \(big-team\)/);
   const done = readLines(hookOut).map(l => JSON.parse(l)).find(e => e.event === 'run_done');
   assert.equal(done.pack_exit, 0);
   assert.deepEqual(done.refused, [{ file: JOB, company: 'ExampleCare', role: 'Product Manager', rules: ['big-team'] }]);

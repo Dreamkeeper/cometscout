@@ -1,4 +1,4 @@
-/* jobpilot workspace. Colours are variables, light and dark from prefers-color-scheme; the Telegram theme maps onto
+/* CometScout workspace. Colours are variables, light and dark from prefers-color-scheme; the Telegram theme maps onto
    the same names later. Dense on the desktop, one column with a fixed action bar on the phone. */
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5d6673; --line: #dfe3e8; --hover: #eef1f5; --sel: #e3ecfb;

@@ -1,6 +1,8 @@
 # Roadmap
 
-jobpilot started as one person's job-search pipeline and is being rebuilt as a product anyone can install. The goal of the current work: reach parity with that original pipeline, prove the quality with evals on identical inputs, then grow into a web workspace (a PWA that also opens as a Telegram Mini App, plus one Telegram bot) so nobody needs a Claude Code session after setup.
+> CometScout was called jobpilot until October 2026 (task 16 renamed it; the old names still work for a release or two).
+
+CometScout started as one person's job-search pipeline and is being rebuilt as a product anyone can install. The goal of the current work: reach parity with that original pipeline, prove the quality with evals on identical inputs, then grow into a web workspace (a PWA that also opens as a Telegram Mini App, plus one Telegram bot) so nobody needs a Claude Code session after setup.
 
 Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task briefs for self-contained pieces are in `docs/tasks/`.
 
@@ -9,7 +11,7 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 - ✅ Sources: public ATS boards (Greenhouse, Ashby, Lever), RealtimeJobs API, LinkedIn job-alert emails via Gmail
 - ✅ Decode (verdicts, gates in the prompt, history, fact flags), daily picks, digest, application packs (CV, cover letter, form answers), Telegram
 - ✅ Install script, `doctor`, systemd timer, run lock, run date pinned per run
-- ✅ Hooks (`settings.hooks`), `JOBPILOT_SETTINGS`, extra front-matter fields, export / import (`jobpilot-export-v1`), decoder context files, application `events[]`
+- ✅ Hooks (`settings.hooks`), `COMETSCOUT_SETTINGS`, extra front-matter fields, export / import (the first export format, v1), decoder context files, application `events[]`
 - ✅ Unit tests (`npm test`)
 - ✅ Status `accepted` for jobs the user holds: closes the role for picks and dedupe, never set or undone by email, "Jobs I hold" in the coach hand-off, Offer in the tracker export (`docs/tasks/14-accepted-status.md`)
 - ✅ Interview coach as an optional onboarding step: installer from upstream (`deploy/modules/coach.sh`, `coach.ps1`), `cli.mjs coach-handoff`, doctor lines (`docs/tasks/13-coach-onboarding.md`)
@@ -31,12 +33,13 @@ Status legend: ✅ done · 🔨 in progress · ⏳ next · 💤 later. Task brie
 
 ## Updates, backups, export (self-hosted)
 
-Updates are notify only: a daily check, release notes in the bot and the workspace, one tap to update. Every update makes a backup, installs side by side, migrates data with expand-then-contract rules, verifies itself and rolls back automatically on failure. Export and backups use one ZIP format (`jobpilot-export` v2) the user can open and read.
+Updates are notify only: a daily check, release notes in the bot and the workspace, one tap to update. Every update makes a backup, installs side by side, migrates data with expand-then-contract rules, verifies itself and rolls back automatically on failure. Export and backups use one ZIP format (`cometscout-export` v2) the user can open and read.
 
 | Piece | Brief | Status |
 |---|---|---|
 | Export v2 (ZIP), import with conflict modes, encrypted secrets export, nightly backups, restore | `docs/tasks/11-export-v2-and-backups.md` | ✅ |
-| Releases, update notifications, update and rollback, What is new | `docs/tasks/12-releases-and-updates.md` | ⏳ (after 11) |
+| The rename to CometScout in the code: new names written and printed, the old ones still read (`lib/legacy-names.mjs`), old units replaced by `cli.mjs timer` | `docs/tasks/16-rename-to-cometscout.md` | ✅ |
+| Releases, update notifications, update and rollback, What is new | `docs/tasks/12-releases-and-updates.md` | ⏳ (after 11 and 16) |
 
 ## Evals (M3)
 

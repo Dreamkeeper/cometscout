@@ -11,21 +11,21 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'cli.mjs');
 const EXAMPLE = path.join(ROOT, 'profile.example');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-coach-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-coach-'));
 const HOME = path.join(tmp, 'home');
 const COACH = path.join(tmp, 'coach');
 fs.mkdirSync(HOME, { recursive: true });
-process.env.JOBPILOT_HOME = HOME;
-process.env.JOBPILOT_DATA = path.join(HOME, 'data');
-process.env.JOBPILOT_RUN_DATE = '2026-10-02';
-process.env.JOBPILOT_SETTINGS = path.join(HOME, 'settings.json');
+process.env.COMETSCOUT_HOME = HOME;
+process.env.COMETSCOUT_DATA = path.join(HOME, 'data');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-02';
+process.env.COMETSCOUT_SETTINGS = path.join(HOME, 'settings.json');
 const SECRET = 'synthetic-secret-value-4711';
 process.env.SYNTHETIC_API_TOKEN = SECRET;   // named like a secret, so SECRET_VALUES() holds it
 const settings = { timezone: 'UTC', modules: { coach: { enabled: true, path: COACH } } };
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify(settings));
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify(settings));
 
 const coach = await import('../lib/coach.mjs');
-const DATA = process.env.JOBPILOT_DATA;
+const DATA = process.env.COMETSCOUT_DATA;
 
 // Synthetic applications: an upcoming interview, a past one, a test task, a skipped role and a "later" only entry.
 const ev = (date, type, extra = {}) => ({ date, type, source: 'cli', ...extra });
@@ -228,7 +228,7 @@ test('cli coach-handoff: --out is honoured, the default goes into the coach fold
   } finally { fs.rmSync(path.join(HOME, 'profile'), { recursive: true, force: true }); fs.rmSync(COACH, { recursive: true, force: true }); }
   // a home with no profile at all
   const bare = path.join(tmp, 'bare'); fs.mkdirSync(bare);
-  const r = cli(['coach-handoff', '--out', path.join(tmp, 'bare-out.md')], { JOBPILOT_HOME: bare, JOBPILOT_DATA: path.join(bare, 'data') });
+  const r = cli(['coach-handoff', '--out', path.join(tmp, 'bare-out.md')], { COMETSCOUT_HOME: bare, COMETSCOUT_DATA: path.join(bare, 'data') });
   assert.equal(r.status, 1);
   assert.match(r.stdout, /No profile to hand off: .*profile\.md is missing or empty/);
   assert.ok(!fs.existsSync(path.join(tmp, 'bare-out.md')));
@@ -239,10 +239,10 @@ test('cli.mjs run refreshes the hand-off when the coach is enabled; a missing co
   fs.writeFileSync(path.join(home, 'profile', 'profile.md'), '# Sam Example\n\n## Who I am\n- Product manager, 5 years.\n');
   const coachDir = path.join(tmp, 'run-coach');
   const conf = coach => JSON.stringify({ timezone: 'UTC', sources: {}, pack: { enabled: false }, backup: { nightly: false }, modules: { coach } });
-  const env = { JOBPILOT_HOME: home, JOBPILOT_DATA: path.join(home, 'data'), JOBPILOT_SETTINGS: path.join(home, 'settings.json') };
+  const env = { COMETSCOUT_HOME: home, COMETSCOUT_DATA: path.join(home, 'data'), COMETSCOUT_SETTINGS: path.join(home, 'settings.json') };
   const file = path.join(coachDir, 'materials', 'cometscout-handoff.md');
   // enabled, not installed: one log line, exit 0, no folder made
-  fs.writeFileSync(env.JOBPILOT_SETTINGS, conf({ enabled: true, path: coachDir }));
+  fs.writeFileSync(env.COMETSCOUT_SETTINGS, conf({ enabled: true, path: coachDir }));
   let r = cli(['run'], env);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /coach-handoff: not refreshed: The coach is not installed at/);
@@ -255,7 +255,7 @@ test('cli.mjs run refreshes the hand-off when the coach is enabled; a missing co
   assert.match(fs.readFileSync(file, 'utf8'), /- Product manager, 5 years\./);
   // disabled: nothing is written or said
   fs.rmSync(file);
-  fs.writeFileSync(env.JOBPILOT_SETTINGS, conf({ enabled: false, path: coachDir }));
+  fs.writeFileSync(env.COMETSCOUT_SETTINGS, conf({ enabled: false, path: coachDir }));
   r = cli(['run'], env);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout, /coach-handoff/);
@@ -433,12 +433,12 @@ test('coach settings: the default folder is next to the home; relative paths are
 const envFor = settingsFile => {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH'));
   const dirs = Object.entries(process.env).find(([k]) => k.toUpperCase() === 'PATH')?.[1] || '';
-  return { ...env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${dirs}`, JOBPILOT_SETTINGS: settingsFile };
+  return { ...env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${dirs}`, COMETSCOUT_SETTINGS: settingsFile };
 };
 test('deploy/modules/coach.sh runs the installer with GIT honoured', { skip: process.platform === 'win32' ? 'bash on Windows may be WSL; coach.ps1 is tested there' : !coach.onPath('bash') && 'bash not found' }, () => withGit({}, () => {
   const target = path.join(tmp, 'install-sh');
   const env = envFor(path.join(tmp, 'settings-sh.json'));
-  fs.writeFileSync(env.JOBPILOT_SETTINGS, JSON.stringify({ modules: { coach: { path: target } } }));
+  fs.writeFileSync(env.COMETSCOUT_SETTINGS, JSON.stringify({ modules: { coach: { path: target } } }));
   let r = spawnSync('bash', [path.join(ROOT, 'deploy', 'modules', 'coach.sh')], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(calls()[0], ['clone', '--depth', '1', '--', coach.COACH_REPO, target]);
@@ -455,7 +455,7 @@ const PS = process.platform === 'win32' ? 'powershell' : coach.onPath('pwsh') ? 
 test('deploy/modules/coach.ps1 runs the installer with GIT honoured', { skip: !PS && 'PowerShell not found' }, () => withGit({}, () => {
   const target = path.join(tmp, 'install-ps');
   const env = envFor(path.join(tmp, 'settings-ps.json'));
-  fs.writeFileSync(env.JOBPILOT_SETTINGS, JSON.stringify({ modules: { coach: { path: target } } }));
+  fs.writeFileSync(env.COMETSCOUT_SETTINGS, JSON.stringify({ modules: { coach: { path: target } } }));
   const run = () => spawnSync(PS, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ROOT, 'deploy', 'modules', 'coach.ps1')], { encoding: 'utf8', env });
   let r = run();
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -501,9 +501,9 @@ test('onPath finds a command, with PATHEXT on Windows', () => {
 test('cli doctor prints the coach lines', () => {
   const s = path.join(tmp, 'settings-doctor.json');
   fs.writeFileSync(s, JSON.stringify({ modules: { coach: { enabled: true, path: path.join(tmp, 'doctor-missing') } } }));
-  let r = cli(['doctor'], { JOBPILOT_SETTINGS: s });
+  let r = cli(['doctor'], { COMETSCOUT_SETTINGS: s });
   assert.match(r.stdout, /^TODO interview coach: not installed at .*doctor-missing {2}-> {2}/m);
   fs.writeFileSync(s, JSON.stringify({ modules: { coach: { enabled: false } } }));
-  r = cli(['doctor'], { JOBPILOT_SETTINGS: s });
+  r = cli(['doctor'], { COMETSCOUT_SETTINGS: s });
   assert.match(r.stdout, /^ok {3}interview coach: off/m);
 });

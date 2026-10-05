@@ -56,9 +56,9 @@
     },
     "drop_dir": {
       "enabled": false,
-      "dir": "/home/youruser/jobpilot-drop",
+      "dir": "/home/youruser/cometscout-drop",
       "settle_sec": 60,
-      "move_processed_to": "/home/youruser/jobpilot-drop/processed",
+      "move_processed_to": "/home/youruser/cometscout-drop/processed",
       "max_fetches_per_run": 40
     },
     "hirify": {

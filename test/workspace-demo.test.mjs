@@ -39,7 +39,7 @@ test('textPdf: a valid PDF; pages break by themselves; Latin-1 is kept, other ch
 });
 
 test('writeDemo: decodes, two picks for today, packs with valid PDFs; refuses a folder that is not empty', async () => {
-  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-demo-'));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-demo-'));
   const now = new Date('2026-10-02T09:00:00Z');
   const r = await writeDemo(out, { now });
   assert.equal(Object.keys(r.files).length, 6);
@@ -49,7 +49,7 @@ test('writeDemo: decodes, two picks for today, packs with valid PDFs; refuses a 
   for (const f of Object.values(r.files)) {
     const t = fs.readFileSync(path.join(out, 'decoded', f), 'utf8');
     assert.match(t, /^---\ncompany: "/);
-    assert.match(t, /\n## Decode Result\nDecoded \d{4}-\d{2}-\d{2} by jobpilot/);
+    assert.match(t, /\n## Decode Result\nDecoded \d{4}-\d{2}-\d{2} by CometScout/);
     assert.doesNotMatch(t, /\u2014/, 'no em dashes');
   }
   const packs = JSON.parse(fs.readFileSync(path.join(out, 'state', 'packs.json'), 'utf8'));

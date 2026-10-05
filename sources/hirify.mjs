@@ -265,7 +265,7 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
   async function needsUser(reason) {
     say(`hirify: ${reason}; refresh ${envName} in .env (copy it from your browser, see README: Hirify)`);
     if (send && !dryRun) {
-      try { await send(`jobpilot: the Hirify source stopped. ${reason[0].toUpperCase()}${reason.slice(1)}. Copy a fresh session cookie from your browser into ${envName} in .env; Hirify jobs are not fetched until then.`); }
+      try { await send(`cometscout: the Hirify source stopped. ${reason[0].toUpperCase()}${reason.slice(1)}. Copy a fresh session cookie from your browser into ${envName} in .env; Hirify jobs are not fetched until then.`); }
       catch (e) { say(`hirify: Telegram alert failed: ${e.message}`); }
     }
     return result(EXIT_SESSION);

@@ -9,12 +9,12 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-picks-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-picks-'));
 const DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = DATA;
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = DATA;
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({
   timezone: 'UTC',
   queue: { aliases: [['Acme Robotics', 'Acme'], ['Northwind Labs', 'Northwind', 'NWL Group']] },
   picks: { per_day: 10, window_days: 14, max_shown: 3, exclude_onsite_location_regex: 'germany',
@@ -28,7 +28,7 @@ let n = 0;
 const job = (company, role, location, { priority = 2, band, url } = {}) => {
   const file = `${DAY}--job-${++n}.md`;
   fs.writeFileSync(path.join(DATA, 'decoded', file), ['---', `company: "${company}"`, `role: "${role}"`, `url: "${url || `https://jobs.example/${n}`}"`, `location: "${location}"`,
-    ...(band ? [`band: "${band}"`] : []), `found: ${DAY}`, '---', '', `# ${company} - ${role}`, '', 'text', '', '## Decode Result', `Decoded ${DAY} by jobpilot (claude/sonnet).`,
+    ...(band ? [`band: "${band}"`] : []), `found: ${DAY}`, '---', '', `# ${company} - ${role}`, '', 'text', '', '## Decode Result', `Decoded ${DAY} by CometScout (claude/sonnet).`,
     'verdict: strong-fit', 'confidence: high', `apply_priority: ${priority}`, 'rationale: r', 'action: Apply now.', ''].join('\n'));
   return file;
 };

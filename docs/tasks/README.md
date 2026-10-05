@@ -1,5 +1,7 @@
 # Task briefs
 
+> Briefs 01 to 16 are kept as written, so they still say jobpilot, the name the product had before CometScout.
+
 Self-contained pieces of work, written so a coding agent with only this repository (for example a cloud session) can finish them. Each brief says what to build, the behaviour to reproduce, the settings, the fixtures to test against and when it is done.
 
 How to work on one:
@@ -25,4 +27,4 @@ How to work on one:
 | 13 | `13-coach-onboarding.md` interview coach as an optional onboarding step: upstream installer, hand-off file from the profile, CV library, voice and applications | none |
 | 14 | `14-accepted-status.md` status "accepted" for jobs the user holds: hand-off section, Today and follow-ups skip them, tracker and scorecard mapping | none |
 | 15 | `15-digest-days-and-interview-prep.md` digest days and time as settings (workspace + Telegram bot commands), off days decode silently, interview prep mode before new applications, interview date and time recording | 14 |
-| 16 | `16-rename-to-cometscout.md` rename jobpilot to CometScout in code, units, env vars, file names and docs, old names kept working for a release or two | 15 |
+| 16 | `16-rename-to-cometscout.md` rename the product to CometScout in code, units, env vars, file names and docs, old names kept working for a release or two | 15 |

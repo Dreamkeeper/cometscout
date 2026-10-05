@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Source: career-ops (https://github.com/career-ops-hq/career-ops, MIT), a separate tool that scans company boards
-// and keeps a pipeline file. jobpilot only reads its files and never writes into its folder.
+// and keeps a pipeline file. CometScout only reads its files and never writes into its folder.
 // settings.sources.career_ops = { enabled: true, path: "/home/youruser/career-ops", include_evaluated: false, max_per_run: 30,
 //   pipeline_file: "data/pipeline.md", scan_history_file: "data/scan-history.tsv" }
-// path is the career-ops checkout ("~/" and paths relative to jobpilot's folder work too). The two file names are
+// path is the career-ops checkout ("~/" and paths relative to CometScout's folder work too). The two file names are
 // optional; a relative one is relative to path. Formats as career-ops writes them (modes/pipeline.md, scan.mjs):
 //   pipeline.md (required). Positional cells, then optional labeled segments on any row shape:
 //     - [ ] <url> [| <company> | <title> [| <location> [| <compensation>]]] [| posted: YYYY-MM-DD] [| trust: 60 flag,flag]
@@ -71,7 +71,7 @@ export function urlKey(url) {
   try { const u = new URL(s); u.hash = ''; return u.href.replace(/\/+$/, ''); } catch { return s.replace(/#.*$/, '').replace(/\/+$/, ''); }
 }
 
-/** The career-ops folder from settings: "~/" is the home folder, a relative path is relative to jobpilot's folder. */
+/** The career-ops folder from settings: "~/" is the home folder, a relative path is relative to CometScout's folder. */
 export function careerOpsDir(cfg = SETTINGS.sources.career_ops || {}) {
   const p = String(cfg.path || '').trim();
   if (!p) return '';

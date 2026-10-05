@@ -1,4 +1,6 @@
-# jobpilot
+# CometScout
+
+> CometScout was called jobpilot until October 2026. The old names (the `jobpilot` command, `JOBPILOT_*` variables, the `jobpilot` systemd units, `jobpilot-*` backups and exports, the `X-Jobpilot` header) still work for a release or two; `node cli.mjs doctor` says what to rename, and `node cli.mjs timer` replaces the old units.
 
 A self-hosted job search pipeline that runs every evening on your own server and ends with something you can act on: **up to two roles worth applying to, each with a CV tailored from your own checked wording and draft answers for its application form.**
 
@@ -29,13 +31,13 @@ Gmail outcomes ─► applications ──────────┘  (rejection
 On a Debian or Ubuntu VPS, as your normal user:
 
 ```bash
-git clone https://github.com/Dreamkeeper/jobpilot.git && cd jobpilot
+git clone https://github.com/Dreamkeeper/cometscout.git && cd cometscout
 bash deploy/install.sh
 ```
 
 Then open the folder in **Claude Code** or **Codex** and say **"set me up"** (step by step, from a fresh server: see [Install guides](#install-guides)). The agent follows `AGENTS.md`: it interviews you for the profile, turns your CV into the library (you approve every line), connects a first source, and shows you a real decoded job and its tailored CV in the same sitting. Telegram delivery and the daily timer come after.
 
-Try it before onboarding: with no `profile/`, jobpilot runs on the fictional example profile in `profile.example/`.
+Try it before onboarding: with no `profile/`, CometScout runs on the fictional example profile in `profile.example/`.
 
 ## Commands
 
@@ -75,15 +77,15 @@ node cli.mjs serve           # then open http://127.0.0.1:8787
 - **Middle:** the job: company, role, location, source, band, verdict and priority, the next step, why, fit signals, gaps, why held, fact check, your history with the company, and the job text (folded).
 - **Right:** the pack: "Check before sending" (flags and lint) first, then the form answers with a copy button each, the cover letter, the CV PDF (half the pane; "Larger preview" grows it), the files and the apply link. An older pack (a `<date>--<company>` folder, or one without `pack.json`) is shown from its `answers.md`, and the pane says so instead of claiming nothing was flagged.
 - **Settings and interviews:** Settings (top bar) sets the digest days, the time and the prep window. Record interview (in the job's header) records a booked interview with its date, time and round. During prep mode the list opens with the interview and the day's prep step.
-- **Actions:** Applied, Skip (with a reason: too senior, too junior, wrong domain, location or visa, language, company, already in contact, other), Later (1, 3 or 7 days) and Open job link. After an action the next job opens. Applied and Skip write the same record as `node cli.mjs status` (the event says `source: "workspace"`); Later adds a `later` event and keeps the job out of the picks and, with "hide later", out of the list until that day. A note is at most 500 characters, on the command line too. While the evening run (or a decode, pack, import, backup or restore) holds the run lock, actions answer "jobpilot is busy, try again in a minute" and nothing is written.
+- **Actions:** Applied, Skip (with a reason: too senior, too junior, wrong domain, location or visa, language, company, already in contact, other), Later (1, 3 or 7 days) and Open job link. After an action the next job opens. Applied and Skip write the same record as `node cli.mjs status` (the event says `source: "workspace"`); Later adds a `later` event and keeps the job out of the picks and, with "hide later", out of the list until that day. A note is at most 500 characters, on the command line too. While the evening run (or a decode, pack, import, backup or restore) holds the run lock, actions answer "CometScout is busy, try again in a minute" and nothing is written. Every write carries the header `X-CometScout: 1` (the old header name is still accepted).
 - **Keyboard** (desktop): `j` / `k` next and previous, `a` applied, `s` skip (then `1` to `8` for the reason), `l` later (then `1`, `3` or `7`), `o` open the job link, `/` search, `?` help, `Esc` closes a dialog. Dialogs take the focus and keep `Tab` inside.
 - On a phone (or any window under 1100 px) it is one column: the list, then the job with tabs Job and Pack and the actions fixed at the bottom. Light and dark follow your system; labels follow `locale`.
 
 To see it before you have data of your own, write the demo data (invented jobs and packs for the example profile) into an empty folder and point the server at it:
 
 ```bash
-node tools/workspace-demo.mjs --out /tmp/jobpilot-demo
-JOBPILOT_DATA=/tmp/jobpilot-demo node cli.mjs serve
+node tools/workspace-demo.mjs --out /tmp/cometscout-demo
+COMETSCOUT_DATA=/tmp/cometscout-demo node cli.mjs serve
 ```
 
 ![The Today screen on the desktop](docs/screenshots/workspace-today-desktop.png)
@@ -99,7 +101,9 @@ JOBPILOT_DATA=/tmp/jobpilot-demo node cli.mjs serve
 
 Models: decoding uses `llm.model` (a mid-size model is enough), packs use `llm.pack_model` (use the strongest you have). On smaller plans, lower `decoder.cap` or use a smaller model.
 
-`JOBPILOT_HOME`, `JOBPILOT_DATA` and `JOBPILOT_SETTINGS` point jobpilot at another folder, data directory or settings file (handy for trials and evals). `node cli.mjs timer` keeps a `JOBPILOT_HOME` that is set: the units run `cli.mjs` from the code folder with that home.
+The `cometscout` command is the same as `node cli.mjs`: run `npm link` once in this folder to put it on the PATH.
+
+`COMETSCOUT_HOME`, `COMETSCOUT_DATA` and `COMETSCOUT_SETTINGS` point CometScout at another folder, data directory or settings file (handy for trials and evals). `node cli.mjs timer` keeps a `COMETSCOUT_HOME` that is set: the units run `cli.mjs` from the code folder with that home.
 
 ### Companies, duplicates and statuses
 
@@ -115,7 +119,7 @@ A company belongs to a family when one of the family's names occurs in it as who
 
 **Statuses.** `applied`, `screen` (a recruiter screen), `interview`, `offer` (an open offer), `accepted` (an offer you took and now work in, while you keep looking), `rejected`, `skipped`, `closed`; outcomes from Gmail may also record events. Only you set `accepted`: an email never sets it, and an offer or any other email never moves an accepted application to another status (its event is still recorded). A job you hold is not an open process: the coach hand-off lists it under "Jobs I hold", not as in progress. A role with any of these statuses (or `withdrawn`), or with any recorded event, never becomes a pick again, nor does another opening for the same role at the same employer. Here "the same role" is looser than for duplicates: titles sharing at least half the shorter title's words of three letters or more, generic words included. A record whose role has no such words (no role, or just "PM") closes every pick at that employer; `node cli.mjs applied` and `status` say so when you record one.
 
-`data/state/applications.json` is your own record, so jobpilot never guesses around a broken one: when it is not valid JSON, `node cli.mjs run` and `sources` stop before any source runs, each source stops before it marks anything seen, the decoder (`decode`, `picks`) stops before it decodes or picks anything, and `applied` and `status` refuse to write. Fix the file (a trailing comma is the usual cause) and run again.
+`data/state/applications.json` is your own record, so CometScout never guesses around a broken one: when it is not valid JSON, `node cli.mjs run` and `sources` stop before any source runs, each source stops before it marks anything seen, the decoder (`decode`, `picks`) stops before it decodes or picks anything, and `applied` and `status` refuse to write. Fix the file (a trailing comma is the usual cause) and run again.
 
 ### Decoder
 
@@ -161,7 +165,7 @@ The evening run starts every day at `schedule.time` in `timezone`, and sends its
 
 ### Telegram bot
 
-`node cli.mjs bot` long-polls Telegram and answers only the chat in `TELEGRAM_CHAT_ID`; anyone else gets no answer. `node cli.mjs timer` installs it as a systemd user service (`jobpilot-bot.service`) when Telegram delivery is on.
+`node cli.mjs bot` long-polls Telegram and answers only the chat in `TELEGRAM_CHAT_ID`; anyone else gets no answer. `node cli.mjs timer` installs it as a systemd user service (`cometscout-bot.service`) when Telegram delivery is on.
 
 - `/schedule`: digest days, time and the prep window, with buttons to switch each day on or off and to set prep days (0, 1, 2, 3).
 - `/time HH:MM`: the digest time (the timer is reinstalled).
@@ -202,7 +206,7 @@ Names match as whole words, case-insensitive, in any script; end a term with `*`
 
 ### hh.ru alerts
 
-For hh.ru users: with `sources.hh_alerts.enabled`, every run reads your hh.ru saved-search emails ("Вакансии по подписке") and resume-match emails ("Подходящие вакансии") from Gmail (read-only, the same access as LinkedIn alerts: run `node tools/gmail-auth.mjs` once), takes the vacancy numbers from them and reads each public vacancy page, without logging in to hh.ru. The links in those emails carry a login key; jobpilot never opens, logs or stores them, it only opens `https://hh.ru/vacancy/<number>` and does not follow redirects. Jobs are queued with `source: "hh"`, the city and work format as the location, the salary, experience and employment type, and the alert names in `notes`.
+For hh.ru users: with `sources.hh_alerts.enabled`, every run reads your hh.ru saved-search emails ("Вакансии по подписке") and resume-match emails ("Подходящие вакансии") from Gmail (read-only, the same access as LinkedIn alerts: run `node tools/gmail-auth.mjs` once), takes the vacancy numbers from them and reads each public vacancy page, without logging in to hh.ru. The links in those emails carry a login key; CometScout never opens, logs or stores them, it only opens `https://hh.ru/vacancy/<number>` and does not follow redirects. Jobs are queued with `source: "hh"`, the city and work format as the location, the salary, experience and employment type, and the alert names in `notes`.
 
 ```json
 "hh_alerts": {
@@ -225,7 +229,7 @@ For hh.ru users: with `sources.hh_alerts.enabled`, every run reads your hh.ru sa
 - `tax_residency_phrases`: a hit adds a flag (a tax residency requirement is worth checking before you apply).
 - `city_countries`: extra city to country pairs. The city and country come from the vacancy page itself when it has them; otherwise the city is read from the address and looked up in a built-in table of major Russian and nearby cities, then in `city_countries`. The country is what the on-site gate checks, so an on-site job in Moscow is rejected when RU is not in your `gates.onsite_countries`. A city that is not known leaves the country empty, which never rejects.
 
-The shared gates then apply as for every source. A posting written mostly in Cyrillic counts as Russian for the language gate, so add `"ru"` to `gates.languages` if you use that gate (`doctor` warns when it is missing). Pages are read one at a time, at least 2 seconds apart (`delay_ms`, default 3), at most `max_fetch` per run. A 403 alone means the vacancy is hidden from visitors who are not logged in; two 403s in a row or a 429 mean hh.ru is slowing jobpilot down, so the run stops. Archived and removed vacancies are skipped. A page without a title or description is not marked seen but tried again on later runs (3 times at most); three such pages in a row stop the run (hh.ru probably changed its page layout). Vacancies left over for any of these reasons, or past `max_fetch`, are kept in `data/state/hh-alerts.json` and tried first on the next run. Try it with `node sources/hh-alerts.mjs --dry-run` (writes nothing) or look further back with `--hours 168`. `--ids 123456789,987654321` only looks: it reads those vacancies (no Gmail, even ones seen before), prints what would happen to each, and writes no job files, does not mark them seen and leaves the state file alone.
+The shared gates then apply as for every source. A posting written mostly in Cyrillic counts as Russian for the language gate, so add `"ru"` to `gates.languages` if you use that gate (`doctor` warns when it is missing). Pages are read one at a time, at least 2 seconds apart (`delay_ms`, default 3), at most `max_fetch` per run. A 403 alone means the vacancy is hidden from visitors who are not logged in; two 403s in a row or a 429 mean hh.ru is slowing CometScout down, so the run stops. Archived and removed vacancies are skipped. A page without a title or description is not marked seen but tried again on later runs (3 times at most); three such pages in a row stop the run (hh.ru probably changed its page layout). Vacancies left over for any of these reasons, or past `max_fetch`, are kept in `data/state/hh-alerts.json` and tried first on the next run. Try it with `node sources/hh-alerts.mjs --dry-run` (writes nothing) or look further back with `--hours 168`. `--ids 123456789,987654321` only looks: it reads those vacancies (no Gmail, even ones seen before), prints what would happen to each, and writes no job files, does not mark them seen and leaves the state file alone.
 
 ### Outcomes from Gmail
 
@@ -264,7 +268,7 @@ Check any file by hand: `node lib/lint.mjs <file.docx|document.xml|file.txt> [--
 
 ### Hooks
 
-Hooks let your own scripts react to the pipeline without changing jobpilot, for example to copy decodes into your notes or update a tracker:
+Hooks let your own scripts react to the pipeline without changing CometScout, for example to copy decodes into your notes or update a tracker:
 
 ```json
 "hooks": {
@@ -274,38 +278,38 @@ Hooks let your own scripts react to the pipeline without changing jobpilot, for 
 }
 ```
 
-Events: `before_run`, `job_written`, `decoded`, `picks`, `pack_built`, `outcome`, `run_done`. Each command gets the event as JSON on stdin (`{ "event", "at", ...details }`). A hook that fails or runs too long is logged and never stops the run.
+Events: `before_run`, `job_written`, `decoded`, `picks`, `pack_built`, `outcome`, `run_done`. Each command gets the event as JSON on stdin (`{ "event", "at", ...details }`) and `COMETSCOUT_EVENT` in its environment; for now every `COMETSCOUT_` variable is also set under its old name, so hook scripts from before the rename keep working. A hook that fails or runs too long is logged and never stops the run.
 
 `decoded` carries `file`, `dir`, `company`, `role`, `url`, `source`, `verdict`, `gate`, `confidence`, `apply_priority`, `action` and `fact_flags`: every fact rule the verdict tripped, as `[{ "id", "why", "excerpt" }]` (the excerpt is the matched text, at most 80 characters).
 
-`run_done` carries `date`, `seconds`, `decoder_exit`, `pack_exit`, `sources_failed`: every source that exited non-zero in this run, as `[{ "source": "rtj", "exit": 2 }]` (empty when all went well), and `refused`: the packs this run refused because vetted CV text breaks a [lint rule](#lint-rules), as `[{ "file", "company", "role", "rules": ["id"] }]` (listed in the closing line too, never a failure). The same sources are named in the run's log (`jobpilot: source rtj failed (exit 2)`, and a closing `run finished; failed source(s): ...` line), so a dead source is never silent. Only exit 3 (a source that needs you, such as an expired login) makes the run itself exit non-zero. `node cli.mjs doctor` lists configured hooks and flags unknown event names.
+`run_done` carries `date`, `seconds`, `decoder_exit`, `pack_exit`, `sources_failed`: every source that exited non-zero in this run, as `[{ "source": "rtj", "exit": 2 }]` (empty when all went well), and `refused`: the packs this run refused because vetted CV text breaks a [lint rule](#lint-rules), as `[{ "file", "company", "role", "rules": ["id"] }]` (listed in the closing line too, never a failure). The same sources are named in the run's log (`cometscout: source rtj failed (exit 2)`, and a closing `run finished; failed source(s): ...` line), so a dead source is never silent. Only exit 3 (a source that needs you, such as an expired login) makes the run itself exit non-zero. `node cli.mjs doctor` lists configured hooks and flags unknown event names.
 
 The `outcome` event carries: `key` (the application), `company`, `role`, `type` (rejection, interview, test_task, offer, application_received), `status` and `previous_status`, `reopened` (true when a rejected or closed application was reopened), the event fields `date` (the email's day), `round` and `event_date` (when given), `note` (the evidence sentence), `source` (`gmail`) and `gmail_id`, plus `thread_id`, `email_date` (the email's Date header as received, or the time Gmail received it when there is none), `from`, `subject` and `evidence` (the same sentence as `note`).
 
 ### External producers (drop-dir)
 
-Another program that finds jobs (a web-searching agent, a scan over some other pipeline, a script you wrote) can hand them to jobpilot by dropping files into a folder, without jobpilot knowing anything about where they came from. Enable it with:
+Another program that finds jobs (a web-searching agent, a scan over some other pipeline, a script you wrote) can hand them to CometScout by dropping files into a folder, without CometScout knowing anything about where they came from. Enable it with:
 
 ```json
 "sources": {
   "drop_dir": {
     "enabled": true,
-    "dir": "/home/youruser/jobpilot-drop",
+    "dir": "/home/youruser/cometscout-drop",
     "settle_sec": 60,
-    "move_processed_to": "/home/youruser/jobpilot-drop/processed",
+    "move_processed_to": "/home/youruser/cometscout-drop/processed",
     "max_fetches_per_run": 40
   }
 }
 ```
 
-jobpilot checks `dir` on every run (`node cli.mjs sources` or the evening run) and accepts two kinds of file. A file is only touched once it has been sitting for `settle_sec` seconds, so a writer that is still appending to it is left alone. Only `*.md` and `*.queue.json` files are read; dotfiles and anything else (desktop.ini, editor swap files, sync clients' temp files) are ignored.
+CometScout checks `dir` on every run (`node cli.mjs sources` or the evening run) and accepts two kinds of file. A file is only touched once it has been sitting for `settle_sec` seconds, so a writer that is still appending to it is left alone. Only `*.md` and `*.queue.json` files are read; dotfiles and anything else (desktop.ini, editor swap files, sync clients' temp files) are ignored.
 
-1. **A job file in jobpilot's own format**: front matter (`company`, `role`, `url`, `source`, `location`, ...) followed by the job text, the same shape jobpilot itself writes to `data/inbox`. It is queued with the normal dedupe rules, then moved to `processed/`. A file missing `company` or `role` is moved to `failed/` with a `.reason.txt` beside it rather than queued half-wrong.
-2. **A `*.queue.json` file**: `{ "candidates": [{ "title": "...", "url": "...", "company": "optional", "location": "optional", "source_key": "optional" }] }`, the shape a search-style tool naturally produces (a page title and a link). For each candidate, jobpilot fetches the full job text itself (from the ATS API when the link is a known Greenhouse, Ashby, Lever, Workable or Recruitee posting, otherwise the page), works out the company from whichever of `company`, the page title, the fetch, or the link's board slug is the most specific, and skips search-result pages and jobs it cannot identify. Jobs are queued with `source: "drop:<source_key or file name>"`. Closed postings and links that redirect to a listing page or the home page are skipped too. The queue file is only moved to `processed/` once every candidate in it has a final answer. A page that could not be fetched (a rate limit, a server error, a network hiccup) keeps the file in place and is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job that stays unreadable is still queued without text when its company and role are known (open the link to read it), and reported as unreadable otherwise, so no file waits forever. A company only guessed from the title's punctuation ("Co - Title") does not count as known there. A queue file that is not valid JSON goes to `failed/`. jobpilot fetches pages slowly (1.5 seconds apart), at most `max_fetches_per_run` pages per run (default 40; calls to a known ATS API do not count), only over http or https, and never from this machine or a private network. Jobs past that limit stay in their file and are fetched on the next run. Files saved with a UTF-8 byte order mark (common with Windows tools) are read normally.
+1. **A job file in CometScout's own format**: front matter (`company`, `role`, `url`, `source`, `location`, ...) followed by the job text, the same shape CometScout itself writes to `data/inbox`. It is queued with the normal dedupe rules, then moved to `processed/`. A file missing `company` or `role` is moved to `failed/` with a `.reason.txt` beside it rather than queued half-wrong.
+2. **A `*.queue.json` file**: `{ "candidates": [{ "title": "...", "url": "...", "company": "optional", "location": "optional", "source_key": "optional" }] }`, the shape a search-style tool naturally produces (a page title and a link). For each candidate, CometScout fetches the full job text itself (from the ATS API when the link is a known Greenhouse, Ashby, Lever, Workable or Recruitee posting, otherwise the page), works out the company from whichever of `company`, the page title, the fetch, or the link's board slug is the most specific, and skips search-result pages and jobs it cannot identify. Jobs are queued with `source: "drop:<source_key or file name>"`. Closed postings and links that redirect to a listing page or the home page are skipped too. The queue file is only moved to `processed/` once every candidate in it has a final answer. A page that could not be fetched (a rate limit, a server error, a network hiccup) keeps the file in place and is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job that stays unreadable is still queued without text when its company and role are known (open the link to read it), and reported as unreadable otherwise, so no file waits forever. A company only guessed from the title's punctuation ("Co - Title") does not count as known there. A queue file that is not valid JSON goes to `failed/`. CometScout fetches pages slowly (1.5 seconds apart), at most `max_fetches_per_run` pages per run (default 40; calls to a known ATS API do not count), only over http or https, and never from this machine or a private network. Jobs past that limit stay in their file and are fetched on the next run. Files saved with a UTF-8 byte order mark (common with Windows tools) are read normally.
 
 ### Hirify
 
-[Hirify](https://hirify.me) collects remote and relocation jobs with structured fields: work format, the countries a remote job accepts or excludes, office locations, language requirements. jobpilot reads your saved filters through Hirify's API with your own logged-in session, so you need a Hirify account.
+[Hirify](https://hirify.me) collects remote and relocation jobs with structured fields: work format, the countries a remote job accepts or excludes, office locations, language requirements. CometScout reads your saved filters through Hirify's API with your own logged-in session, so you need a Hirify account.
 
 ```json
 "hirify": {
@@ -325,15 +329,15 @@ jobpilot checks `dir` on every run (`node cli.mjs sources` or the evening run) a
 HIRIFY_COOKIE="paste the value here"
 ```
 
-Never paste it into a chat. The cookie expires (when you log out, or after some weeks). When Hirify refreshes it, jobpilot keeps the new values in `data/state/hirify-cookies.json` (readable only by you) and uses them next time. When the session stops working, the source prints "refresh HIRIFY_COOKIE", sends a Telegram alert if delivery is on, and exits with code 3; `node cli.mjs run` and `node cli.mjs sources` then finish with exit code 3 as well, so the failure shows. A dead session shows up as a 401, 403 or 419, a login page (HTML) instead of JSON, no logged-in user, or a first page where every company is hidden (`***`, `•••` or `%...%`). Copy a fresh cookie into `.env` and run again. `node cli.mjs doctor` checks that the variable is set.
+Never paste it into a chat. The cookie expires (when you log out, or after some weeks). When Hirify refreshes it, CometScout keeps the new values in `data/state/hirify-cookies.json` (readable only by you) and uses them next time. When the session stops working, the source prints "refresh HIRIFY_COOKIE", sends a Telegram alert if delivery is on, and exits with code 3; `node cli.mjs run` and `node cli.mjs sources` then finish with exit code 3 as well, so the failure shows. A dead session shows up as a 401, 403 or 419, a login page (HTML) instead of JSON, no logged-in user, or a first page where every company is hidden (`***`, `•••` or `%...%`). Copy a fresh cookie into `.env` and run again. `node cli.mjs doctor` checks that the variable is set.
 
 Requests look like the site's own (a normal browser User-Agent, with Origin and Referer set to hirify.me), so Hirify's edge does not refuse them. If Hirify still answers 429 (too many requests), the run stops at once with exit code 4: nothing is lost and the vacancy in hand is not marked seen. A `Retry-After` of up to two minutes is waited out and the request tried once more; a longer one is remembered, and runs before that time do not call Hirify at all.
 
-Each new vacancy gets one detail call, unless the list already says it is a scam or archived; scams (marked by Hirify) and archived vacancies are skipped. A company Hirify still hides with a working session is queued as "Confidential (Hirify)" with a flag; a hidden apply link is replaced by the vacancy's Hirify page, also with a flag. The gates apply to the rest: the posting language and `language_requirements` (language gate), office locations (geo), allowed locations (remote regions; country names count, so "Spain" or "spain" is accepted when you may work in Spain, and Hirify's snake_case names such as `united_kingdom` and `european_union` are read as words), excluded locations (a job that excludes a country you can work in is rejected), tags and a "(Domain)" at the end of the title (industries). Remote counts as worldwide when there are no allowed locations, when they are only worldwide words (`anywhere`, `worldwide`, `global`, `everywhere`), or when Hirify's `remote_type` is `global`. A field that is missing or written in a form jobpilot does not know is flagged, never a reason to reject. The vacancy ids jobpilot has handled are kept in `data/state/hirify.json` for 120 days; a vacancy that could not be read, or was demoted, is tried again on the next run. Try it with `node sources/hirify.mjs --dry-run` (writes nothing).
+Each new vacancy gets one detail call, unless the list already says it is a scam or archived; scams (marked by Hirify) and archived vacancies are skipped. A company Hirify still hides with a working session is queued as "Confidential (Hirify)" with a flag; a hidden apply link is replaced by the vacancy's Hirify page, also with a flag. The gates apply to the rest: the posting language and `language_requirements` (language gate), office locations (geo), allowed locations (remote regions; country names count, so "Spain" or "spain" is accepted when you may work in Spain, and Hirify's snake_case names such as `united_kingdom` and `european_union` are read as words), excluded locations (a job that excludes a country you can work in is rejected), tags and a "(Domain)" at the end of the title (industries). Remote counts as worldwide when there are no allowed locations, when they are only worldwide words (`anywhere`, `worldwide`, `global`, `everywhere`), or when Hirify's `remote_type` is `global`. A field that is missing or written in a form CometScout does not know is flagged, never a reason to reject. The vacancy ids CometScout has handled are kept in `data/state/hirify.json` for 120 days; a vacancy that could not be read, or was demoted, is tried again on the next run. Try it with `node sources/hirify.mjs --dry-run` (writes nothing).
 
 ### career-ops
 
-If you also run [career-ops](https://github.com/career-ops-hq/career-ops), jobpilot can pick up what its scans find, so those jobs get decoded and picked like any other. jobpilot only reads two files in your career-ops checkout and never writes into that folder.
+If you also run [career-ops](https://github.com/career-ops-hq/career-ops), CometScout can pick up what its scans find, so those jobs get decoded and picked like any other. CometScout only reads two files in your career-ops checkout and never writes into that folder.
 
 ```json
 "sources": {
@@ -351,9 +355,9 @@ If you also run [career-ops](https://github.com/career-ops-hq/career-ops), jobpi
 - **Pipeline** (required). Rows look like `- [ ] <url> | <company> | <title> | <location> | <compensation>`; only the link is required, and the trailing cells are there when the board gave them. Any row may also carry labeled segments: `posted: YYYY-MM-DD`, `trust: 60 flag,flag`, `note: ...` and `rank: 4.1/5 ...`. A labeled segment is never read as a company, role or location; all of them go into the job's notes, `posted:` also sets the posting date, and `trust:` also becomes a flag. Every `[ ]` row is a candidate. Rows marked `[!]` (career-ops could not read them), `[x] #-- | <url> | skipped (...)` (dropped by its pre-screen) and struck-through `[x] ~~...~~` rows (expired) are left out. Other `[x]` rows were already evaluated by career-ops; they are taken only with `include_evaluated: true`, and the career-ops number and score (`3.8/5`, `**8.5/10**`) go into the notes. A row with any other mark is listed in the log and not taken.
 - **Scan history** (optional). The tab-separated file with a header row (`url`, `first_seen`, `portal`, `title`, `company`, `status`, `location`, ... up to 12 columns; older files without a header or with 7 columns work too). When a link has several rows, the last one counts. A link whose last status is `added` and that is not in the pipeline is a candidate; `skipped_expired`, `skipped_location` and every other status are left out.
 
-Before anything is fetched, a link you already have in `data/state/applications.json` (the same link, or the same company and role) is skipped, and the [gates](#gates) run on the company, role and location career-ops wrote, so an excluded company or an on-site job in the wrong country costs nothing. jobpilot then fetches the full text (from the ATS API for Greenhouse, Ashby, Lever, Workable and Recruitee links, otherwise the page), checks applications and the gates again on what the posting says, and queues the job with `source: "career-ops"`, the location and the compensation (as salary). Closed postings are skipped. The company is the one career-ops wrote, else the one the posting names, else the board in the link; it is never guessed from the title. A job with no company anywhere is queued as "Unknown" with a flag, so the decoder sees it.
+Before anything is fetched, a link you already have in `data/state/applications.json` (the same link, or the same company and role) is skipped, and the [gates](#gates) run on the company, role and location career-ops wrote, so an excluded company or an on-site job in the wrong country costs nothing. CometScout then fetches the full text (from the ATS API for Greenhouse, Ashby, Lever, Workable and Recruitee links, otherwise the page), checks applications and the gates again on what the posting says, and queues the job with `source: "career-ops"`, the location and the compensation (as salary). Closed postings are skipped. The company is the one career-ops wrote, else the one the posting names, else the board in the link; it is never guessed from the title. A job with no company anywhere is queued as "Unknown" with a flag, so the decoder sees it.
 
-`max_per_run` caps the jobs handled per run, shared out one per company in turn (the company as written, else the board in the link); the rest wait for the next run. Every link is remembered in `data/state/career-ops.json`, so nothing is fetched twice. A gate reject is remembered too, but one made before the fetch is checked again on every run without any network, so changing `gates` brings it back. A link that could not be fetched (a rate limit, a server error, a network hiccup) is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job given up on is still queued without text when its company and role are known. Try it with `node sources/career-ops.mjs --dry-run` (fetches and logs, writes nothing). `node cli.mjs doctor` checks that the folder has the pipeline file and that jobpilot can read it.
+`max_per_run` caps the jobs handled per run, shared out one per company in turn (the company as written, else the board in the link); the rest wait for the next run. Every link is remembered in `data/state/career-ops.json`, so nothing is fetched twice. A gate reject is remembered too, but one made before the fetch is checked again on every run without any network, so changing `gates` brings it back. A link that could not be fetched (a rate limit, a server error, a network hiccup) is tried again on the next run, up to 3 runs; a 401, 403 or 451 is final at once. A job given up on is still queued without text when its company and role are known. Try it with `node sources/career-ops.mjs --dry-run` (fetches and logs, writes nothing). `node cli.mjs doctor` checks that the folder has the pipeline file and that CometScout can read it.
 
 ### Tracker export
 
@@ -363,7 +367,7 @@ Before anything is fetched, a link you already have in `data/state/applications.
 "tracker_export": { "enabled": false, "out": "tracker/pipeline.json" }
 ```
 
-`out` is relative to the data folder (`data/`, or `JOBPILOT_DATA` when set), so the default lands in `data/tracker/pipeline.json`; an absolute path is used as it is. `--out <file>` on the command line is relative to the folder you run it from.
+`out` is relative to the data folder (`data/`, or `COMETSCOUT_DATA` when set), so the default lands in `data/tracker/pipeline.json`; an absolute path is used as it is. `--out <file>` on the command line is relative to the folder you run it from.
 
 Every entry in `data/state/applications.json` that is an application is a row: one with an `applied` event or an `applied` date, or with a status that means you applied (not `skipped`, `closed` or `withdrawn`). A role closed or withdrawn before you applied is not exported. `stage` comes from the status (Applied, Screen, Interview, Offer, Rejected, Withdrawn; `accepted` is Offer, since the tracker has no hired stage; `withdrawn` and `closed` are Withdrawn); `furthestStage` is the furthest of Applied, Screen, Interview and Offer that the status and events reached, so a rejection after an interview keeps Interview. `dateApplied` is the first `applied` event, else the entry's `applied` date, else its earliest dated event, else `updated`. `lastActivity` is the latest event or update up to today (a booked interview counts from its day on). `notes` "Rejected <date>", "Accepted <date>", "Closed <date>" or "Last update <date>", never a date after today. `source` and `link` come from the job's queue file. The file is written (to a temporary file, then renamed) only when its `contentHash` changes, so the app does not re-import the same data; the command says `wrote <file>` or `unchanged (N applications: Applied 3, ...)`. Every row is checked first (known stages, a company and a role, dates as YYYY-MM-DD); a bad row stops the export and is shown. An entry with no date up to today is left out and listed (`skipped, no date up to today: ...`); it does not stop the export. `--dry-run` prints the rows as JSON on stdout (so it can be piped, e.g. to `jq`) and the notes and summary on stderr, and writes nothing. With `enabled`, `node cli.mjs run` exports at the end; a failure there is logged and does not fail the run.
 
@@ -391,22 +395,22 @@ Price keys are source names as the job files carry them (`rtj`, `linkedin`, `hh`
 
 ### Running unattended: health ping and failure alert
 
-Set `health.ping_url` to a [healthchecks.io](https://healthchecks.io) style URL and every `node cli.mjs run` ends with a GET to it, or to `<url>/<exit code>` when the run exits non-zero, so a run that fails or never happens (a dead timer, a server that is off) is noticed. It waits 10 seconds at most and never fails the run. Treat the URL as a secret: jobpilot never logs it. `doctor` shows whether it is set.
+Set `health.ping_url` to a [healthchecks.io](https://healthchecks.io) style URL and every `node cli.mjs run` ends with a GET to it, or to `<url>/<exit code>` when the run exits non-zero, so a run that fails or never happens (a dead timer, a server that is off) is noticed. It waits 10 seconds at most and never fails the run. Treat the URL as a secret: CometScout never logs it. `doctor` shows whether it is set.
 
 ```json
 "health": { "ping_url": "" }
 ```
 
-The daily timer also installs a failure alert: the run unit has `OnFailure=jobpilot-failure@%n.service` (template in `deploy/jobpilot-failure@.service`), which runs `node cli.mjs notify "jobpilot: jobpilot.service failed, see journalctl --user -u jobpilot.service"`. `notify` sends one Telegram message; with Telegram off it only logs the text. Re-run `node cli.mjs timer` to add the alert to an existing install.
+The daily timer also installs a failure alert: the run unit has `OnFailure=cometscout-failure@%n.service` (template in `deploy/cometscout-failure@.service`), which runs `node cli.mjs notify "cometscout: cometscout.service failed, see journalctl --user -u cometscout.service"`. `notify` sends one Telegram message; with Telegram off it only logs the text. Re-run `node cli.mjs timer` to add the alert to an existing install. On an install from before the rename it also stops, disables and removes the old units (the timer first; a run in progress is left to finish) and says so.
 
 ### Export, import and backups
 
 One archive format serves downloading your data, nightly backups, moving to a new server and restoring: a ZIP you can open with a double click on any computer and read your own files.
 
-**What is in it.** `manifest.json` (format `jobpilot-export` version 2, the jobpilot version, the data schema, when and on which machine it was made, and a SHA-256 hash of every file), `data/` (`inbox`, `decoded`, `rejected`, `digests`, `packs`, `state`), `profile/` and `settings.json`. **What is never in it:** `.env`, saved login sessions (`data/state/hirify-cookies.json`), the run lock, temporary files, `backups/`, `data/runs`, `data/reports` and `data/tracker` (the next run rebuilds them), and `data/imported` (copies from `--on-conflict both`). The example profile and example settings are not exported.
+**What is in it.** `manifest.json` (format `cometscout-export` version 2, the CometScout version, the data schema, when and on which machine it was made, and a SHA-256 hash of every file), `data/` (`inbox`, `decoded`, `rejected`, `digests`, `packs`, `state`), `profile/` and `settings.json`. **What is never in it:** `.env`, saved login sessions (`data/state/hirify-cookies.json`), the run lock, temporary files, `backups/`, `data/runs`, `data/reports` and `data/tracker` (the next run rebuilds them), and `data/imported` (copies from `--on-conflict both`). The example profile and example settings are not exported.
 
 ```bash
-node cli.mjs export                        # jobpilot-export-<date>-v<version>.zip in the current folder
+node cli.mjs export                        # cometscout-export-<date>-v<version>.zip in the current folder
 node cli.mjs export --out my-data.zip      # or --out <folder> for the same layout unpacked
 node cli.mjs export --data-only            # without profile/ and settings.json
 node cli.mjs export --csv applications.csv # your applications as a spreadsheet (not an archive)
@@ -414,7 +418,7 @@ node cli.mjs export --csv applications.csv # your applications as a spreadsheet 
 
 The CSV has Company, Role, Status, Applied, Last activity, Source, Link and Notes, one row per entry in `applications.json`. It is UTF-8 with a BOM, so Excel shows Cyrillic and other scripts correctly; a cell that starts with `=`, `+`, `-` or `@` gets a leading `'` so a spreadsheet never runs it as a formula.
 
-**Import** reads a v2 zip or folder, and the older v1 format (a folder or a `.tar.gz`, read with the system `tar`). A zip is unpacked into `backups/` in the jobpilot home (on the same disk as your data, not `/tmp`, which is memory on some systems) and that folder is removed afterwards. Every file's hash is checked before anything is written; a damaged archive, an unsafe file name, or an archive made by a newer jobpilot (a newer format or data schema) is refused and nothing changes. On Windows, a file whose name Windows does not allow (a `?` or `:` from a Linux machine, say) is listed as left out with the reason, and the rest is imported. `--dry-run` prints the plan: new files, identical files, conflicts (a file you have with other content) and files left out.
+**Import** reads a v2 zip or folder, and the older v1 format (a folder or a `.tar.gz`, read with the system `tar`). A zip is unpacked into `backups/` in the CometScout home (on the same disk as your data, not `/tmp`, which is memory on some systems) and that folder is removed afterwards. Every file's hash is checked before anything is written; a damaged archive, an unsafe file name, or an archive made by a newer CometScout (a newer format or data schema) is refused and nothing changes. On Windows, a file whose name Windows does not allow (a `?` or `:` from a Linux machine, say) is listed as left out with the reason, and the rest is imported. `--dry-run` prints the plan: new files, identical files, conflicts (a file you have with other content) and files left out.
 
 ```bash
 node cli.mjs import --from my-data.zip --dry-run
@@ -426,30 +430,30 @@ node cli.mjs import --from my-data.zip --on-conflict keep     # or theirs, or bo
 - `both` keeps yours and writes the archived copy to `data/imported/<its path in the archive>` (for example `data/imported/data/state/applications.json`), never into the queue folders, for you to compare. A name already taken there gets `-2`, `-3` and so on. Delete `data/imported` when you are done; it is not exported.
 - A conflict in `profile/` or `settings.json` always needs an explicit `--on-conflict`; until you give one, nothing is imported. `--data-only` leaves profile and settings alone.
 
-**Zips made by other tools.** If you unpack an export and zip it again yourself, the file names must survive. 7-Zip, PowerShell `Compress-Archive` and `Expand-Archive` (5.1 and 7) and `jobpilot export` keep non-Latin names (Cyrillic, Japanese). Windows Explorer and `tar.exe` write names in the machine's old code page (CP866 on a Russian Windows) and can mangle them for other tools. jobpilot reads such names in this Windows machine's code page; on another machine, set `backup.zip_codepage` (for example `866`). Windows PowerShell 5.1 `Compress-Archive` writes `\` instead of `/` in names; jobpilot reads those as folders too. With `tar.exe`, name the top-level entries (`tar -a -cf out.zip manifest.json data profile settings.json`): `-C folder .` stores every name under `./`, and the archive is then not recognised as an export.
+**Zips made by other tools.** If you unpack an export and zip it again yourself, the file names must survive. 7-Zip, PowerShell `Compress-Archive` and `Expand-Archive` (5.1 and 7) and `node cli.mjs export` keep non-Latin names (Cyrillic, Japanese). Windows Explorer and `tar.exe` write names in the machine's old code page (CP866 on a Russian Windows) and can mangle them for other tools. CometScout reads such names in this Windows machine's code page; on another machine, set `backup.zip_codepage` (for example `866`). Windows PowerShell 5.1 `Compress-Archive` writes `\` instead of `/` in names; CometScout reads those as folders too. With `tar.exe`, name the top-level entries (`tar -a -cf out.zip manifest.json data profile settings.json`): `-C folder .` stores every name under `./`, and the archive is then not recognised as an export.
 
-**Secrets** travel separately and encrypted (scrypt and AES-256-GCM): `.env` and the saved Hirify session. The passphrase is asked in the terminal (twice on export) or read from `JOBPILOT_SECRETS_PASSPHRASE`, never from an argument. A wrong passphrase fails without writing anything. On import, a secret file you already have with other content is replaced only with `--force`, and the old one is kept as `<name>.replaced-<date>`.
-
-```bash
-node cli.mjs export-secrets --out jobpilot-secrets.enc
-node cli.mjs import-secrets --from jobpilot-secrets.enc [--dry-run] [--force]
-```
-
-**Moving to a new server** in three commands (install jobpilot there first with `deploy/install.sh`):
+**Secrets** travel separately and encrypted (scrypt and AES-256-GCM): `.env` and the saved Hirify session. The passphrase is asked in the terminal (twice on export) or read from `COMETSCOUT_SECRETS_PASSPHRASE`, never from an argument. A wrong passphrase fails without writing anything. On import, a secret file you already have with other content is replaced only with `--force`, and the old one is kept as `<name>.replaced-<date>`.
 
 ```bash
-node cli.mjs export --out jobpilot.zip                     # on the old server
-scp jobpilot.zip jobpilot-secrets.enc new-server:jobpilot/  # after export-secrets, if you use tokens
-node cli.mjs import --from jobpilot.zip                     # on the new server, then import-secrets
+node cli.mjs export-secrets --out cometscout-secrets.enc
+node cli.mjs import-secrets --from cometscout-secrets.enc [--dry-run] [--force]
 ```
 
-**Backups.** `node cli.mjs run` makes one after every evening run (not while you try jobpilot on the example profile), and `node cli.mjs backup` makes one now. They go to `backups/` in the jobpilot home as `jobpilot-backup-<date>-<time>-v<version>.zip` (the same format as an export, complete: data, profile and settings). A failed nightly backup is logged and sent to Telegram as an alert; it never fails the run. After each backup old ones are pruned: the newest backup of each of the last 7 days, 4 weeks and 6 months that have one is kept, and the newest three are never removed. `--label <text>` adds a label to the name (updates use `pre-update-...`, restores `pre-restore`); a labelled backup is removed only after 90 days.
+**Moving to a new server** in three commands (install CometScout there first with `deploy/install.sh`):
+
+```bash
+node cli.mjs export --out cometscout.zip                           # on the old server
+scp cometscout.zip cometscout-secrets.enc new-server:cometscout/   # after export-secrets, if you use tokens
+node cli.mjs import --from cometscout.zip                           # on the new server, then import-secrets
+```
+
+**Backups.** `node cli.mjs run` makes one after every evening run (not while you try CometScout on the example profile), and `node cli.mjs backup` makes one now. They go to `backups/` in the CometScout home as `cometscout-backup-<date>-<time>-v<version>.zip` (the same format as an export, complete: data, profile and settings). A failed nightly backup is logged and sent to Telegram as an alert; it never fails the run. After each backup old ones are pruned: the newest backup of each of the last 7 days, 4 weeks and 6 months that have one is kept, and the newest three are never removed. `--label <text>` adds a label to the name (updates use `pre-update-...`, restores `pre-restore`); a labelled backup is removed only after 90 days. Backups named before the rename are listed, restored and pruned too, each name on its own, so the newest backups of either name are never removed.
 
 ```json
 "backup": { "nightly": true, "copy_to": "", "zip_codepage": null }
 ```
 
-`copy_to` copies every new backup offsite: a folder (a Syncthing folder, a mounted disk), or a command with `{file}` in it, such as `"rclone copy {file} remote:jobpilot"` or `"rsync -a {file} backup-host:jobpilot/"`. A failed copy is logged and never stops anything. `doctor` shows the age of the last backup (a warning after 2 days while `nightly` is on) and the free disk space (a warning below three times the last backup).
+`copy_to` copies every new backup offsite: a folder (a Syncthing folder, a mounted disk), or a command with `{file}` in it, such as `"rclone copy {file} remote:cometscout"` or `"rsync -a {file} backup-host:cometscout/"`. A failed copy is logged and never stops anything. `doctor` shows the age of the last backup (a warning after 2 days while `nightly` is on) and the free disk space (a warning below three times the last backup).
 
 **Restoring.**
 
@@ -459,11 +463,11 @@ node cli.mjs restore <file name> --dry-run              # what would change
 node cli.mjs restore <file name>
 ```
 
-`restore` takes a name from `backups` or the path of any jobpilot export (a zip, a folder or a v1 `.tar.gz`). It unpacks and checks the archive once, then backs up the current state (label `pre-restore`), then imports with `--on-conflict theirs`: every file in the archive comes back as it was. Files made after the backup that are not in it stay, and one line says how many (`N file(s) here are not in the backup`). It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
+`restore` takes a name from `backups` or the path of any CometScout export (a zip, a folder or a v1 `.tar.gz`). It unpacks and checks the archive once, then backs up the current state (label `pre-restore`), then imports with `--on-conflict theirs`: every file in the archive comes back as it was. Files made after the backup that are not in it stay, and one line says how many (`N file(s) here are not in the backup`). It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
 
 ### Interview coach (optional)
 
-For interviews, jobpilot sets up [Interview Coach](https://github.com/noamseg/interview-coach-skill), an open-source Claude Code skill by Noam Segal (MIT license): company research and prep, practice and mock interviews with scoring, transcript analysis, and offer negotiation. It is a separate project: it is installed from its own repository and never copied into this one. The onboarding offers it as an optional step.
+For interviews, CometScout sets up [Interview Coach](https://github.com/noamseg/interview-coach-skill), an open-source Claude Code skill by Noam Segal (MIT license): company research and prep, practice and mock interviews with scoring, transcript analysis, and offer negotiation. It is a separate project: it is installed from its own repository and never copied into this one. The onboarding offers it as an optional step.
 
 ```bash
 bash deploy/modules/coach.sh              # install, or update with git pull --ff-only (Windows: deploy\modules\coach.ps1)
@@ -471,7 +475,7 @@ node cli.mjs coach-handoff                # write materials/cometscout-handoff.m
 cd ../interview-coach && claude           # then say: kickoff, and give it materials/cometscout-handoff.md
 ```
 
-- **Where it goes:** a folder next to the jobpilot home (`../interview-coach`), or `modules.coach.path`. The installer clones it the first time and only pulls after that, and only when the folder's `origin` is `modules.coach.repo`; what the coach writes there (`coaching_state.md`, `materials/`) is never deleted. git runs without prompts, so a private or mistyped address fails at once. The installer creates `CLAUDE.md` as a copy of the coach's `SKILL.md`, as the coach's README asks, and never overwrites an existing one (it says when `SKILL.md` has changed).
+- **Where it goes:** a folder next to the CometScout home (`../interview-coach`), or `modules.coach.path`. The installer clones it the first time and only pulls after that, and only when the folder's `origin` is `modules.coach.repo`; what the coach writes there (`coaching_state.md`, `materials/`) is never deleted. git runs without prompts, so a private or mistyped address fails at once. The installer creates `CLAUDE.md` as a copy of the coach's `SKILL.md`, as the coach's README asks, and never overwrites an existing one (it says when `SKILL.md` has changed).
 - **Settings:** `"modules": { "coach": { "enabled": false, "path": null, "repo": "https://github.com/noamseg/interview-coach-skill.git" } }`. With `enabled`, `doctor` shows the installed commit and whether `claude` is on the PATH.
 - **The hand-off holds** your `profile/profile.md` as written (scope guards labelled "never claim"), the CV library as a plain resume (taglines, summaries, every role and bullet, skills, education, awards; no contact line), `profile/voice.md`, and where you stand: the jobs you hold (status `accepted`, with the day you accepted), what is coming up (interviews and test tasks with a date ahead, and anything dated today or later, soonest first, then applications at screen, interview or offer, with the round when one is recorded; a job you hold shows only an interview date ahead, noted as a possible probation review), then your applications with status and last event. Scope guards also include the reasons from `profile/fact-rules.json`, each said once.
 - **When it is written:** `node cli.mjs coach-handoff` writes it now, into the coach's `materials/` folder, which the coach's git ignores. With `modules.coach.enabled`, the evening run writes a fresh one too (no network; a coach that is not installed is one log line and never fails the run).
@@ -479,7 +483,7 @@ cd ../interview-coach && claude           # then say: kickoff, and give it mater
 
 ### Language of the messages
 
-`"locale": "ru"` in `settings.json` writes jobpilot's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram, the scorecard's Telegram text and the workspace. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
+`"locale": "ru"` in `settings.json` writes CometScout's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram, the scorecard's Telegram text and the workspace. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
 
 ### Tests
 
@@ -496,14 +500,14 @@ v0.1, first testers. Working today:
 - Outcomes from Gmail, tracker export, source scorecard, health ping, failure alert, English and Russian labels.
 - Installer, `doctor`, daily timer, hooks, export and import.
 
-The pipeline it replaces ran one person's search for three months; jobpilot reached parity with it on that data (identical tracker rows, gate replay and outcome checks within the agreed thresholds) before the next steps below.
+The pipeline it replaces ran one person's search for three months; CometScout reached parity with it on that data (identical tracker rows, gate replay and outcome checks within the agreed thresholds) before the next steps below.
 
 ## Roadmap
 
 Planned, in order (details and task briefs in [ROADMAP.md](ROADMAP.md) and `docs/tasks/`):
 
 1. **Evals.** Decoder verdicts scored against human labels, blind A/B judging of CVs and form answers, a check that answers sound like you, and a side-by-side diff of two systems on the same days. Quality is proven before anyone relies on it.
-2. **Workspace (in progress).** A web app served by jobpilot itself, so nobody needs a Claude Code session after setup:
+2. **Workspace (in progress).** A web app served by CometScout itself, so nobody needs a Claude Code session after setup:
    - fullscreen and dense on the desktop (picks, decode and pack side by side, keyboard shortcuts), installable on the phone with offline access and notifications;
    - the same app opens as a Telegram Mini App; one bot in a private chat brings picks with Apply / Skip / Later buttons, outcome cards and alerts;
    - screens for the pack editor, your pipeline, sources, settings and gates ("wrong pick: why?" turns into a suggested setting), and a guided onboarding that replaces the setup session.

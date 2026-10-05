@@ -8,15 +8,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-digest-days-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-digest-days-'));
 const DATA = path.join(tmp, 'data');
 const DAY = new Date().toISOString().slice(0, 10);
 const addDays = n => { const d = new Date(`${DAY}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = DATA;
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = DAY;
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', candidate_name: 'Sam Example', picks: { per_day: 2, window_days: 14, max_shown: 3 } }));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = DATA;
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = DAY;
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC', candidate_name: 'Sam Example', picks: { per_day: 2, window_days: 14, max_shown: 3 } }));
 for (const d of ['decoded', 'state', 'digests']) fs.mkdirSync(path.join(DATA, d), { recursive: true });
 
 const d = await import('../decoder/decoder.mjs');
@@ -31,7 +31,7 @@ const job = (company, role, { verdict = 'strong-fit', priority = 1, ago = 0 } = 
   const day = addDays(-ago), file = `${day}--job-${++n}.md`;
   const fm = { company, role, url: `https://jobs.example/${n}`, location: 'Remote', source: 'ats_boards' };
   fs.writeFileSync(path.join(DATA, 'decoded', file), ['---', ...Object.entries(fm).map(([k, v]) => `${k}: "${v}"`), `found: ${day}`, '---', '', `# ${company} - ${role}`, '', 'text', '',
-    '## Decode Result', `Decoded ${day} by jobpilot (claude/sonnet).`, `verdict: ${verdict}`, 'confidence: high', `apply_priority: ${priority}`, 'rationale: r', 'action: Apply on the company site.', ''].join('\n'));
+    '## Decode Result', `Decoded ${day} by CometScout (claude/sonnet).`, `verdict: ${verdict}`, 'confidence: high', `apply_priority: ${priority}`, 'rationale: r', 'action: Apply on the company site.', ''].join('\n'));
   return { file, fm, v: { verdict, apply_priority: priority, action: 'Apply on the company site.', decoded_on: day } };
 };
 const alive = async () => ({ ok: true, status: 200, url: '', text: async () => '<html>open</html>' });

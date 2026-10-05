@@ -13,11 +13,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIX = path.join(HERE, 'fixtures', 'career-ops');
 const fixture = name => fs.readFileSync(path.join(FIX, name), 'utf8');
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-career-ops-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-01';
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-career-ops-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-01';
 
 /** A career-ops checkout in the temp folder. pipeline/tsv null = file left out. */
 function careerOps(name, pipeline, tsv) {
@@ -28,7 +28,7 @@ function careerOps(name, pipeline, tsv) {
   return dir;
 }
 const fixtureDir = careerOps('career-ops', fixture('pipeline.md'), fixture('scan-history.tsv'));
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({
   timezone: 'UTC',
   sources: { career_ops: { enabled: true, path: fixtureDir, include_evaluated: false, max_per_run: 30 } },
 }));
@@ -248,7 +248,7 @@ test('every expectation in expected.json holds with include_evaluated on, still 
   assert.deepEqual(snapshot(fixtureDir), before);
 });
 
-test('an evaluated item already in jobpilot history is not queued twice', async () => {
+test('an evaluated item already in cometscout history is not queued twice', async () => {
   const url = 'https://jobs.lever.co/saltmarsh/33333333-3333-3333-3333-333333333333';
   writeJob({ company: 'Saltmarsh', role: 'Product Lead', url: 'https://other-board.example/saltmarsh/1', source: 'linkedin', text: 'From another source.' });
   use(careerOps('co-history', `- [x] #020 | ${url} | Saltmarsh | Product Lead | 4.1/5\n`, null), { include_evaluated: true });

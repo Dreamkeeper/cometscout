@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-test-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-01';
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', queue: { dedupe_days: 60, aliases: [['Acme Robotics', 'Acme']] } }));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-test-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-01';
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC', queue: { dedupe_days: 60, aliases: [['Acme Robotics', 'Acme']] } }));
 // An old decode of the same title, written before the dedupe index is first built (the index is built once per process).
 fs.mkdirSync(path.join(tmp, 'data', 'decoded'), { recursive: true });
 fs.writeFileSync(path.join(tmp, 'data', 'decoded', '2026-07-01--oldco--product-manager.md'),
@@ -93,7 +93,7 @@ test('a name collision on the same day gets a numeric suffix', () => {
 });
 
 test('parseResult reads the last Decode Result block', () => {
-  const v = q.parseResult('x\n\n## Decode Result\nDecoded 2026-09-30 by jobpilot (claude/sonnet).\nverdict: gate-reject (work authorization)\nconfidence: high\napply_priority: 5\nrationale: no route\naction: skip\n');
+  const v = q.parseResult('x\n\n## Decode Result\nDecoded 2026-09-30 by CometScout (claude/sonnet).\nverdict: gate-reject (work authorization)\nconfidence: high\napply_priority: 5\nrationale: no route\naction: skip\n');
   assert.equal(v.verdict, 'gate-reject');
   assert.equal(v.gate, 'work authorization');
   assert.equal(v.apply_priority, 5);

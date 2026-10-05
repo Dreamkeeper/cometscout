@@ -13,18 +13,18 @@ const FIX = path.join(HERE, 'fixtures', 'hh');
 const fixture = name => fs.readFileSync(path.join(FIX, name), 'utf8');
 const EXPECTED = JSON.parse(fixture('expected.json'));
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-hh-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-01';
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-hh-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-01';
 const BASE_CFG = {
   enabled: true,
   must_reside_phrases: ['находиться на территории РФ'],
   abroad_signals: ['из любой страны', 'Кипр*', 'Европ*'],
   tax_residency_phrases: ['налоговый резидент*'],
 };
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({
   timezone: 'UTC',
   sources: { hh_alerts: BASE_CFG },
   gates: { user: { work_authorization: ['CY'] }, languages: ['ru', 'en'], onsite_countries: ['CY'] },
@@ -548,7 +548,7 @@ test('doctor: Gmail access and the language gate are checked when hh_alerts is o
   const doctor = settings => {
     const file = path.join(tmp, 'settings-doctor.json');
     fs.writeFileSync(file, JSON.stringify(settings));
-    const env = { ...process.env, JOBPILOT_SETTINGS: file };
+    const env = { ...process.env, COMETSCOUT_SETTINGS: file };
     for (const k of ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN']) delete env[k];
     return spawnSync(process.execPath, [path.join(HERE, '..', 'cli.mjs'), 'doctor'], { encoding: 'utf8', env, timeout: 60000 }).stdout;
   };

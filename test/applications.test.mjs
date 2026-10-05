@@ -10,12 +10,12 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-apps-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-apps-'));
 const DATA = path.join(tmp, 'data'), DROP = path.join(tmp, 'drop');
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = DATA;
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC', sources: { drop_dir: { enabled: true, dir: DROP, settle_sec: 0 } } }));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = DATA;
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC', sources: { drop_dir: { enabled: true, dir: DROP, settle_sec: 0 } } }));
 for (const d of [DROP, path.join(DATA, 'state'), path.join(DATA, 'decoded')]) fs.mkdirSync(d, { recursive: true });
 const APPS = path.join(DATA, 'state', 'applications.json');
 const DROPPED = path.join(DROP, 'job.md');
@@ -26,7 +26,7 @@ const BROKEN = '{ "manual:acme|pm": { "company": "Acme", ';
 test('scripts run when started through a symlinked or junction folder', t => {
   const link = path.join(tmp, 'linked-home');
   try { fs.symlinkSync(ROOT, link, 'junction'); } catch (e) { t.skip(`cannot create a link here: ${e.code}`); return; }
-  const run = file => spawnSync(process.execPath, [path.join(link, file), ...(file.includes('decoder') ? ['--picks'] : [])], { encoding: 'utf8', env: { ...process.env, JOBPILOT_DATA: path.join(tmp, 'link-data') }, timeout: 60000 });
+  const run = file => spawnSync(process.execPath, [path.join(link, file), ...(file.includes('decoder') ? ['--picks'] : [])], { encoding: 'utf8', env: { ...process.env, COMETSCOUT_DATA: path.join(tmp, 'link-data') }, timeout: 60000 });
   const dec = run(path.join('decoder', 'decoder.mjs'));
   assert.equal(dec.status, 0, dec.stderr);
   assert.match(dec.stdout, /no picks \(0 open\)/, 'the decoder did its work');
@@ -57,7 +57,7 @@ test('cli.mjs sources and run stop before any source runs when applications.json
   for (const args of [['sources'], ['run', '--example']]) {
     const r = cli(...args);
     assert.equal(r.status, 2, r.stdout + r.stderr);
-    assert.match(r.stdout, /^jobpilot: .*applications\.json is not valid JSON .*fix it and run again$/m);
+    assert.match(r.stdout, /^cometscout: .*applications\.json is not valid JSON .*fix it and run again$/m);
     assert.ok(fs.existsSync(DROPPED), 'the drop-dir source did not run');
     assert.ok(!fs.existsSync(path.join(DATA, 'state', 'drop-dir.json')), 'nothing marked');
   }

@@ -10,10 +10,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-serve-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-serve-'));
 const settings = path.join(tmp, 'settings.json');
 fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC' }));
-const env = { ...process.env, JOBPILOT_HOME: tmp, JOBPILOT_DATA: path.join(tmp, 'data'), JOBPILOT_SETTINGS: settings };
+const env = { ...process.env, COMETSCOUT_HOME: tmp, COMETSCOUT_DATA: path.join(tmp, 'data'), COMETSCOUT_SETTINGS: settings };
 
 /** Start `cli.mjs serve` and wait for the address it prints. */
 function serve(args) {
@@ -21,7 +21,7 @@ function serve(args) {
   let out = '';
   const ready = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`no address after 20 s:\n${out}`)), 20000);
-    child.stdout.on('data', c => { out += c; const m = out.match(/jobpilot workspace: (http:\/\/\S+\/)/); if (m) { clearTimeout(timer); resolve(m[1]); } });
+    child.stdout.on('data', c => { out += c; const m = out.match(/cometscout workspace: (http:\/\/\S+\/)/); if (m) { clearTimeout(timer); resolve(m[1]); } });
     child.stderr.on('data', c => { out += c; });
     child.on('exit', code => { clearTimeout(timer); reject(new Error(`serve exited with ${code}:\n${out}`)); });
   });
@@ -78,7 +78,7 @@ test('a non-loopback --host is refused without --unsafe-no-auth; wildcard binds 
       const w = cli('--host', host, '--port', '0', ...extra);
       assert.equal(w.status, 1, `${host} ${extra}: ${w.stdout}`);
       assert.match(w.stdout, /refusing to listen on .*: bind the address you will open/, `${host} ${extra}`);
-      assert.doesNotMatch(w.stdout, /jobpilot workspace:/);
+      assert.doesNotMatch(w.stdout, /cometscout workspace:/);
     }
   }
 });

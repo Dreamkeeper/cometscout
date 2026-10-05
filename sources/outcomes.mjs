@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, DIRS, STATE, read, readJson, log, num, isMain } from '../lib/config.mjs';
+import { envVar } from '../lib/legacy-names.mjs';
 import { frontMatter, norm, applications } from '../lib/queue.mjs';
 import { runHook } from '../lib/hooks.mjs';
 import { aliasFamilies, companyKind, ROLE_STOPWORDS } from '../lib/companies.mjs';
@@ -283,7 +284,7 @@ export async function runOutcomes({ gmail, classify = modelClassify, send = null
     // unmatched ones come back next run (the recorded ones are skipped by their gmail_id)
     text = report(matched, unmatched);
     if (text) {
-      reportFile = path.join(DIRS.digests, `outcomes-${process.env.JOBPILOT_RUN_DATE || dayOf(now.getTime())}.md`);
+      reportFile = path.join(DIRS.digests, `outcomes-${envVar('RUN_DATE') || dayOf(now.getTime())}.md`);
       fs.existsSync(reportFile) ? fs.appendFileSync(reportFile, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(reportFile, `${text}\n`, 'utf8');
     }
     // seen ids older than 120 days (and older than this run's window) are dropped; the search never reaches them again
@@ -311,7 +312,7 @@ if (isMain(import.meta.url)) {
   const { sendText } = await import('../lib/telegram.mjs');
   // the evening run on an off day (schedule.days) sends nothing; the report is still written to data/digests
   const { offDay } = await import('../lib/schedule.mjs');
-  const quiet = args.includes('--no-telegram') || (process.env.JOBPILOT_EVENING === '1' && offDay());
+  const quiet = args.includes('--no-telegram') || (envVar('EVENING') === '1' && offDay());
   const r = await runOutcomes({ gmail: new Gmail(), messageText, dryRun, since, send: quiet ? null : sendText });
   if (dryRun && r.text) console.log(`\n${r.text}`);
 }

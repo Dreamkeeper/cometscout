@@ -1,6 +1,8 @@
-# Developing jobpilot
+# Developing CometScout
 
-This file is for people (and coding agents) working on jobpilot itself. `AGENTS.md` is different: it is the script an agent follows to set jobpilot up for a user. If you are changing the code, follow this file and ignore the onboarding steps in `AGENTS.md`.
+> CometScout was called jobpilot until October 2026. Old names that installs still supply are read through `lib/legacy-names.mjs` only (see the rule below).
+
+This file is for people (and coding agents) working on CometScout itself. `AGENTS.md` is different: it is the script an agent follows to set CometScout up for a user. If you are changing the code, follow this file and ignore the onboarding steps in `AGENTS.md`.
 
 ## Ground rules
 
@@ -10,6 +12,7 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 - **Secrets stay in `.env`.** Never log them; model calls run with `modelEnv()` and their output is checked against `SECRET_VALUES()` (`lib/config.mjs`, `lib/llm.mjs`).
 - **Fail loudly on config errors, never silently drop data.** Use `readConfig()` for user-edited JSON and `num()` for every number setting. A source that cannot read something it would normally mark as seen must not mark it seen.
 - **Plain, short prose** in user-facing text (digest, doctor, docs). No em dashes.
+- **New names only.** Write and print CometScout (`cometscout` as an identifier). A fallback for a name from before the rename goes in `lib/legacy-names.mjs`; `test/names.test.mjs` fails on the old name anywhere else (the few places that cannot import it are listed in that test).
 
 ## Layout
 
@@ -27,15 +30,16 @@ This file is for people (and coding agents) working on jobpilot itself. `AGENTS.
 | `lib/settings-writer.mjs`, `lib/jsonedit.mjs` | The one writer for settings the workspace and the bot change: validates like doctor, edits only those values in settings.json, reinstalls the timer on a time change |
 | `lib/bot.mjs` | The Telegram bot (`cli.mjs bot`): `COMMANDS` and `BUTTONS` tables, a transport injected in tests, the long-poll loop |
 | `lib/hooks.mjs` | `runHook(event, payload)` |
+| `lib/legacy-names.mjs` | Every fallback for a name from before the rename: environment variables, the workspace header, systemd units, backup, export and secrets names |
 | `lib/lint.mjs` | Lint rules from `profile/lint-rules.json`: paragraphs from a DOCX, hits, report, CLI |
-| `lib/archive.mjs` | Export / import (`jobpilot-export` v2 zip or folder; reads v1 folders and tar.gz), conflict modes |
+| `lib/archive.mjs` | Export / import (`cometscout-export` v2 zip or folder; reads v1 folders and tar.gz), conflict modes |
 | `lib/zip.mjs` | ZIP reader and writer on `node:zlib` (DEFLATE/STORE, UTF-8 names, CRC-32, ZIP64, zip-slip refusals) |
 | `lib/backup.mjs`, `lib/secrets.mjs`, `lib/csv.mjs` | Backups (prune, restore, offsite copy, doctor lines), encrypted `.env` export, applications as CSV |
 | `lib/archive-cli.mjs` | The export, import, secrets and backup commands of `cli.mjs` |
 | `lib/telegram.mjs`, `lib/gmail.mjs` | Delivery, read-only Gmail |
 | `lib/i18n.mjs` | `settings.locale` label tables (`en`, `ru`) for the digest, picks, pack messages and the scorecard's Telegram text |
 | `lib/tracker.mjs`, `lib/scorecard.mjs`, `lib/sightings.mjs` | Tracker export, source scorecard, the sightings log `writeJob` keeps for it |
-| `lib/ops.mjs` | Health ping, `notify`, the systemd units (`deploy/jobpilot-failure@.service`) |
+| `lib/ops.mjs` | Health ping, `notify`, the systemd units (`deploy/cometscout-failure@.service`) |
 | `lib/match.mjs` | Company and role matching for reports (uses `lib/companies.mjs` when it exists) |
 | `sources/*.mjs` | One file per source; each writes job files with `writeJob()` |
 | `decoder/` | Verdicts, picks, digest (`digest.mjs` renders the text; `finishRun` handles off days and prep mode) |

@@ -1,6 +1,8 @@
-# Как установить jobpilot на виртуальную машину с Debian
+# Как установить CometScout на виртуальную машину с Debian
 
-jobpilot каждый вечер собирает вакансии, оценивает каждую по вашему профилю, выбирает две лучшие и готовит под них резюме и черновики ответов для формы отклика. Все модельные шаги идут через вашу подписку Claude или ChatGPT, отдельный API-ключ не нужен.
+> До октября 2026 года CometScout назывался jobpilot. Установка в `~/jobpilot` продолжает работать; `deploy/install.sh` найдёт её, не тронет и подскажет, как её перенести.
+
+CometScout каждый вечер собирает вакансии, оценивает каждую по вашему профилю, выбирает две лучшие и готовит под них резюме и черновики ответов для формы отклика. Все модельные шаги идут через вашу подписку Claude или ChatGPT, отдельный API-ключ не нужен.
 
 ## Что понадобится
 
@@ -60,12 +62,12 @@ codex login
 
 Если на машине нет браузера, следуйте подсказкам `codex login` для входа без браузера.
 
-## 3. Установка jobpilot
+## 3. Установка CometScout
 
 ```bash
 cd ~
-git clone https://github.com/Dreamkeeper/jobpilot.git
-cd jobpilot
+git clone https://github.com/Dreamkeeper/cometscout.git
+cd cometscout
 bash deploy/install.sh
 ```
 
@@ -80,7 +82,7 @@ bash deploy/install.sh
 
 ## 4. Проверка на примере
 
-Пока своего профиля нет, jobpilot работает на вымышленном примере (Alex Rivera):
+Пока своего профиля нет, CometScout работает на вымышленном примере (Alex Rivera):
 
 ```bash
 node cli.mjs sources
@@ -95,7 +97,7 @@ node cli.mjs pack --no-telegram
 Откройте папку в Claude Code или Codex:
 
 ```bash
-cd ~/jobpilot && claude
+cd ~/cometscout && claude
 ```
 
 (или `codex` вместо `claude`) и напишите: **«set me up»** или **«настрой меня»**.
@@ -113,7 +115,7 @@ cd ~/jobpilot && claude
 
 1. Создайте бота у @BotFather и скопируйте токен.
 2. Узнайте свой chat id, например у @userinfobot.
-3. Откройте файл `.env` (`nano ~/jobpilot/.env`) и добавьте две строки:
+3. Откройте файл `.env` (`nano ~/cometscout/.env`) и добавьте две строки:
 
 ```
 TELEGRAM_BOT_TOKEN=токен_от_BotFather
@@ -151,7 +153,7 @@ ssh -L 8765:127.0.0.1:8765 ИМЯ@адрес_машины
 4. В этом же SSH-сеансе запустите:
 
 ```bash
-cd ~/jobpilot && node tools/gmail-auth.mjs
+cd ~/cometscout && node tools/gmail-auth.mjs
 ```
 
 5. Откройте ссылку, которую выведет скрипт, в браузере на своём компьютере, войдите и разрешите доступ только на чтение. Ключ доступа сам запишется в `.env` и нигде не будет показан.
@@ -165,7 +167,7 @@ node sources/linkedin-alerts.mjs --dry-run --max-fetch 3
 
 Hirify (вакансии на удалёнку и с релокацией) читается через вашу сессию на сайте: скопируйте из браузера значение заголовка `Cookie` в строку `HIRIFY_COOKIE="..."` в `.env` (сами, не в чат), добавьте свои сохранённые фильтры в блок `"hirify"` в `settings.json` и проверьте `node sources/hirify.mjs --dry-run`. Подробности, в том числе что делать, когда сессия истекла: раздел [Hirify](README.md#hirify) в README.
 
-Если у вас уже работает [career-ops](https://github.com/career-ops-hq/career-ops), jobpilot может забирать его находки: впишите путь к папке career-ops в `sources.career_ops.path` и включите источник. jobpilot только читает `data/pipeline.md` и `data/scan-history.tsv` и ничего не пишет в папку career-ops. Подробности в разделе «career-ops» файла `README.md`.
+Если у вас уже работает [career-ops](https://github.com/career-ops-hq/career-ops), CometScout может забирать его находки: впишите путь к папке career-ops в `sources.career_ops.path` и включите источник. CometScout только читает `data/pipeline.md` и `data/scan-history.tsv` и ничего не пишет в папку career-ops. Подробности в разделе «career-ops» файла `README.md`.
 
 ## 8. Каждый день
 
@@ -179,11 +181,11 @@ Hirify (вакансии на удалёнку и с релокацией) чи�
 
 ## 9. Выгрузка данных и резервные копии
 
-- Каждый вечер после запуска jobpilot сам делает резервную копию в папку `backups/` (ZIP-файл). Старые копии удаляются сами: остаются копии за последние 7 дней, 4 недели и 6 месяцев. Выключить: `"backup": { "nightly": false }` в `settings.json`.
+- Каждый вечер после запуска CometScout сам делает резервную копию в папку `backups/` (ZIP-файл). Старые копии удаляются сами: остаются копии за последние 7 дней, 4 недели и 6 месяцев. Выключить: `"backup": { "nightly": false }` в `settings.json`.
 - Сделать копию сейчас: `node cli.mjs backup`. Список копий: `node cli.mjs backups`.
-- Вернуть данные из копии: `node cli.mjs restore <имя файла> --dry-run` покажет, что изменится; та же команда без `--dry-run` восстановит данные. Перед этим jobpilot сам сохранит текущее состояние.
+- Вернуть данные из копии: `node cli.mjs restore <имя файла> --dry-run` покажет, что изменится; та же команда без `--dry-run` восстановит данные. Перед этим CometScout сам сохранит текущее состояние.
 - Выгрузить всё в один ZIP (его можно открыть двойным щелчком): `node cli.mjs export`. Только отклики в таблицу для Excel: `node cli.mjs export --csv отклики.csv`.
-- Перенести на новый сервер: `node cli.mjs export --out jobpilot.zip` на старом, скопировать файл, `node cli.mjs import --from jobpilot.zip` на новом.
+- Перенести на новый сервер: `node cli.mjs export --out cometscout.zip` на старом, скопировать файл, `node cli.mjs import --from cometscout.zip` на новом.
 - Токены из `.env` в выгрузку и копии не попадают. Их переносят отдельно, в зашифрованном файле: `node cli.mjs export-secrets --out secrets.enc` и `node cli.mjs import-secrets --from secrets.enc` (пароль спросят).
 - Если будете сами перепаковывать выгрузку на Windows, берите 7-Zip или PowerShell (`Compress-Archive`). Проводник и `tar.exe` пишут имена в старой кодировке; если такой архив потом загружается на сервер, укажите там в `settings.json` `"backup": { "zip_codepage": 866 }`.
 
@@ -191,11 +193,11 @@ Hirify (вакансии на удалёнку и с релокацией) чи�
 
 ## 10. По желанию: тренер для собеседований
 
-jobpilot умеет поставить рядом с собой [Interview Coach](https://github.com/noamseg/interview-coach-skill), открытый навык для Claude Code от Noam Segal (лицензия MIT): подготовка к компании, тренировка ответов, разбор записи собеседования, переговоры об оффере. Это отдельный проект, он ставится из своего репозитория. Установить или обновить: `bash deploy/modules/coach.sh`. Передать ему ваш профиль, резюме, стиль письма и отклики: `node cli.mjs coach-handoff` (файл появится в папке тренера, в `materials/cometscout-handoff.md`; токены, тексты вакансий и пакеты в него не попадают). Когда в настройках `modules.coach.enabled` равно `true`, вечерний запуск обновляет этот файл сам. Затем `cd ../interview-coach && claude`, скажите `kickoff` и дайте ему файл `materials/cometscout-handoff.md`. Подробности: раздел [Interview coach](README.md#interview-coach-optional) в README.
+CometScout умеет поставить рядом с собой [Interview Coach](https://github.com/noamseg/interview-coach-skill), открытый навык для Claude Code от Noam Segal (лицензия MIT): подготовка к компании, тренировка ответов, разбор записи собеседования, переговоры об оффере. Это отдельный проект, он ставится из своего репозитория. Установить или обновить: `bash deploy/modules/coach.sh`. Передать ему ваш профиль, резюме, стиль письма и отклики: `node cli.mjs coach-handoff` (файл появится в папке тренера, в `materials/cometscout-handoff.md`; токены, тексты вакансий и пакеты в него не попадают). Когда в настройках `modules.coach.enabled` равно `true`, вечерний запуск обновляет этот файл сам. Затем `cd ../interview-coach && claude`, скажите `kickoff` и дайте ему файл `materials/cometscout-handoff.md`. Подробности: раздел [Interview coach](README.md#interview-coach-optional) в README.
 
 ## Если что-то не работает
 
 - `node cli.mjs doctor` показывает, чего не хватает, и как это исправить.
-- Лог вечернего запуска: `journalctl --user -u jobpilot -n 100`.
-- Когда следующий запуск: `systemctl --user list-timers jobpilot.timer`.
+- Лог вечернего запуска: `journalctl --user -u cometscout -n 100`.
+- Когда следующий запуск: `systemctl --user list-timers cometscout.timer`.
 - Запустить весь конвейер вручную: `node cli.mjs run`.

@@ -14,12 +14,12 @@ const FIX = path.join(HERE, 'fixtures', 'hirify');
 const ROOT = path.join(HERE, '..');
 const fixture = name => JSON.parse(fs.readFileSync(path.join(FIX, name), 'utf8'));
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-hirify-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-process.env.JOBPILOT_RUN_DATE = '2026-10-01';
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-hirify-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+process.env.COMETSCOUT_RUN_DATE = '2026-10-01';
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
 
 const { run, fromHirify, isMasked, pageQuery, parseCookieHeader, CONFIDENTIAL, EXIT_SESSION, EXIT_RATE_LIMITED } = await import('../sources/hirify.mjs');
 const { DIRS, STATE } = await import('../lib/config.mjs');
@@ -110,7 +110,7 @@ const byUrl = url => inbox().find(j => j.url === url);
 function noSecretsAnywhere() {
   const files = [];
   const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } };
-  walk(process.env.JOBPILOT_DATA);
+  walk(process.env.COMETSCOUT_DATA);
   for (const p of files) {
     if (path.basename(p) === 'hirify-cookies.json') continue;   // the one place refreshed values are meant to live
     const txt = fs.readFileSync(p, 'utf8');
@@ -644,18 +644,18 @@ test('scam and archived flags on the list skip the detail call; the detail still
 
 // cli.mjs: the source's exit 3 makes `sources` (and `run`) exit 3; doctor checks the cookie variable.
 function cli(args, { sources = { hirify: { enabled: true, filters: [{ name: 'pm', query: 'search=pm' }] } }, hooks } = {}) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-hirify-cli-'));
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-hirify-cli-'));
   const settings = path.join(t, 'settings.json');
   fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', sources, ...(hooks ? { hooks: hooks(t) } : {}) }));
-  const env = { ...process.env, JOBPILOT_SETTINGS: settings, JOBPILOT_DATA: path.join(t, 'data'), HIRIFY_COOKIE: '', RTJ_API_TOKEN: '' };
-  delete env.JOBPILOT_HOME;
+  const env = { ...process.env, COMETSCOUT_SETTINGS: settings, COMETSCOUT_DATA: path.join(t, 'data'), HIRIFY_COOKIE: '', RTJ_API_TOKEN: '' };
+  delete env.COMETSCOUT_HOME;
   return { ...spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), ...args], { env, encoding: 'utf8', timeout: 60000 }), dir: t };
 }
 test('cli: a source exiting 3 makes `sources` exit 3 and name it', () => {
   const r = cli(['sources']);
   assert.equal(r.status, 3, r.stdout + r.stderr);
   assert.match(r.stdout, /HIRIFY_COOKIE is not set in \.env/);
-  assert.match(r.stdout, /jobpilot: source hirify failed \(exit 3\); it needs you/);
+  assert.match(r.stdout, /cometscout: source hirify failed \(exit 3\); it needs you/);
 });
 test('cli: doctor checks the Hirify cookie variable', () => {
   const r = cli(['doctor']);
@@ -667,7 +667,7 @@ test('cli: doctor checks the Hirify cookie variable', () => {
 test('cli: any source that exits non-zero is named; only exit 3 changes the exit code', () => {
   const r = cli(['sources'], { sources: { rtj: { enabled: true } } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /jobpilot: source rtj failed \(exit 2\)/);
+  assert.match(r.stdout, /cometscout: source rtj failed \(exit 2\)/);
 });
 test('cli: the evening run names failed sources in its log and in run_done', () => {
   const r = cli(['run', '--example'], {

@@ -10,11 +10,11 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-ping-'));
-process.env.JOBPILOT_HOME = tmp;
-process.env.JOBPILOT_DATA = path.join(tmp, 'data');
-process.env.JOBPILOT_SETTINGS = path.join(tmp, 'settings.json');
-fs.writeFileSync(process.env.JOBPILOT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-ping-'));
+process.env.COMETSCOUT_HOME = tmp;
+process.env.COMETSCOUT_DATA = path.join(tmp, 'data');
+process.env.COMETSCOUT_SETTINGS = path.join(tmp, 'settings.json');
+fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify({ timezone: 'UTC' }));
 const { healthPing } = await import('../lib/ops.mjs');
 
 const URL_SECRET = 'https://hc-ping.example/0b1c2d3e-secret-uuid';
@@ -66,7 +66,7 @@ test('cli.mjs run pings after the run (here: skipped, no profile yet, exit 0)', 
   const url = `http://127.0.0.1:${server.address().port}/ping-secret-uuid`;
   const settings = path.join(tmp, 'run-settings.json');
   fs.writeFileSync(settings, JSON.stringify({ timezone: 'UTC', health: { ping_url: url } }));
-  const child = spawn(process.execPath, [path.join(ROOT, 'cli.mjs'), 'run'], { env: { ...process.env, JOBPILOT_SETTINGS: settings, NO_PROXY: '*' } });
+  const child = spawn(process.execPath, [path.join(ROOT, 'cli.mjs'), 'run'], { env: { ...process.env, COMETSCOUT_SETTINGS: settings, NO_PROXY: '*' } });
   let out = ''; child.stdout.on('data', d => { out += d; }); child.stderr.on('data', d => { out += d; });
   const code = await new Promise(r => child.on('close', r));
   server.close();
