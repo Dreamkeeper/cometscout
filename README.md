@@ -61,6 +61,8 @@ node cli.mjs export-secrets --out <file> | import-secrets --from <file>
 node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]
 node cli.mjs serve [--port 8787]          # the workspace in your browser (preview), see below
 node cli.mjs coach-handoff [--out <file>] # your profile, CV, voice and applications for the interview coach, see below
+node cli.mjs update [--to vX.Y.Z] | --check | --tonight | --skip vX.Y.Z   # updates, see below
+node cli.mjs rollback [--to vX.Y.Z] [--restore-data]                     # back to the previous version
 ```
 
 ## Workspace (preview)
@@ -170,6 +172,7 @@ The evening run starts every day at `schedule.time` in `timezone`, and sends its
 - `/schedule`: digest days, time and the prep window, with buttons to switch each day on or off and to set prep days (0, 1, 2, 3).
 - `/time HH:MM`: the digest time (the timer is reinstalled).
 - `/interview <company> <YYYY-MM-DD> [HH:MM] [role words]`: the same as the command; put a company name with spaces in quotes.
+- `/update`: the installed and the newest version, with Update now, Tonight and Skip when a newer one is out (see Updates).
 - `/help`: the commands.
 
 The bot and the workspace save through the same writer: it checks the values like `doctor`, changes only those keys in `settings.json` (your other keys and layout stay), and reinstalls the timer only when the time changed (on a host without systemd it says to run `node cli.mjs timer`).
@@ -464,6 +467,51 @@ node cli.mjs restore <file name>
 ```
 
 `restore` takes a name from `backups` or the path of any CometScout export (a zip, a folder or a v1 `.tar.gz`). It unpacks and checks the archive once, then backs up the current state (label `pre-restore`), then imports with `--on-conflict theirs`: every file in the archive comes back as it was. Files made after the backup that are not in it stay, and one line says how many (`N file(s) here are not in the backup`). It refuses to start while a run is in progress. To undo a restore, restore the `pre-restore` backup it made.
+
+### Updates
+
+Updates are notify only: nothing installs without your tap or command, and there is no setting that would. Every update makes a backup first, checks itself with the new code and goes back on its own when anything fails.
+
+**How you hear about a new version.** After each evening run CometScout asks GitHub's releases API (no token) for the newest release on your channel and keeps the answer in `data/state/update.json`. When a newer version is out and you have not skipped it, Telegram gets one message: the version, its first highlights, and a line when it changes behaviour, with three buttons: **Update now**, **Tonight after the run** and **Skip this version**. When the bot is not running, the message also lists the commands to type. The workspace shows the same banner with the same three buttons, and the bot's `/update` shows the installed and the newest version any time. Each version is announced once, and not on an off day. A failed check is logged once a day and never fails the run.
+
+```json
+"update": { "channel": "stable", "check": true }
+```
+
+`channel` is `stable` (releases only) or `edge` (pre-releases too, such as `v0.3.0-beta.1`). `check: false` stops the check after the run; `node cli.mjs update --check` still asks.
+
+```bash
+node cli.mjs update --check                # ask GitHub now
+node cli.mjs update                        # install the newest version on your channel
+node cli.mjs update --to v0.2.0            # or a given one
+node cli.mjs update --tonight [v0.2.0]     # install it after tonight's run
+node cli.mjs update --skip v0.2.0          # never offer this version again
+```
+
+**What an update does.**
+
+1. Checks before it changes anything: no run in progress, the Node version the release needs, free disk space of at least three times the last backup, no local edits to the code in `app/current`, the release exists, and the downloaded source zip matches the sha256 in its release notes.
+2. Backs up everything (`backups/cometscout-backup-...--pre-update-v0.1.0-to-v0.2.0.zip`).
+3. Installs the new version next to the old one, in `app/releases/v0.2.0/`, with its own `npm ci --omit=dev`.
+4. Runs the new version's data migrations (`data/state/schema.json` records which ran).
+5. Points `app/current` at the new version and reinstalls the systemd units (they run `app/current/cli.mjs`).
+6. Checks with the new code: `doctor`, the workspace starts and answers, one decoded job is decoded again with a canned model answer (no model call, nothing written), and picks.
+
+When any step fails, it points `app/current` back, restores the backup exactly (files the migration added are removed too), reinstalls the units and tells you on Telegram which step failed. The failed release folder stays in `app/releases` for a look. When it works, the workspace shows **What is new** once (highlights, New, Changed, and Action needed with a button that opens the setting it names; a changed default says "new default X; your value Y is kept" with keep or accept), Telegram gets a three-line summary, and only the current release and two before it are kept. **Update now** from the bot or the workspace runs outside them (`systemd-run --user`), because the update restarts the bot.
+
+**Where the code lives.** The CometScout home (`settings.json`, `profile/`, `.env`, `data/`, `backups/`) stays where it is. Each version's code is in `app/releases/v<version>/`, and `app/current` points at the active one. `deploy/install.sh` sets this up. An install made before this (a git clone used as the home) converts once with `node cli.mjs update --adopt`: it copies the code into `app/releases`, points `app/current` at it and reinstalls the units; nothing in your data moves, and running it again changes nothing. After that, `node cli.mjs ...` in the home runs the active release.
+
+**Rolling back.**
+
+```bash
+node cli.mjs rollback                      # the code goes back to the version the last update came from
+node cli.mjs rollback --to v0.1.0          # or a given installed version
+node cli.mjs rollback --restore-data       # also restore the backup made before the update (asks first)
+```
+
+A plain rollback switches the code back and reinstalls the units; your data stays as it is, which is safe because of the promise below. `--restore-data` first lists what you would lose since the pre-update backup (new or changed files by folder, application events by company) and stops; run it again with `--yes` to go ahead. It then backs up the current state, restores the pre-update backup, switches the code and prints the command that brings the newer items back from that fresh backup (`node cli.mjs import --from <it> --on-conflict keep --data-only`). Both refuse while a run is in progress.
+
+**The promise: expand, then contract.** A release only adds files and fields the previous release ignores. Removing or renaming waits for the release after. So the previous version always runs on the newer data, and switching the code back is always safe.
 
 ### Interview coach (optional)
 

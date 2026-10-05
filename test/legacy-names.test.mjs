@@ -192,7 +192,7 @@ test('the commands: cometscout and jobpilot both point at cli.mjs; help exits 0'
 
 test('install.sh: the new names, JOBPILOT_TIME still read, an old ~/jobpilot install found and left in place', () => {
   const sh = fs.readFileSync(path.join(ROOT, 'deploy', 'install.sh'), 'utf8');
-  assert.match(sh, /node cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}"/);
+  assert.match(sh, /node app\/current\/cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}"/);
   assert.match(sh, /OLD_HOME="\$HOME\/jobpilot"/);
   assert.match(sh, /It is left as it is/);
   // the old install keeps its units (and keeps running) until it is moved
@@ -226,4 +226,17 @@ test('timer: a failed systemctl leaves the old units running; --keep-old-units k
   assert.deepEqual(runs2, ['--user daemon-reload', '--user enable --now cometscout.timer']);
   assert.match(k.lines.join('\n'), /Kept the units of the older install/);
   for (const u of L.OLD_UNITS) assert.ok(fs.existsSync(path.join(keep, u)), u);
+});
+
+test('COMETSCOUT_LLM_FAKE is never loaded from .env; doctor says so, and says so when it is set in the environment', () => {
+  const h = path.join(tmp, 'fake-env-home'); fs.mkdirSync(h, { recursive: true });
+  fs.writeFileSync(path.join(h, '.env'), 'COMETSCOUT_LLM_FAKE=1\nJOBPILOT_LLM_FAKE=1\n');
+  const run = extra => spawnSync(process.execPath, [CLI, 'doctor'], { encoding: 'utf8', env: cleanEnv({ COMETSCOUT_HOME: h, COMETSCOUT_DATA: path.join(h, 'data'), ...extra }) });
+  const a = run({});
+  assert.match(a.stdout, /^TODO real model calls \(no COMETSCOUT_LLM_FAKE\) {2}-> {2}COMETSCOUT_LLM_FAKE, JOBPILOT_LLM_FAKE in \.env is ignored/m);
+  fs.writeFileSync(path.join(h, '.env'), '');
+  const b = run({ COMETSCOUT_LLM_FAKE: '1' });
+  assert.match(b.stdout, /^TODO real model calls .*unset COMETSCOUT_LLM_FAKE/m);
+  const c = run({ COMETSCOUT_LLM_FAKE: '1', COMETSCOUT_LOCK_PARENT: '12345' });
+  assert.match(c.stdout, /^ok +real model calls/m, 'an update verify step sets it on purpose');
 });

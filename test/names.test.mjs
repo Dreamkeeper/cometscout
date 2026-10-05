@@ -15,10 +15,10 @@ const WHOLE = [/^lib\/legacy-names\.mjs$/, /^test\//, /^docs\/tasks\/(0[1-9]|1[0
 const ALLOWED = {
   'package.json': [/^\s*"jobpilot": "cli\.mjs",?$/],
   'package-lock.json': [/^\s*"jobpilot": "cli\.mjs",?$/],
-  'deploy/install.sh': [/CometScout was called jobpilot/, /^OLD_HOME="\$HOME\/jobpilot"$/, /^node cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}" \|\| true$/],
+  'deploy/install.sh': [/CometScout was called jobpilot/, /^OLD_HOME="\$HOME\/jobpilot"$/, /^node app\/current\/cli\.mjs timer \$\{KEEP_OLD\} "\$\{COMETSCOUT_TIME:-\$\{JOBPILOT_TIME:-\}\}" \|\| true$/],
   'web/lib/logic.js': [/^const OLD_FILTERS_KEY = 'jobpilot\.workspace\.filters';$/],
 };
-// one line per doc may say what the product was called
+// one line per doc may say what the product was called (release.json counts as a doc: the release notes of the rename)
 const HISTORY = /was called jobpilot|назывался jobpilot|still say jobpilot/;
 
 /** [{ file, line, text }] for every line naming the old name where it is not allowed. files: { rel: text }. */
@@ -30,7 +30,7 @@ export function violations(files) {
     text.split(/\r?\n/).forEach((l, i) => {
       if (!OLD.test(l)) return;
       if ((ALLOWED[rel] || []).some(re => re.test(l))) return;
-      if (rel.endsWith('.md') && HISTORY.test(l) && ++history === 1) return;
+      if ((rel.endsWith('.md') || rel === 'release.json') && HISTORY.test(l) && ++history === 1) return;
       out.push({ file: rel, line: i + 1, text: l.trim().slice(0, 120) });
     });
   }

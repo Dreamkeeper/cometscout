@@ -153,3 +153,14 @@ kbd { font: 12px var(--mono); border: 1px solid var(--line); border-bottom-width
 .day.on { background: var(--sel); border-color: var(--accent); }
 .field { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
 .field input { padding: 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text); }
+
+/* update banner and What is new */
+.update-banner { background: var(--info-bg); color: var(--info); flex-wrap: wrap; }
+.whats-new { display: grid; gap: 10px; max-height: 60vh; overflow: auto; }
+.whats-new h2 { font-size: 16px; margin: 0; }
+.whats-new h3 { font-size: 14px; margin: 8px 0 4px; }
+.whats-new ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.whats-new .highlights { font-weight: 600; }
+.whats-new .media { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
+.note-warn { color: var(--warn); margin: 0; }
+.focus { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }

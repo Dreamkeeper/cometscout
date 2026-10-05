@@ -28,5 +28,11 @@ export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
     settings: () => call('GET', '/api/settings'),
     /** { days?, time?, prep_days? } */
     saveSettings: patch => call('POST', '/api/settings', patch),
+    /** The last update check: { current, latest, available, skipped, pending, behaviour_changes, highlights } */
+    update: () => call('GET', '/api/update'),
+    /** action: now, tonight or skip */
+    updateAction: (action, version) => call('POST', '/api/update', { action, version }),
+    whatsNew: () => call('GET', '/api/whats-new'),
+    whatsNewSeen: version => call('POST', '/api/whats-new', { seen: version }),
   };
 }

@@ -1,4 +1,4 @@
-// The Today screen (and the settings dialog). Desktop (>= 1100 px): list, job and pack side by side. Narrower: the list, then one job with
+// The Today screen (and the settings dialog, the update banner and What is new). Desktop (>= 1100 px): list, job and pack side by side. Narrower: the list, then one job with
 // tabs Job / Pack and a fixed action bar. State lives here; the panes are in components/, the logic in lib/.
 import { render } from 'preact';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'preact/hooks';
@@ -12,6 +12,8 @@ import { JobPane, JobHeader } from './components/JobPane.js';
 import { PackPane } from './components/PackPane.js';
 import { ActionBar, SkipDialog, LaterDialog, HelpDialog, InterviewDialog } from './components/Actions.js';
 import { SettingsDialog } from './components/Settings.js';
+import { WhatsNewDialog } from './components/WhatsNew.js';
+import { bannerFor } from './lib/updates.js';
 
 const api = createApi();
 const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
@@ -48,6 +50,9 @@ function App() {
   const [textOpen, setTextOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
+  const [update, setUpdate] = useState(null);         // GET /api/update: the banner
+  const [whatsNew, setWhatsNew] = useState(null);     // GET /api/whats-new: shown once after an update
+  const [settingsFocus, setSettingsFocus] = useState(null);
   const searchRef = useRef(null);
 
   const groups = useMemo(() => groupItems(today, filters), [today, filters]);
@@ -62,6 +67,18 @@ function App() {
     } catch (e) { setError(e.message); return null; }
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+  // the update banner and What is new are extras: a failure here never blocks the screen
+  useEffect(() => {
+    api.update().then(setUpdate).catch(() => {});
+    api.whatsNew().then(w => { if (w?.show) { setWhatsNew(w); setDialog(d => d || 'whats-new'); } }).catch(() => {});
+  }, []);
+  const updateAct = async action => {
+    const b = bannerFor(update); if (!b || busy) return;
+    setBusy(true);
+    try { const r = await api.updateAction(action, b.version); setUpdate(r.update); setToast(r.message); setTimeout(() => setToast(null), 3500); setError(null); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+  const banner = bannerFor(update);
 
   // The first job opens by itself where there is room for it.
   useEffect(() => { if (layout !== 'narrow' && !selected && files.length) setSelected(files[0]); }, [layout, files, selected]);
@@ -114,7 +131,9 @@ function App() {
       setError(null);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
-  const settingsSaved = message => { setDialog(null); setToast(message); setTimeout(() => setToast(null), 3500); refresh(); };
+  // from What is new, the settings dialog returns to it until the notes are marked seen
+  const afterSettings = () => { setDialog(whatsNew ? 'whats-new' : null); setSettingsFocus(null); };
+  const settingsSaved = message => { afterSettings(); setToast(message); setTimeout(() => setToast(null), 3500); refresh(); };
   const openLink = () => { if (item?.url) window.open(item.url, '_blank', 'noopener,noreferrer'); };
 
   // Keyboard (desktop): the handler reads the latest state through a ref.
@@ -164,6 +183,12 @@ function App() {
         <button type="button" class="btn btn-small" onClick=${() => setDialog('settings')}>${t('ws.settings')}</button>
         <button type="button" class="btn btn-small help-btn" onClick=${() => setDialog('help')} title="?">?</button>
       </header>
+      ${banner && html`<div class="banner update-banner" role="status">
+        <span>${t('ws.update.banner', { version: banner.version, current: banner.current })}${banner.behaviour ? ` ${t('ws.update.behaviour')}` : ''}${banner.pending ? ` ${t('ws.update.pending', { version: banner.version })}` : ''}</span>
+        <button type="button" class="btn btn-small" disabled=${busy} onClick=${() => updateAct('now')}>${t('ws.update.now')}</button>
+        ${!banner.pending && html`<button type="button" class="btn btn-small" disabled=${busy} onClick=${() => updateAct('tonight')}>${t('ws.update.tonight')}</button>`}
+        <button type="button" class="btn btn-small" disabled=${busy} onClick=${() => updateAct('skip')}>${t('ws.update.skip')}</button>
+      </div>`}
       ${error && html`<div class="banner" role="alert">${t('ws.error', { error })} <button type="button" class="btn btn-small" onClick=${refresh}>${t('ws.retry')}</button></div>`}
       ${!today && !error && html`<p class="loading center">${t('ws.loading')}</p>`}
       ${today && html`
@@ -178,7 +203,8 @@ function App() {
       ${dialog === 'later' && html`<${LaterDialog} t=${t} onPick=${d => act('later', d)} onClose=${() => setDialog(null)} />`}
       ${dialog === 'help' && html`<${HelpDialog} t=${t} onClose=${() => setDialog(null)} />`}
       ${dialog === 'interview' && item && html`<${InterviewDialog} t=${t} today=${today?.date} onSave=${recordInterview} onClose=${() => setDialog(null)} />`}
-      ${dialog === 'settings' && html`<${SettingsDialog} t=${t} locale=${locale} api=${api} onSaved=${settingsSaved} onClose=${() => setDialog(null)} />`}
+      ${dialog === 'settings' && html`<${SettingsDialog} t=${t} locale=${locale} api=${api} focus=${settingsFocus} onSaved=${settingsSaved} onClose=${afterSettings} />`}
+      ${dialog === 'whats-new' && whatsNew && html`<${WhatsNewDialog} t=${t} data=${whatsNew} api=${api} onOpenSetting=${key => { setSettingsFocus(key); setDialog('settings'); }} onDone=${() => { setWhatsNew(null); setDialog(null); }} />`}
     </div>`;
 }
 

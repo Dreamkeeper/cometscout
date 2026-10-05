@@ -75,6 +75,7 @@ The installer asks for your sudo password once and then:
 
 - installs Python, LibreOffice for the PDFs, and fonts;
 - creates `settings.json` and `.env` (readable only by you);
+- copies the code into `app/releases/v<version>/` with `app/current` pointing at it, so `node cli.mjs update` can install a new version next to it and go back if it fails (README: Updates); this folder stays the home for your settings and data;
 - sets up the daily run at 18:00 with a failure alert. Until your profile exists (the `profile/` folder), the evening run does nothing. Set the days, the time and the time zone later in `settings.json` (`"schedule": { "days": [1, 2, 3, 4, 5], "time": "18:00" }`, `timezone`) and run `node cli.mjs timer`, or change them from the workspace or the Telegram bot;
 - finally runs the check `node cli.mjs doctor`.
 

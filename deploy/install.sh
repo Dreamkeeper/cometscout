@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CometScout installer for a standard Debian or Ubuntu VPS. Run it as the user who will own the pipeline
 # (not root); it uses sudo only for packages and for keeping user timers alive after logout.
-#   bash deploy/install.sh            # install packages, create settings/.env, install the daily timer
+#   bash deploy/install.sh            # install packages, create settings/.env, put the code in app/releases, install the daily timer
 #   COMETSCOUT_TIME=19:30 bash deploy/install.sh   (or set schedule.time in settings.json, then: node cli.mjs timer)
 # Before the rename CometScout was called jobpilot: JOBPILOT_TIME still works, and an install in ~/jobpilot is found
 # and left in place, with how to move it here.
@@ -29,12 +29,12 @@ if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split("."
   echo "Elsewhere: https://github.com/nodesource/distributions (then rerun this script)"; exit 1
 fi
 
-echo "==> Browser libraries for the workspace (preact, htm; exact versions from package-lock.json)"
-if command -v npm >/dev/null; then
-  npm ci --omit=dev --no-audit --no-fund --loglevel=error
-else
-  echo "npm not found; the workspace (node cli.mjs serve) needs it once: sudo apt-get install -y npm && npm ci --omit=dev"
-fi
+echo "==> Code: app/releases/v<version>, with app/current pointing at it"
+# This folder stays the CometScout home (settings, profile, .env, data, backups). The code runs from a copy in
+# app/releases with its own browser libraries (preact, htm; npm ci --omit=dev), so node cli.mjs update can install the
+# next version next to it and switch app/current back if anything fails. Running this script again changes nothing.
+command -v npm >/dev/null || echo "npm not found; the workspace (node cli.mjs serve) needs it once: sudo apt-get install -y npm, then run this script again"
+node cli.mjs update --adopt --no-units
 
 echo "==> Claude Code or Codex CLI"
 if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
@@ -54,8 +54,8 @@ echo "==> Daily timer and failure alert (systemd user units)"
 # The run unit gets OnFailure=cometscout-failure@%n.service: a failed run sends a Telegram alert through
 # "node cli.mjs notify" (template: deploy/cometscout-failure@.service, installed with the paths filled in).
 sudo loginctl enable-linger "$USER"
-node cli.mjs timer ${KEEP_OLD} "${COMETSCOUT_TIME:-${JOBPILOT_TIME:-}}" || true
+node app/current/cli.mjs timer ${KEEP_OLD} "${COMETSCOUT_TIME:-${JOBPILOT_TIME:-}}" || true
 
 echo "==> Check"
-node cli.mjs doctor
+node app/current/cli.mjs doctor
 echo "Next: open this folder in Claude Code or Codex and say \"set me up\" (see AGENTS.md)."
