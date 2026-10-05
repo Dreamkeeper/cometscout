@@ -1,4 +1,4 @@
-// The action bar (Applied, Skip, Later, Open job link) and its dialogs, plus the keyboard help.
+// The action bar (Applied, Skip, Later, Open job link) and its dialogs, the booked-interview dialog, plus the keyboard help.
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from '../lib/html.js';
 import { SKIP_REASONS, LATER_CHOICES } from '../lib/logic.js';
@@ -21,7 +21,7 @@ export function ActionBar({ t, item, busy, onApplied, onSkip, onLater, onOpen })
 
 // A dialog takes focus when it opens, keeps Tab and Shift+Tab inside, and gives focus back when it closes.
 // Escape closes it (the screen's keyboard handler, web/app.js).
-function Modal({ title, onClose, children }) {
+export function Modal({ title, onClose, children }) {
   const ref = useRef(null);
   const focusable = () => (ref.current ? [...ref.current.querySelectorAll(FOCUSABLE)].filter(el => !el.disabled) : []);
   useEffect(() => {
@@ -60,6 +60,23 @@ export function LaterDialog({ t, onPick, onClose }) {
     <${Modal} title=${t('ws.later.title')} onClose=${onClose}>
       <p class="choices-row">${LATER_CHOICES.map(d => html`<button key=${d} type="button" class="btn choice" onClick=${() => onPick(d)}><kbd>${d}</kbd> ${t(`ws.later.${d}`)}</button> `)}</p>
       <p><button type="button" class="btn" onClick=${onClose}>${t('ws.act.cancel')}</button></p>
+    <//>`;
+}
+
+/** A booked interview for the selected job: date, time (optional, in settings.timezone) and round (optional). */
+export function InterviewDialog({ t, today, onSave, onClose }) {
+  const [date, setDate] = useState(today || '');
+  const [time, setTime] = useState('');
+  const [round, setRound] = useState('');
+  return html`
+    <${Modal} title=${t('ws.interview.title')} onClose=${onClose}>
+      <label class="field">${t('ws.interview.date')}<input type="date" value=${date} min=${today} onInput=${e => setDate(e.currentTarget.value)} /></label>
+      <label class="field">${t('ws.interview.time')}<input type="time" value=${time} onInput=${e => setTime(e.currentTarget.value)} /></label>
+      <label class="field">${t('ws.interview.round')}<input type="text" maxlength="120" value=${round} onInput=${e => setRound(e.currentTarget.value)} /></label>
+      <p class="choices-row">
+        <button type="button" class="btn btn-primary" disabled=${!date} onClick=${() => onSave(date, time, round.trim())}>${t('ws.interview.save')}</button>
+        <button type="button" class="btn" onClick=${onClose}>${t('ws.act.cancel')}</button>
+      </p>
     <//>`;
 }
 

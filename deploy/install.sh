@@ -2,7 +2,7 @@
 # jobpilot installer for a standard Debian or Ubuntu VPS. Run it as the user who will own the pipeline
 # (not root); it uses sudo only for packages and for keeping user timers alive after logout.
 #   bash deploy/install.sh            # install packages, create settings/.env, install the daily timer
-#   JOBPILOT_TIME=19:30 bash deploy/install.sh   (or set run_time in settings.json, then: node cli.mjs timer)
+#   JOBPILOT_TIME=19:30 bash deploy/install.sh   (or set schedule.time in settings.json, then: node cli.mjs timer)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 HOME_DIR="$(pwd)"
@@ -38,7 +38,7 @@ mkdir -p data
 
 echo "==> Daily timer and failure alert (systemd user units)"
 # The timer runs only once profile/ exists (cli.mjs run skips the example profile). After the onboarding sets
-# run_time and timezone in settings.json, "node cli.mjs timer" re-installs it with those values.
+# schedule and timezone in settings.json, "node cli.mjs timer" re-installs it with those values (and the Telegram bot service when delivery is on).
 # The run unit gets OnFailure=jobpilot-failure@%n.service: a failed run sends a Telegram alert through
 # "node cli.mjs notify" (template: deploy/jobpilot-failure@.service, installed with the paths filled in).
 sudo loginctl enable-linger "$USER"

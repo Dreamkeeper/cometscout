@@ -49,6 +49,7 @@ A web workspace instead of chat-only control, so nobody needs a Claude Code sess
 | Piece | Brief | Status |
 |---|---|---|
 | M5a probe: `cli.mjs serve` and the "Today" screen (picks, decode, pack review, applied / skip / later); a week of daily use on real data decides the rest | `docs/tasks/10-workspace-today-screen.md` | 🔨 |
-| PWA platform (manifest, service worker, Web Push, sign-in via Telegram launch data or a login link, HTTPS installer), the other screens, the bot, modules | later briefs | 💤 |
+| PWA platform (manifest, service worker, Web Push, sign-in via Telegram launch data or a login link, HTTPS installer), the other screens, the rest of the bot (picks with Apply / Skip / Later, outcome cards), modules | later briefs | 💤 |
+| Digest days and time (`schedule`), off days, interview prep mode (`picks.prep`), `cli.mjs interview`, the workspace settings dialog, and the first bot commands (`cli.mjs bot`: `/schedule`, `/time`, `/interview`, `/help`) | `docs/tasks/15-digest-days-and-interview-prep.md` | ✅ |
 | Interview coach, first step: installer and hand-off file, optional onboarding step | `docs/tasks/13-coach-onboarding.md` | ✅ |
 | Interview coach, deeper: automatic hand-offs from picks and outcome emails (a new interview starts a prep), a coach chat inside the bot or the workspace | later brief | 💤 |

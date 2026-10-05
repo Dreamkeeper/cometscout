@@ -23,5 +23,10 @@ export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
     pack: file => call('GET', `/api/pack${q(file)}`),
     status: (file, status, note) => call('POST', '/api/status', { file, status, ...(note ? { note } : {}) }),
     later: (file, days) => call('POST', '/api/later', { file, days }),
+    /** A booked interview: date YYYY-MM-DD, time HH:MM and round optional. */
+    interview: (file, date, time, round) => call('POST', '/api/interview', { file, date, ...(time ? { time } : {}), ...(round ? { round } : {}) }),
+    settings: () => call('GET', '/api/settings'),
+    /** { days?, time?, prep_days? } */
+    saveSettings: patch => call('POST', '/api/settings', patch),
   };
 }

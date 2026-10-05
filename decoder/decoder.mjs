@@ -12,7 +12,8 @@ import { sendText } from '../lib/telegram.mjs';
 import { runHook } from '../lib/hooks.mjs';
 import { aliasFamilies, companyMatch, sameRole } from '../lib/companies.mjs';
 import { laterUntil } from '../lib/applications.mjs';
-import { APPLY_WORTHY, picksText, digestText } from './digest.mjs';
+import { APPLY_WORTHY, picksText, digestText, prepLines } from './digest.mjs';
+import { offDay, nowTime, prepState, prepOf, prepQualifies } from '../lib/schedule.mjs';
 import { translator } from '../lib/i18n.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -253,24 +254,77 @@ export function picksPool(extra = []) {
   open.sort((a, b) => score(a) - score(b));
   return { open, state, A, fams };
 }
-export async function buildPicks(extra = [], { fetch = globalThis.fetch } = {}) {
-  const P = picksSettings();
+/** Today's picks: { picks, open }. max (default picks.per_day) and only (a filter) narrow them; prep mode uses both. */
+export async function buildPicks(extra = [], { fetch = globalThis.fetch, max = null, only = null } = {}) {
+  const P = picksSettings(), limit = max ?? P.per_day;
   const { open, A, fams } = picksPool(extra);
   const picks = [];
   for (const c of open) {
-    if (picks.length >= P.per_day) break;
+    if (picks.length >= limit) break;
+    if (only && !only(c)) continue;
     if ((laterUntil(A[c.file]) || '') > today()) continue;   // "later" in the workspace: not a pick before that day
     if (picks.some(p => companyMatch(p.fm.company, c.fm.company, fams))) continue;
     if (await linkAlive(c.fm.url, { fetch })) picks.push(c); else log(`pick skipped, dead link: ${c.file}`);
   }
   return { picks, open: open.length };
 }
-export function recordPicks(picks) { const s = readJson(PICKS_FILE, {}); for (const p of picks) s[p.file] = { shown: (s[p.file]?.shown || 0) + 1, last: today() }; fs.writeFileSync(PICKS_FILE, JSON.stringify(s, null, 1)); }
+/**
+ * Picks with interview prep mode (lib/schedule.mjs): before an interview only roles that qualify, at most
+ * picks.prep.max. Returns { picks, open, prep } where prep is null or { interview, days, step, wait } (wait: the
+ * open roles not shown, which keep their showings).
+ */
+export async function choosePicks(extra = [], { fetch = globalThis.fetch, date = today(), time = nowTime(), A = apps() } = {}) {
+  const prep = prepState({ apps: A, day: date, time });
+  if (!prep) return { ...(await buildPicks(extra, { fetch })), prep: null };
+  const P = prepOf();
+  const pk = await buildPicks(extra, { fetch, max: P.max, only: c => prepQualifies(c, date, P) });
+  return { ...pk, prep: { ...prep, wait: Math.max(0, pk.open - pk.picks.length) } };
+}
+export function recordPicks(picks, day = today()) { const s = readJson(PICKS_FILE, {}); for (const p of picks) s[p.file] = { shown: (s[p.file]?.shown || 0) + 1, last: day }; fs.writeFileSync(PICKS_FILE, JSON.stringify(s, null, 1)); }
+
+// ---------- after decoding: off days, prep mode, the digest ----------
+// data/state/digest-days.json { held: [{ date, decoded, worth }] }: off days whose digest was held back (cli.mjs run
+// only); the next digest names them in one line and clears the list.
+const DIGEST_DAYS_FILE = STATE('digest-days.json');
+/**
+ * Picks, the digest, its file and Telegram, after the decode step. evening: called from cli.mjs run, where an off
+ * day (not in schedule.days) writes the digest with an off-day line, sends nothing, shows and counts no picks.
+ * send, fetch, date and time are injected by tests. Returns { text, pk, off, sendError }.
+ */
+export async function finishRun({ done = [], failed = [], gaveUp = [], left = 0, cap = CAP, dry = false, noTg = false, evening = false, date = today(), time = nowTime(), send = sendText, fetch = globalThis.fetch } = {}) {
+  const off = evening && offDay(date);
+  const days = readJson(DIGEST_DAYS_FILE, {}); const held = Array.isArray(days.held) ? days.held : [];
+  const extra = dry ? done : [];
+  const pk = off ? { picks: [], open: picksPool(extra).open.length, prep: null } : await choosePicks(extra, { fetch, date, time });
+  if (!dry && !off) { recordPicks(pk.picks, date); if (pk.picks.length) runHook('picks', { date, picks: pk.picks.map(p => ({ file: p.file, company: p.fm.company, role: p.fm.role, url: p.fm.url || null, verdict: p.v.verdict, apply_priority: p.v.apply_priority ?? null })) }); }
+  const back = off ? [] : held.filter(h => h.date < date);
+  if (!off && !done.length && !failed.length && !gaveUp.length && !pk.picks.length && !pk.prep && !back.length) { log(`nothing new and no picks${left ? ` (${left} waiting in the inbox)` : ''}`); return { text: null, pk, off, sendError: null }; }
+  const text = digestText({ name: SETTINGS.candidate_name, date, dry, done, failed, gaveUp, pk, left, cap, maxTries: MAX_TRIES, off: off ? date : null, held: back });
+  // A dry run never touches the digest; a second real run on the same day is appended, not written over the first.
+  if (!dry) {
+    const dg = path.join(DIRS.digests, `${date}.md`); fs.existsSync(dg) ? fs.appendFileSync(dg, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(dg, text + '\n', 'utf8');
+    const worth = done.filter(d => APPLY_WORTHY.includes(d.v.verdict)).length;
+    if (off) {
+      const same = held.find(h => h.date === date);
+      if (same) { same.decoded = (same.decoded || 0) + done.length; same.worth = (same.worth || 0) + worth; } else held.push({ date, decoded: done.length, worth });
+      fs.writeFileSync(DIGEST_DAYS_FILE, JSON.stringify({ ...days, held }, null, 1));
+    } else if (back.length) fs.writeFileSync(DIGEST_DAYS_FILE, JSON.stringify({ ...days, held: held.filter(h => h.date >= date) }, null, 1));
+  }
+  console.log('\n' + text);
+  let sendError = null;
+  if (!noTg && !off) { try { await send(text); } catch (e) { log(`telegram failed: ${e.message}`); sendError = e; } }
+  if (off) log(`off day (${date} is not in schedule.days): digest written to data/digests, not sent; no picks shown`);
+  return { text, pk, off, sendError };
+}
 
 // ---------- main ----------
 async function main() {
   try { apps(); } catch (e) { log(`decoder: ${e.message}; nothing decoded, no picks.`); process.exit(2); }
-  if (PICKS_ONLY) { const pk = await buildPicks(); console.log(picksText(pk).join('\n') || translator()('picks.none', { open: pk.open })); process.exit(0); }
+  if (PICKS_ONLY) {
+    const pk = await choosePicks(), t = translator();
+    console.log([...prepLines(pk.prep, t), ...(pk.prep && !pk.picks.length ? [t('prep.wait', { n: pk.prep.wait })] : []), ...picksText(pk)].join('\n') || t('picks.none', { open: pk.open }));
+    process.exit(0);
+  }
   // jobpilot's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
   // into data/inbox on its own schedule, set decoder.settle_sec (e.g. 60) so half-written files are left for later.
   const SETTLE_MS = Number(SETTINGS.decoder?.settle_sec || 0) * 1000;
@@ -309,14 +363,9 @@ async function main() {
     }
   }
   if (!DRY) fs.writeFileSync(TRIES_FILE, JSON.stringify(tries, null, 1));
-  const pk = await buildPicks(DRY ? done : []);
-  if (!DRY) { recordPicks(pk.picks); if (pk.picks.length) runHook('picks', { date: today(), picks: pk.picks.map(p => ({ file: p.file, company: p.fm.company, role: p.fm.role, url: p.fm.url || null, verdict: p.v.verdict, apply_priority: p.v.apply_priority ?? null })) }); }
-  if (!done.length && !failed.length && !gaveUp.length && !pk.picks.length) { log(`nothing new and no picks${LEFT ? ` (${LEFT} waiting in the inbox)` : ''}`); process.exit(0); }
-  const text = digestText({ name: SETTINGS.candidate_name, date: today(), dry: DRY, done, failed, gaveUp, pk, left: LEFT, cap: CAP, maxTries: MAX_TRIES });
-  // A dry run never touches the digest; a second real run on the same day is appended, not written over the first.
-  if (!DRY) { const dg = path.join(DIRS.digests, `${today()}.md`); fs.existsSync(dg) ? fs.appendFileSync(dg, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(dg, text + '\n', 'utf8'); }
-  console.log('\n' + text);
-  if (!NO_TG) { try { await sendText(text); } catch (e) { log(`telegram failed: ${e.message}`); process.exitCode = 3; } }
+  // JOBPILOT_EVENING is set by cli.mjs run: off days (schedule.days) apply to the evening run only
+  const r = await finishRun({ done, failed, gaveUp, left: LEFT, dry: DRY, noTg: NO_TG, evening: process.env.JOBPILOT_EVENING === '1' });
+  if (r.sendError) process.exitCode = 3;
   if (failed.length) process.exitCode = process.exitCode || 1;
 }
 // Imported by tests and cli.mjs for its exports; run as a script, it decodes.

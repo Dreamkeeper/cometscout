@@ -7,7 +7,7 @@
 //                                    # add --manual to record a role that is not in the queue (it does not affect picks)
 //   node cli.mjs list                # what is recorded
 //   node cli.mjs doctor              # check the setup, one line per item
-//   node cli.mjs timer [HH:MM]       # (re)install the daily timer from settings.json (run_time, timezone)
+//   node cli.mjs timer [HH:MM]       # (re)install the daily timer from settings.json (schedule.time, timezone); with Telegram on, also the bot unit
 //   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
 //   node cli.mjs export [--out file.zip|folder] [--data-only]   # data, profile and settings; .env is never exported
 //   node cli.mjs export --csv <file.csv>                        # applications as a spreadsheet
@@ -20,14 +20,17 @@
 //   node cli.mjs serve [--port 8787] [--host 127.0.0.1]      # the workspace (preview): today's picks, decode and pack in the browser
 //   node cli.mjs coach-handoff [--out <file>]                # profile, CV, voice and applications for the interview coach's kickoff
 //                                    # (default: materials/cometscout-handoff.md in the coach's folder; the run refreshes it when modules.coach.enabled)
+//   node cli.mjs interview <company> <YYYY-MM-DD> [HH:MM] [role words] [--round "..."] [--manual]
+//                                    # record a booked interview (time in settings.timezone); prep mode uses it
+//   node cli.mjs bot                 # the Telegram bot: /schedule, /time, /interview, /help (cli.mjs timer installs it as a service)
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ROOT, SETTINGS, SETTINGS_FILE, PROFILE, DATA, DIRS, STATE, ENV_PROBLEMS, readJson, secret, today } from './lib/config.mjs';
 import { readApplications } from './lib/queue.mjs';
-import { setStatus as recordStatus } from './lib/applications.mjs';
+import { setStatus as recordStatus, addInterview } from './lib/applications.mjs';
+import { runBot } from './lib/bot.mjs';
 import { runHook, hooksFor, HOOK_EVENTS } from './lib/hooks.mjs';
 import { archiveCommands } from './lib/archive-cli.mjs';
 import { nightlyBackup, backupDoctor } from './lib/backup.mjs';
@@ -39,7 +42,8 @@ import { binCommand } from './lib/llm.mjs';
 import { trackerExport, exportNotes } from './lib/tracker.mjs';
 import { sourcesReport, sourcesReportCommand } from './lib/scorecard.mjs';
 import { trimSightings } from './lib/sightings.mjs';
-import { healthPing, notify, unitFiles } from './lib/ops.mjs';
+import { healthPing, notify, installTimer } from './lib/ops.mjs';
+import { scheduleOf, scheduleProblems, prepOf, weekdayNames, offDay } from './lib/schedule.mjs';
 import { localeOk, LOCALES } from './lib/i18n.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
 import { startServer, vendorCheck } from './lib/server.mjs';
@@ -94,16 +98,10 @@ function setStatus(company, status, words, note, manual) {
 }
 
 function timer(at) {
-  const time = at || SETTINGS.run_time || '18:00';
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) { console.log(`Time must be HH:MM, got "${time}"`); return 1; }
-  let tz = SETTINGS.timezone || ''; try { if (tz) new Intl.DateTimeFormat('en', { timeZone: tz }); } catch { console.log(`Unknown timezone "${tz}" in settings.json; using the server's own`); tz = ''; }
-  const dir = path.join(os.homedir(), '.config', 'systemd', 'user'); fs.mkdirSync(dir, { recursive: true });
-  const envPath = `${path.join(os.homedir(), '.local', 'bin')}:${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}`;
-  // jobpilot.service names jobpilot-failure@.service in OnFailure=, so a failed run sends a Telegram alert (cli.mjs notify)
-  for (const [name, text] of Object.entries(unitFiles({ root: ROOT, code: CODE, node: process.execPath, time, tz, envPath }))) fs.writeFileSync(path.join(dir, name), text);
-  for (const a of [['daemon-reload'], ['enable', '--now', 'jobpilot.timer']]) spawnSync('systemctl', ['--user', ...a], { stdio: 'inherit' });
-  spawnSync('systemctl', ['--user', 'list-timers', 'jobpilot.timer', '--no-pager'], { stdio: 'inherit' });
-  return 0;
+  const r = installTimer({ time: at || scheduleOf().time });
+  for (const l of r.lines) console.log(l);
+  if (!r.code) spawnSync('systemctl', ['--user', 'list-timers', 'jobpilot.timer', '--no-pager'], { stdio: 'inherit' });
+  return r.code;
 }
 
 function doctor() {
@@ -159,6 +157,13 @@ function doctor() {
   ok(!gates.unknown.length, `gates: ${gates.active.join(', ') || 'none (settings.gates not set)'}`, `unknown key(s) under gates ignored: ${gates.unknown.join(', ')} (known: ${GATE_KEYS.join(', ')})`);
   const tg = SETTINGS.delivery.telegram;
   ok(!tg.enabled || (secret(tg.token_env) && secret(tg.chat_id_env)), `Telegram delivery: ${tg.enabled ? 'on' : 'off (digest is written to data/digests only)'}`, 'add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env');
+  if (tg.enabled) ok(true, 'Telegram bot: node cli.mjs bot (/schedule, /time, /interview); node cli.mjs timer installs it as a service');
+  // schedule (digest days and time) and picks.prep, checked like the settings writer checks them
+  const sch = scheduleOf(), schProblems = scheduleProblems(), wd = weekdayNames('en'), prep = prepOf();
+  const dayText = Array.isArray(sch.days) && sch.days.length === 7 ? 'every day' : (Array.isArray(sch.days) ? sch.days : []).map(d => wd[d - 1] ?? d).join(', ');
+  ok(!schProblems.length, `digest schedule: ${dayText} at ${sch.time} (${SETTINGS.timezone || 'UTC'})${!schProblems.length && offDay(today()) ? '; today is an off day' : ''}`, schProblems.join('; '));
+  if (sch.legacy) warn(`run_time is read as schedule.time  ->  replace it with "schedule": { "days": [1, 2, 3, 4, 5, 6, 7], "time": "${sch.time}" } (saving in the workspace or the bot does this)`);
+  ok(true, `interview prep: ${prep.days_before ? `${prep.days_before} day(s) before an interview, at most ${prep.max} pick(s)` : 'off (picks.prep.days_before is 0)'}`);
   const vendor = vendorCheck();
   ok(vendor.ok, `workspace modules: ${vendor.ok ? Object.entries(vendor.versions).map(([k, v]) => `${k} ${v}`).join(', ') : 'preact and htm not installed'}`, `run npm install in ${CODE} (needed for node cli.mjs serve only)`);
   ok(localeOk(), `locale: ${SETTINGS.locale || 'en'}`, `unknown locale "${SETTINGS.locale}"; use one of ${LOCALES.join(', ')} (English is used meanwhile)`);
@@ -180,11 +185,15 @@ async function evening() {
   // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
   if (PROFILE.isExample && !rest.includes('--example')) { console.log('jobpilot: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
   process.env.JOBPILOT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
+  // An off day (not in schedule.days) still collects and decodes, but the steps send nothing and show no picks
+  // (decoder/decoder.mjs finishRun, sources/outcomes.mjs); failure and backup alerts still go out.
+  process.env.JOBPILOT_EVENING = '1'; const off = offDay(today());
+  if (off) console.log(`jobpilot: ${today()} is an off day (schedule.days); sources and decode run, nothing is sent`);
   const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
   const t0 = Date.now(); runHook('before_run', { date: today() });
   await optional('sightings trim', () => trimSightings());   // here only, before any source writes: no two writers race
   const failed = runSources(); const decoder = node('decoder/decoder.mjs');
-  if (SETTINGS.sources_report?.enabled) await optional('sources-report', () => sourcesReport({ send: sendText, print: () => {} }));
+  if (SETTINGS.sources_report?.enabled) await optional('sources-report', () => sourcesReport({ send: off ? null : sendText, print: () => {} }));
   const packStart = new Date().toISOString(); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
   const refused = refusedSince(packStart);   // packs refused in this run (vetted CV text breaks a lint rule); not a failure
   if (SETTINGS.modules?.coach?.enabled && !PROFILE.isExample) await optional('coach-handoff', () => refreshHandoff());   // the interview coach's snapshot; no network
@@ -252,6 +261,19 @@ const codes = {
   'sources-report': () => sourcesReportCommand({ send: rest.includes('--send') ? sendText : null }),
   notify: () => notify(rest.join(' '), { send: sendText, on: telegramOn }),
   serve: () => serve(),
+  interview: () => {
+    const usage = 'Usage: node cli.mjs interview <company> <YYYY-MM-DD> [HH:MM] [role words] [--round "..."] [--manual]';
+    const manual = rest.includes('--manual'); let r = rest.filter(x => x !== '--manual'), round = '';
+    const i = r.indexOf('--round');
+    if (i >= 0) { if (!r[i + 1] || r[i + 1].startsWith('--')) { console.log(usage); return 1; } round = r[i + 1]; r = [...r.slice(0, i), ...r.slice(i + 2)]; }
+    const [company, date, ...more] = r;
+    if (!company || !date) { console.log(usage); return 1; }
+    const time = /^\d{1,2}:\d{2}$/.test(more[0] || '') ? more.shift() : '';
+    const res = addInterview({ company, date, time, words: more.join(' '), round, manual, source: 'cli' });
+    for (const l of res.lines) console.log(l);
+    return res.code;
+  },
+  bot: () => runBot(),
   'coach-handoff': () => {
     const i = rest.indexOf('--out'); if (i >= 0 && (!rest[i + 1] || rest[i + 1].startsWith('--'))) { console.log('Usage: node cli.mjs coach-handoff [--out <file>]'); return 1; }
     return coachHandoff({ out: i >= 0 ? rest[i + 1] : undefined });

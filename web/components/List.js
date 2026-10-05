@@ -57,7 +57,8 @@ export function List({ t, locale, today, groups, selected, onSelect, filters, se
   return html`
     <nav class="list" aria-label=${t('ws.title')}>
       <${Filters} t=${t} today=${today} filters=${filters} setFilters=${setFilters} searchRef=${searchRef} />
-      ${today && !today.picks.length && total > 0 && html`<p class="notice">${t('ws.empty', { open: today.pool.length })}</p>`}
+      ${today?.prep && html`<div class="prep" role="note">${today.prep.lines.map((l, i) => html`<p key=${i}>${l}</p>`)}</div>`}
+      ${today && !today.picks.length && total > 0 && !today.prep && html`<p class="notice">${t('ws.empty', { open: today.pool.length })}</p>`}
       ${today && total === 0 && html`<p class="empty">${t('ws.empty_all')}</p>`}
       ${today && total > 0 && shown === 0 && html`<p class="empty">${t('ws.no_match')}</p>`}
       ${groups.map(g => html`

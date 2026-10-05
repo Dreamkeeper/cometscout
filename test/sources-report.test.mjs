@@ -142,7 +142,9 @@ test('--send: on the 1st and within 7 days of a renewal, once per occasion', asy
   assert.deepEqual(sc.sendTriggers('2026-10-01'), ['month:2026-10', 'renews:rtj:2026-10-05']);
   assert.deepEqual(sc.sendTriggers('2026-09-28'), ['renews:rtj:2026-10-05'], '7 days before');
   assert.deepEqual(sc.sendTriggers('2026-09-27'), [], '8 days before');
-  assert.deepEqual(sc.sendTriggers('2026-10-06'), [], 'after the renewal');
+  assert.deepEqual(sc.sendTriggers('2026-10-03'), ['month:2026-10', 'renews:rtj:2026-10-05'], 'the month report stays due for the first 7 days (an off day on the 1st)');
+  assert.deepEqual(sc.sendTriggers('2026-10-08'), [], 'not after the 7th');
+  assert.deepEqual(sc.sendTriggers('2026-10-06'), ['month:2026-10'], 'after the renewal (the month report is still due, sent once)');
 
   const sent = []; const send = async t => { sent.push(t); return true; };
   const quiet = () => {};

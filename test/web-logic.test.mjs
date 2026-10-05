@@ -193,3 +193,32 @@ test('Tab inside a dialog wraps at both ends', () => {
   assert.equal(trapTab(3, -1, true), 2);
   assert.equal(trapTab(0, 0), -1);
 });
+
+test('settings form: weekday names Monday first, day toggles, what may be sent; form dialogs take Escape only', () => {
+  assert.deepEqual(L.weekdayNames('en'), ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+  assert.equal(L.weekdayNames('ru')[0], 'пн');
+  assert.deepEqual(L.toggleDay([1, 2, 5], 2), [1, 5]);
+  assert.deepEqual(L.toggleDay([1, 5], 3), [1, 3, 5]);
+  assert.equal(L.settingsProblem({ days: [1], time: '18:00', prep_days: 2 }), null);
+  assert.equal(L.settingsProblem({ days: [], time: '18:00', prep_days: 2 }), 'ws.settings.days');
+  assert.equal(L.settingsProblem({ days: [1], time: '', prep_days: 2 }), 'ws.settings.time');
+  assert.equal(L.settingsProblem({ days: [1], time: '18:00', prep_days: 1.5 }), 'ws.settings.prep');
+  for (const mode of ['settings', 'interview']) {
+    assert.equal(keyAction({ key: 'a', tag: 'DIV' }, mode), null, `${mode}: "a" does not mark applied`);
+    assert.deepEqual(keyAction({ key: 'Escape', tag: 'INPUT' }, mode), { action: 'close' });
+  }
+});
+
+test('the API client: interview and settings', async () => {
+  const calls = [];
+  const api = createApi({ fetch: async (url, opt = {}) => { calls.push({ url, opt }); return { ok: true, status: 200, json: async () => ({ ok: true }) }; } });
+  await api.interview('x.md', '2026-10-07', '10:00', 'round 2'); await api.interview('x.md', '2026-10-07');
+  await api.settings(); await api.saveSettings({ days: [1, 2], prep_days: 0 });
+  assert.deepEqual(calls.map(c => [c.url, c.opt.method || 'GET', c.opt.body ? JSON.parse(c.opt.body) : null]), [
+    ['/api/interview', 'POST', { file: 'x.md', date: '2026-10-07', time: '10:00', round: 'round 2' }],
+    ['/api/interview', 'POST', { file: 'x.md', date: '2026-10-07' }],
+    ['/api/settings', 'GET', null],
+    ['/api/settings', 'POST', { days: [1, 2], prep_days: 0 }],
+  ]);
+  assert.ok(calls.filter(c => c.opt.method === 'POST').every(c => c.opt.headers['X-Jobpilot'] === '1'));
+});

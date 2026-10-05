@@ -73,7 +73,7 @@ The installer asks for your sudo password once and then:
 
 - installs Python, LibreOffice for the PDFs, and fonts;
 - creates `settings.json` and `.env` (readable only by you);
-- sets up the daily run at 18:00 with a failure alert. Until your profile exists (the `profile/` folder), the evening run does nothing. Set the time and time zone later in `settings.json` (`run_time`, `timezone`) and run `node cli.mjs timer`;
+- sets up the daily run at 18:00 with a failure alert. Until your profile exists (the `profile/` folder), the evening run does nothing. Set the days, the time and the time zone later in `settings.json` (`"schedule": { "days": [1, 2, 3, 4, 5], "time": "18:00" }`, `timezone`) and run `node cli.mjs timer`, or change them from the workspace or the Telegram bot;
 - finally runs the check `node cli.mjs doctor`.
 
 The check prints a list: `ok` means ready, `TODO` means something is left to do. Right after installing, the profile and settings items are `TODO`; that is expected.
@@ -125,6 +125,15 @@ TELEGRAM_CHAT_ID=your_chat_id
 
 If a timed run fails, the bot sends an error message (after `node cli.mjs timer`).
 
+Run `node cli.mjs timer` once more after turning Telegram on: it also installs the bot service, which answers your chat (and nobody else's):
+
+- `/schedule`: digest days, time and interview prep, with buttons to switch days on or off and to set prep days (0 to 3);
+- `/time 19:30`: move the evening run;
+- `/interview Company 2026-10-07 14:00`: record a booked interview (a company name with spaces goes in quotes);
+- `/help`: the list.
+
+On days that are off, the run still collects and decodes jobs but sends nothing; the next digest says what came in meanwhile.
+
 **Put tokens into the file yourself and never paste them into the chat with the agent.**
 
 ## 7. Optional: LinkedIn and hh.ru job alerts through Gmail
@@ -166,6 +175,7 @@ If you already run [career-ops](https://github.com/career-ops-hq/career-ops), jo
 - You applied: `node cli.mjs applied Company`, so the job is not offered again.
 - News from a company: `node cli.mjs status Company interview` (or `screen`, `offer`, `rejected`, `skipped`).
 - You took an offer and work there, but keep looking: `node cli.mjs status Company accepted`. The job stops counting as an open process, and no email changes that status.
+- An interview is booked: `node cli.mjs interview Company 2026-10-07 14:00` (or the bot's `/interview`, or Record interview in the workspace). In the 2 days before it, the digest leads with the interview and a prep step, and offers at most one new role, only a strong and fresh one; the rest wait until after the interview. `"picks": { "prep": { "days_before": 0 } }` turns this off.
 - All your applications: `node cli.mjs list`.
 - Clear the data after trying the example: `node cli.mjs reset --yes`.
 
