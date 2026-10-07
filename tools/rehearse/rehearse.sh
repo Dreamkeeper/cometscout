@@ -31,6 +31,7 @@
 # install.sh does on any server (apt packages, loginctl enable-linger), which it leaves in place. It refuses to start
 # when CometScout units (or ones from before the rename) are already installed for this user.
 set -uo pipefail
+ME="${USER:-$(id -un)}"   # USER is unset in some minimal shells (docker exec), and set -u would stop the script
 
 SRC="$(cd "$(dirname "$0")/../.." && pwd)"
 HELPER="$SRC/tools/rehearse/lib.mjs"
@@ -88,7 +89,7 @@ preflight() {
   command -v node >/dev/null && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 20 ] || fail "Node 20 or newer is needed (the installer checks it too)"
   command -v curl >/dev/null || fail "curl is not installed"
   sudo -n true 2>/dev/null || fail "sudo must work without a password for this user"
-  systemctl --user show-environment >/dev/null 2>&1 || fail "no user systemd session (sudo loginctl enable-linger $USER, then log in again, or set XDG_RUNTIME_DIR)"
+  systemctl --user show-environment >/dev/null 2>&1 || fail "no user systemd session (sudo loginctl enable-linger $ME, then log in again, or set XDG_RUNTIME_DIR)"
   [ ! -e "$TH" ] || fail "$TH exists: a previous rehearsal? bash tools/rehearse/cleanup.sh --dir $TH removes it"
   local old; old="$(helper old-units)" || fail "cannot read the old unit names"
   for u in cometscout.timer cometscout.service cometscout-bot.service cometscout-failure@.service $old; do
@@ -158,7 +159,7 @@ units_step() {
   grep -qx 'OnFailure=cometscout-failure@%n.service' "$UNITDIR/cometscout.service" || fail "cometscout.service has no OnFailure="
   grep -q "^ExecStart=.* $H/app/current/cli.mjs run$" "$UNITDIR/cometscout.service" || fail "cometscout.service does not run app/current/cli.mjs"
   grep -qx "Environment=\"COMETSCOUT_HOME=$H\"" "$UNITDIR/cometscout.service" || fail "cometscout.service does not set COMETSCOUT_HOME"
-  [ "$(loginctl show-user "$USER" -p Linger --value)" = yes ] || fail "lingering is not enabled for $USER"
+  [ "$(loginctl show-user "$ME" -p Linger --value)" = yes ] || fail "lingering is not enabled for $ME"
   # the failure alert runs (Telegram is off, so it logs the message and succeeds)
   systemctl --user start cometscout-failure@rehearsal-check.service || fail "the failure alert unit failed"
   echo "units ok"

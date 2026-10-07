@@ -157,3 +157,15 @@ test('the command line: next-version, jobs, settings, report exit codes, usage',
   assert.equal(run('next-version').status, 2);
   assert.equal(run('nothing').status, 1);
 });
+
+test('cleanup.sh refuses a root, a top-level folder or the home folder (a "/" would match every user unit)', { skip: spawnSync('bash', ['-c', 'true']).status !== 0 && 'no bash here' }, () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'tools', 'rehearse', 'cleanup.sh');
+  // Git Bash on Windows takes POSIX paths: hand it the temp home as /c/Users/...
+  const win = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-cleanup-home-'));
+  const home = process.platform === 'win32' ? spawnSync('cygpath', ['-u', win], { encoding: 'utf8' }).stdout.trim() : win;
+  for (const dir of ['/', '/tmp', home, `${home}/`]) {
+    const r = spawnSync('bash', [script, '--dir', dir], { encoding: 'utf8', env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') } });
+    assert.equal(r.status, 1, `${dir}: ${r.stdout}${r.stderr}`);
+    assert.match(r.stdout, /refusing to clean up/, dir);
+  }
+});

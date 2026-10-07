@@ -8,6 +8,7 @@
 #   bash tools/rehearse/cleanup.sh [--dir <test home>]      (default ~/cometscout-rehearsal)
 # It refuses a folder that rehearse.sh did not make (no .cometscout-rehearsal file in it).
 set -uo pipefail
+ME="${USER:-$(id -un)}"   # USER is unset in some minimal shells (docker exec), and set -u would stop the script
 TH="$HOME/cometscout-rehearsal"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -18,6 +19,9 @@ while [ $# -gt 0 ]; do
 done
 case "$TH" in /*) ;; *) TH="$(pwd)/$TH" ;; esac
 TH="${TH%/}"
+# never a filesystem root, the user's home or a top-level folder: "/" would match every unit file below
+case "$TH" in ""|"$HOME"|"${HOME%/}") echo "refusing to clean up \"${TH:-/}\": not a rehearsal test home"; exit 1 ;; esac
+[ "$(printf '%s' "$TH" | tr -cd / | wc -c)" -ge 2 ] || { echo "refusing to clean up $TH: not a rehearsal test home"; exit 1; }
 UNITDIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 if [ -e "$TH" ] && [ ! -f "$TH/.cometscout-rehearsal" ]; then echo "$TH was not made by tools/rehearse/rehearse.sh (no .cometscout-rehearsal in it); not touching it."; exit 1; fi
 
@@ -50,4 +54,4 @@ if [ -e "$TH" ]; then
   chmod -R u+w "$TH" 2>/dev/null
   rm -rf "$TH" && echo "Removed $TH." || { echo "Could not remove $TH."; exit 1; }
 else echo "$TH is not there."; fi
-echo "Left in place: apt packages and lingering (install.sh sets them up on any server; sudo loginctl disable-linger $USER turns lingering off)."
+echo "Left in place: apt packages and lingering (install.sh sets them up on any server; sudo loginctl disable-linger $ME turns lingering off)."
