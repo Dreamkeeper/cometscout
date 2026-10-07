@@ -30,7 +30,7 @@ fs.writeFileSync(process.env.COMETSCOUT_SETTINGS, JSON.stringify(settingsOf()));
 const T = await import('../lib/transcribe.mjs');
 const SP = await import('../lib/transcribe-speakers.mjs');
 const B = await import('../lib/transcribe-speakers-bench.mjs');
-const { translator } = await import('../lib/i18n.mjs');
+const { translator, LABELS } = await import('../lib/i18n.mjs');
 const { coachHandoff } = await import('../lib/coach.mjs');
 const { postRenameSpeakers, startServer } = await import('../lib/server.mjs');
 const W = await import('../web/lib/transcribe.js');
@@ -57,7 +57,7 @@ const turns = (...xs) => xs.map(([start, end, speaker]) => ({ start, end, speake
 
 test('settings: off by default, the documented defaults, every value checked', () => {
   const d = T.transcribeSettings({}, '/srv/home', '/srv/home/data').speakers;
-  assert.deepEqual({ ...d, me_sample: null }, { enabled: false, embedding: '3dspeaker', num_speakers: null, min_speakers: 2, max_speakers: 4, threshold: null, me_sample: null, me_sample_setting: 'profile/my-voice.wav', me_threshold: null });
+  assert.deepEqual({ ...d, me_sample: null }, { enabled: false, embedding: '3dspeaker', num_speakers: null, min_speakers: 1, max_speakers: 4, threshold: null, me_sample: null, me_sample_setting: 'profile/my-voice.wav', me_threshold: null });
   assert.equal(d.me_sample, path.resolve('/srv/home', 'profile/my-voice.wav'));
   const problems = [];
   const odd = SP.speakerSettings({ embedding: 'pyannote', num_speakers: 0, min_speakers: 5, max_speakers: 3, threshold: 'x', me_threshold: 2 }, { root: '/r', problems });
@@ -82,6 +82,18 @@ test('words to speakers: the most overlap; on a boundary the turn holding the mi
   assert.equal(SP.speakerFor(1, 2, []), null);
   const ws = SP.assignWords([{ text: 'какие', start: 4.6, end: 4.9 }, { text: 'то', start: 5.3, end: 5.5, hy: true }, { text: 'да', start: 6, end: 6.3 }], tt);
   assert.deepEqual(ws.map(w => w.speaker), ['A', 'A', 'B'], 'the second part of a hyphenated word keeps the first part\'s speaker');
+});
+
+test('words to speakers: where the midpoint and the most overlap disagree, the midpoint rule decides (as documented)', () => {
+  // a short turn of B holds the word's midpoint (5.15) and overlaps it 0.2 s; A overlaps it 0.5 s
+  const tt = turns([0, 5, 'A'], [5, 5.2, 'B']);
+  assert.equal(SP.speakerFor(4.5, 5.8, tt), 'B', 'the turn holding the midpoint, although A overlaps the word more');
+  assert.equal(SP.speakerFor(4.5, 5.8, tt, 'A'), 'B', 'the previous word\'s speaker does not outvote the midpoint');
+  // the same with A's speech on both sides of B's short turn: A overlaps 0.7 s in all, B 0.2 s
+  assert.equal(SP.speakerFor(4.6, 5.6, turns([0, 5, 'A'], [5.05, 5.25, 'B'], [5.3, 9, 'A'])), 'B');
+  assert.deepEqual(SP.splitBySpeaker([{ start: 4.5, end: 5.8, text: 'yes', words: [{ text: 'yes', start: 4.5, end: 5.8 }] }], tt).map(x => x.speaker), ['B']);
+  // the README says so
+  assert.ok(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8').includes('holding its middle, even when another speaker\'s turn overlaps it more'), 'the README says so');
 });
 
 test('segments break where the speaker changes, with their text rebuilt from the words; whole segments keep their text', () => {
@@ -121,7 +133,7 @@ test('a call with a voice sample: "Me" and "Speaker 2" paragraphs, the header, t
   const d = calls[1].args, arg = n => d[d.indexOf(`--${n}`) + 1];
   assert.equal(arg('segmentation'), SP.segmentationPath(MOD)); assert.equal(arg('embedding-model'), SP.embeddingPath(MOD, '3dspeaker'));
   assert.equal(arg('cluster-threshold'), '0.9', 'the calibrated clustering threshold for the model');
-  assert.deepEqual([arg('min-speakers'), arg('max-speakers')], ['2', '4']);
+  assert.deepEqual([arg('min-speakers'), arg('max-speakers')], ['1', '4'], 'by default one voice found stays one speaker');
   assert.deepEqual(JSON.parse(arg('samples')), [SAMPLE], 'the sample is embedded with the same model');
   assert.match(md, /^- Speakers: 2 found \(Speaker 1, Me\); "Me" identified by your voice sample \(similarity 0\.98\); separated in \d+ s$/m);
   assert.match(md, /^<!-- cometscout-speakers: me="Me" -->$/m);
@@ -318,7 +330,7 @@ test('doctor: off, the extra, the models and their sha256, the voice sample and 
   fs.writeFileSync(ds.speakers.me_sample, B.writeWav(new Float32Array(25 * 16000)));
   assert.equal(SP.wavSeconds(ds.speakers.me_sample), 25);
   assert.match(lines(), /^ok voice sample: .*doc-voice\.wav \(25 s\)$/m);
-  assert.match(lines(), /^ok speakers: 2 to 4 \(clustering threshold 0\.9\), "Me" at similarity 0\.6 or more \(calibrated for 3dspeaker\)$/m);
+  assert.match(lines(), /^ok speakers: 1 to 4 \(clustering threshold 0\.9\), "Me" at similarity 0\.6 or more \(calibrated for 3dspeaker\)$/m);
   fs.writeFileSync(ds.speakers.me_sample, 'VEC 1,0,0');
   assert.match(lines(), /^ok voice sample: .* \(not a WAV file, so its length was not checked/m);
   // through transcribeDoctor too
@@ -418,4 +430,125 @@ test('the diarizer command: the models, the count or its range, the threshold, t
   for (const x of ['--diarize', '--samples', '--convert', 'OfflineSpeakerDiarization', 'SpeakerEmbeddingExtractor', 'set_config']) assert.ok(py.includes(x), x);
   const p3 = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', T.SCRIPT], { encoding: 'utf8' });
   if (!p3.error && p3.status !== null) assert.equal(p3.status, 0, p3.stderr);
+});
+
+test('a rename to "Me" (in either locale) makes that speaker the user: the marker, segments.json, the workspace, the coach hand-off', async () => {
+  fs.rmSync(path.join(COACH, 'materials'), { recursive: true, force: true });
+  // the voice sample does not match (threshold 0.99): Speaker 1 and Speaker 2, nobody is "Me"
+  const { dir } = await job('synthetic interview', { name: 'Named me.m4a', sp: { enabled: true, me_threshold: 0.99 } });
+  const read = n => fs.readFileSync(path.join(dir, n), 'utf8');
+  const meOf = () => JSON.parse(read('segments.json')).diarization.speakers.map(x => [x.label, x.me]);
+  const r = T.renameSpeakers(dir, ['Speaker 2=Me'], { log: quiet });
+  assert.equal(r.ok, true, r.errors.join());
+  assert.match(read('transcript.md'), /^<!-- cometscout-speakers: me="Me" -->$/m);
+  assert.match(read('transcript.md'), /^\*\*Me:\*\* \[00:00:13\] Sure\./m);
+  assert.match(read('transcript.md'), /^- Speakers: 2 found \(Speaker 1, Me\); "Me" set by a rename; separated in/m);
+  assert.deepEqual(meOf(), [['Speaker 1', false], ['Speaker 2', true]]);
+  assert.equal(JSON.parse(read('segments.json')).diarization.me.named, 'Speaker 2');
+  const s = T.transcribeSettings(settingsOf(), HOME, DATA);
+  assert.deepEqual(T.queueStatus({ s }).done.find(x => x.dir === path.basename(dir)).speakers.map(x => [x.label, x.me]), [['Speaker 1', false], ['Speaker 2', true]]);
+  // the coach's copy follows, and the hand-off says which lines are the candidate's
+  assert.equal(coachHandoff({ profileDir: path.join(ROOT, 'profile.example'), log: quiet }), 0);
+  assert.match(fs.readFileSync(path.join(COACH, 'materials', 'cometscout-handoff.md'), 'utf8'), /named-me\.md \(\d{4}-\d\d-\d\d\), speakers separated: the lines marked "Me" are mine, ready for analyze/);
+  // never two "Me": not in another case, not in the other locale
+  for (const n of ['Me', 'me', 'ME', 'Я', 'я']) {
+    const bad = T.renameSpeakers(dir, [`Speaker 1=${n}`], { log: quiet });
+    assert.equal(bad.ok, false, n); assert.match(bad.errors[0], /is already another speaker's name/);
+  }
+  assert.deepEqual(meOf(), [['Speaker 1', false], ['Speaker 2', true]], 'a refused rename changes nothing');
+  // back to the label: nobody is "Me" again
+  assert.equal(T.renameSpeakers(dir, ['Me='], { log: quiet }).ok, true);
+  assert.match(read('transcript.md'), /^<!-- cometscout-speakers: me="" -->$/m);
+  assert.deepEqual(meOf(), [['Speaker 1', false], ['Speaker 2', false]]);
+  assert.equal(JSON.parse(read('segments.json')).diarization.me.named, null);
+  // the Russian "Я" counts on an English transcript too
+  assert.equal(T.renameSpeakers(dir, ['Speaker 1=я'], { log: quiet }).ok, true);
+  assert.match(read('transcript.md'), /^<!-- cometscout-speakers: me="я" -->$/m);
+  assert.deepEqual(meOf(), [['Speaker 1', true], ['Speaker 2', false]]);
+  // the label tables and the list of "Me" names agree
+  assert.deepEqual([...new Set(Object.values(LABELS).map(l => l['sp.me']))].sort(), [...SP.ME_NAMES].sort());
+});
+
+test('never two "Me" across locales: "Me" is refused next to "Я" and "Я" next to "Me", in any case', async () => {
+  const ruJob = await job('RUSSIAN synthetic call', { t: ru, extra: { engines: { ru: 'gigaam+whisper', default: 'whisper' } }, sample: 'VEC 0,1,0' });
+  assert.deepEqual(ruJob.j.diarization.speakers.map(x => x.label), ['Говорящий 1', 'Я']);
+  for (const n of ['Me', 'me', 'ME', 'я']) assert.equal(T.renameSpeakers(ruJob.dir, [`Говорящий 1=${n}`], { log: quiet, t: ru }).ok, false, n);
+  const ok = T.renameSpeakers(ruJob.dir, ['Me=Алекс'], { log: quiet, t: ru });
+  assert.equal(ok.ok, true, 'the user\'s "Me" finds the Russian "Я"'); assert.deepEqual(ok.names, { 'Я': 'Алекс' });
+  const enJob = await job('synthetic interview');
+  for (const n of ['Я', 'я', 'mE']) assert.equal(T.renameSpeakers(enJob.dir, [`Speaker 1=${n}`], { log: quiet }).ok, false, n);
+  // the pure rule
+  assert.deepEqual(SP.applyRenames([{ label: 'Speaker 1' }, { label: 'Speaker 2' }], { 'Speaker 2': 'Я' }, ['Speaker 1=ME']).errors, ['"ME" is already another speaker\'s name']);
+  assert.deepEqual([SP.isMeName(' me '), SP.isMeName('Я'), SP.isMeName('Mei'), SP.isMeName('')], [true, true, false, false]);
+});
+
+test('Whisper gives word times only when the speakers are on and their extra is installed', async () => {
+  const f = path.join(tmp, 'in', 'words.m4a'); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, 'synthetic interview');
+  const words = async (sp, ready) => {
+    fs.rmSync(FAKE_LOG, { force: true });
+    const settings = settingsOf(sp), s = T.transcribeSettings(settings, HOME, DATA);
+    await T.runEngines(s, f, { settings, root: HOME, data: DATA, log: quiet, speakersReady: () => ready });
+    const calls = fakeCalls();
+    assert.ok(calls.length >= 1);
+    return calls.some(c => c.args.includes('--words'));
+  };
+  assert.equal(await words({ enabled: true }, true), true, 'on and installed');
+  assert.equal(await words({ enabled: true }, false), false, 'on, but the extra is missing: no word times to pay for');
+  assert.equal(await words({ enabled: false }, true), false, 'off');
+});
+
+test('min_speakers 1 by default; one voice found is never clustered up to two; num_speakers stays exact', t => {
+  assert.equal(T.transcribeSettings({}, HOME, DATA).speakers.min_speakers, 1);
+  const py = fs.readFileSync(T.SCRIPT, 'utf8');
+  assert.match(py, /add_argument\("--min-speakers", type=int, default=1\)/);
+  const s = T.transcribeSettings(settingsOf({ enabled: true, num_speakers: 2 }), HOME, DATA);
+  const [, args] = T.diarizerCommand(s, { audio: 'a.wav', out: 'o.json', env: {} });
+  assert.deepEqual(args.slice(args.indexOf('--num-speakers'), args.indexOf('--num-speakers') + 2), ['--num-speakers', '2']);
+  assert.ok(!args.includes('--min-speakers'), 'an exact count, not a range');
+  const PY = ['python3', 'python'].find(p => { const r = spawnSync(p, ['--version'], { encoding: 'utf8' }); return r.status === 0 && /Python 3/.test(r.stdout + r.stderr); });
+  if (!PY) return t.skip('no python3 here');
+  const r = spawnSync(PY, ['-c', 'import importlib.util, json, sys\nspec = importlib.util.spec_from_file_location("t", sys.argv[1]); t = importlib.util.module_from_spec(spec); spec.loader.exec_module(t)\n' +
+    'f = t.recluster_target\nprint(json.dumps([f(1, 0, 2, 4), f(1, 0, 1, 4), f(0, 0, 2, 4), f(2, 0, 3, 4), f(6, 0, 1, 4), f(3, 0, 1, 4), f(1, 2, 2, 4), f(5, 2, 1, 4), [t.MIN_DURATION_ON_S, t.MIN_DURATION_OFF_S]]))', T.SCRIPT], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), [null, null, null, 3, 4, null, null, null, [0.3, B.MIN_OFF_S]],
+    'one found stays one even with min_speakers 2; two found go up to min_speakers; more than max come down; an exact count is never redone');
+});
+
+test('bench: the reference is the speech inside each utterance, split at pauses longer than the diarizer bridges', () => {
+  const r = B.RATE, tone = sec => Float32Array.from({ length: Math.round(sec * r) }, (_, i) => 0.5 * Math.sin(i / 5));
+  const withPause = (a, gap, b) => { const out = new Float32Array(Math.round((a + gap + b) * r)); out.set(tone(a), 0); out.set(tone(b), Math.round((a + gap) * r)); return out; };
+  assert.deepEqual(B.speechSpans(withPause(2, 1, 2)), [[0, 2], [3, 5]], 'a 1 s pause splits the utterance');
+  assert.deepEqual(B.speechSpans(withPause(2, 0.3, 2)), [[0, 4.3]], 'a 0.3 s pause is bridged, like the diarizer does');
+  assert.deepEqual(B.speechSpans(new Float32Array(r)), [], 'silence: no speech');
+  // the plan's reference turns follow the spans, cut where the turn is cut
+  const pools = { a: [{ id: 'a1', seconds: 5, spans: [[0, 2], [3, 5]] }, { id: 'a2', seconds: 30, spans: [[0, 18], [19, 30]] }], b: [{ id: 'b1', seconds: 4 }] };
+  const plan = B.buildMixPlan(pools, 'a', 'b', { random: B.rng(3), turns: 3, overlapRate: 0 });
+  const [x1, x2, x3] = plan.items;
+  const rel = (t, x) => [Math.round((t.start - x.at) * 100) / 100, Math.round((t.end - x.at) * 100) / 100];
+  const aTurns = plan.turns.filter(t => t.speaker === 'a');
+  assert.deepEqual([...aTurns.slice(0, 2).map(t => rel(t, x1)), ...aTurns.slice(2).map(t => rel(t, x3))], [[0, 2], [3, 5], [0, 18], [19, 20]]);
+  assert.deepEqual(plan.turns.filter(t => t.speaker === 'b').map(t => rel(t, x2)), [[0, 4]], 'no spans: the whole utterance');
+  assert.ok(plan.items.every(x => !('spans' in x)));
+  // the gate splits at the diarizer's own min_duration_off
+  assert.match(fs.readFileSync(T.SCRIPT, 'utf8'), new RegExp(`MIN_DURATION_OFF_S = 0\\.3, ${String(B.MIN_OFF_S).replace('.', '\\.')}`));
+});
+
+test('bench: a call\'s reference leaves out the pauses inside its utterances', async () => {
+  const dir = path.join(tmp, 'utts-pauses'); fs.mkdirSync(dir, { recursive: true });
+  const utterances = {};
+  for (const [k, sp] of ['p1', 'p2', 'p3'].entries()) {
+    utterances[sp] = Array.from({ length: 6 }, (_, i) => {
+      const f = path.join(dir, `${sp}-${i}.wav`), n = 16000, out = new Float32Array((4 + i) * n);
+      for (let j = 0; j < out.length; j++) out[j] = j >= 2 * n && j < 3 * n ? 0 : 0.3 * Math.sin(j / (3 + k));   // a 1 s pause after 2 s
+      fs.writeFileSync(f, B.writeWav(out)); return { id: `${sp}-${i}`, file: f };
+    });
+  }
+  const plans = [];
+  const runDiarize = async (audio, { samples }) => { const p = plans.at(-1); return { ok: true, json: { duration: p.duration, turns: p.turns, speakers: {}, samples: samples.map(() => ({})) } }; };
+  await B.benchSpeakers({ lang: 'en', embeddings: ['3dspeaker'], utterances, workDir: path.join(tmp, 'calls-pauses'), mixes: 1, log: quiet,
+    runDiarize, onPlan: (audio, plan) => plans.push(plan) });
+  const p = plans[0];
+  assert.ok(p.turns.length >= 2 * p.items.length, `two reference turns per utterance (${p.turns.length} for ${p.items.length})`);
+  const speech = p.turns.reduce((a, t) => a + t.end - t.start, 0), whole = p.items.reduce((a, x) => a + x.seconds, 0);
+  assert.ok(Math.abs(whole - speech - p.items.length) < 0.2 * p.items.length, `about 1 s less per utterance (${whole} s of turns, ${speech} s of speech)`);
 });

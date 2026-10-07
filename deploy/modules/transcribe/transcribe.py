@@ -34,14 +34,16 @@ back to the file's time.
 
 Speakers (the --with-speakers extra: sherpa-onnx and the models in <models-dir>/speakers, from k2-fsa's GitHub releases):
   python transcribe.py --diarize --out result.json --segmentation MODEL.onnx --embedding-model MODEL.onnx
-                       [--num-speakers N | --min-speakers 2 --max-speakers 4] [--cluster-threshold 0.5]
+                       [--num-speakers N | --min-speakers 1 --max-speakers 4] [--cluster-threshold 0.5]
                        [--samples JSON] [--threads 2] AUDIO
   writes {"engine": "diarize", "duration", "turns": [{"start", "end", "speaker"}], "speakers": {"0": {"embedding",
   "seconds", "turns_used"}}, "samples": [{"file", "embedding", "seconds"}], "num_speakers", "reclustered",
   "load_seconds", "diarize_seconds", "cpu_seconds", "peak_rss_mb"}. A speaker's embedding is the mean of its longest
   turns that no other speaker overlaps (up to 30 s); --samples (a JSON list of files, such as the user's voice sample)
-  are embedded whole with the same model. Without --num-speakers the count is found by the threshold, then clamped to
-  --min-speakers and --max-speakers (one more clustering pass when it falls outside).
+  are embedded whole with the same model. --num-speakers is an exact count. Without it the count is found by the
+  threshold; more than --max-speakers is clustered once more for --max-speakers, and fewer than --min-speakers once more
+  for --min-speakers only when two or more were found: one voice found stays one speaker (a solo voice memo is never
+  split in two).
   python transcribe.py --out result.json --convert JSON|FILE
   (a list of [source, destination], or a file holding it: each to a 16 kHz mono 16-bit WAV, for the bench's calls)
 """
@@ -59,6 +61,7 @@ DETECT_SPEECH_S = 30.0  # the language is detected on this much speech
 DETECT_SCAN_S = 120.0   # audio is searched for it in pieces of this length, so a long file is not scanned whole
 LANGUAGE_FLOOR = 0.6
 GIGAAM_BATCH = 1        # chunks per forward pass: batching gave no speed on the CPU (measured), only memory
+MIN_DURATION_ON_S, MIN_DURATION_OFF_S = 0.3, 0.5  # diarization: shorter speech is dropped, shorter pauses are bridged (the bench reads this)
 
 
 def log(text):
@@ -389,6 +392,19 @@ def speaker_embeddings(extractor, audio, turns):
     return out
 
 
+def recluster_target(found, num_speakers, min_speakers, max_speakers):
+    """The number of speakers to cluster again for, or None to keep what the clustering found. An exact num_speakers was
+    already asked for; more than max_speakers comes down to max_speakers; fewer than min_speakers goes up to
+    min_speakers only when the clustering found two or more voices, never from one (a solo recording stays one speaker)."""
+    if num_speakers or found < 1:
+        return None
+    if found > max_speakers:
+        return max_speakers
+    if 2 <= found < min_speakers:
+        return min_speakers
+    return None
+
+
 def run_diarize(a, started):
     try:
         import sherpa_onnx
@@ -406,7 +422,7 @@ def run_diarize(a, started):
                 pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=a.segmentation), num_threads=threads),
             embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=a.embedding_model, num_threads=threads),
             clustering=sherpa_onnx.FastClusteringConfig(num_clusters=num_clusters, threshold=a.cluster_threshold),
-            min_duration_on=0.3, min_duration_off=0.5)
+            min_duration_on=MIN_DURATION_ON_S, min_duration_off=MIN_DURATION_OFF_S)
 
     first = config(a.num_speakers or -1)
     if not first.validate():
@@ -424,8 +440,8 @@ def run_diarize(a, started):
 
     turns = turns_of(sd.process(audio))
     found, reclustered = len({t["speaker"] for t in turns}), False
-    if not a.num_speakers and turns and not (a.min_speakers <= found <= a.max_speakers):
-        want = min(max(found, a.min_speakers), a.max_speakers)
+    want = recluster_target(found, a.num_speakers, a.min_speakers, a.max_speakers) if turns else None
+    if want is not None:
         log(f"{found} speaker(s) found, outside {a.min_speakers} to {a.max_speakers}: clustering again for {want}")
         sd.set_config(config(want))
         turns, reclustered = turns_of(sd.process(audio)), True

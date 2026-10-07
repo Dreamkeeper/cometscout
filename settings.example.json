@@ -111,6 +111,6 @@
     "coach": { "enabled": false, "path": null, "repo": "https://github.com/noamseg/interview-coach-skill.git" },
     "transcribe": { "enabled": false, "path": null, "model": "large-v3-turbo", "compute_type": "int8", "threads": 2, "nice": 10, "language": null, "inbox": "data/audio/inbox", "keep_audio_days": 30, "max_upload_mb": 500, "telegram_attach": true,
       "engines": { "ru": "gigaam+whisper", "default": "whisper" }, "language_floor": 0.6, "language_fallback": "auto", "vad": "silero", "vad_options": { "threshold": 0.4, "min_silence_duration_ms": 400, "speech_pad_ms": 250 }, "keep_cyrillic": [], "glossary": [],
-      "speakers": { "enabled": false, "embedding": "3dspeaker", "num_speakers": null, "min_speakers": 2, "max_speakers": 4, "threshold": null, "me_sample": "profile/my-voice.wav", "me_threshold": null } }
+      "speakers": { "enabled": false, "embedding": "3dspeaker", "num_speakers": null, "min_speakers": 1, "max_speakers": 4, "threshold": null, "me_sample": "profile/my-voice.wav", "me_threshold": null } }
   }
 }
