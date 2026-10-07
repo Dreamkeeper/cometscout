@@ -599,7 +599,8 @@ node cli.mjs transcribe --queue                    # everything in the inbox, ol
   |---|---|---|---|---|
   | small | 2 / 4 | 2.1%, 0.30 / 0.22 | 20.1%, 0.43 / 0.32 | 0.7 GB |
   | medium | 2 / 4 | 1.7%, 0.92 / 0.70 | 12.2%, 1.36 / 0.94 | 1.8 GB |
-  | **large-v3-turbo** (default) | 2 / 4 | 3.5%, 0.73 / 0.48 | 7.6%, 0.68 / (not measured) | 1.9 GB |
+  | **large-v3-turbo** (default) | 2 / 4 | 3.5%, 0.73 / 0.48 | 7.6%, 0.68 / 0.47 | 1.9 GB |
+  | large-v3 | 2 / 4 | 1.9%, 2.9 / 2.2 | 6.5%, 2.1 / 1.4 | 3.3 to 4.8 GB |
 
   `large-v3-turbo` is the default: the fewest errors in Russian at half the time of `medium`, and under real time with 2 threads in both languages. `small` is fine for clear English and too weak for Russian. A 4-vCPU VPS is usually slower per thread than this laptop: run `--bench` there before relying on the numbers, and raise `threads` to 3 or 4 if nothing else runs at that hour.
 - **Settings:** `"modules": { "transcribe": { "enabled": false, "path": null, "model": "large-v3-turbo", "compute_type": "int8", "threads": 2, "nice": 10, "language": null, "inbox": "data/audio/inbox", "keep_audio_days": 30, "max_upload_mb": 500, "telegram_attach": true } }`. `path: null` is a folder named `cometscout-transcribe` next to the home; `language: null` detects the language, `"ru"` or `"en"` fixes it; an inbox path starting with `data/` is inside the data folder. `doctor` shows the environment, the faster-whisper version, whether the model is downloaded (and its size), free disk, and `ffmpeg` (optional: faster-whisper decodes audio with its own bundled FFmpeg libraries).
