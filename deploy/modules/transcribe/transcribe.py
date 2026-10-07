@@ -5,17 +5,24 @@ Runs inside the module's own virtual environment, where deploy/modules/transcrib
 with --with-gigaam, GigaAM and a CPU-only PyTorch). CometScout (lib/transcribe.mjs) starts it under nice and ionice,
 picks the engine for the language and merges the two engines' words; this script only transcribes.
 
-  python transcribe.py --out result.json [--engine whisper|gigaam] [--detect] [--words] [--hotwords TEXT]
+  python transcribe.py --out result.json [--engine whisper|gigaam] [--words] [--hotwords TEXT]
+                       [--engines JSON] [--language-floor 0.6] [--language-fallback auto|ru]
                        [--model large-v3-turbo] [--compute-type int8] [--threads 2] [--language ru]
                        [--models-dir DIR] [--vad silero] [--vad-options JSON] [--gigaam-model v3_e2e_rnnt] AUDIO
 
---detect: only Whisper's language detection on the first 30 seconds: {"engine", "language", "language_probability",
-          "model", "load_seconds", "detect_seconds"}.
-otherwise: {"engine", "language", "language_probability", "duration", "model", "compute_type", "threads", "vad",
-            "chunks", "forced_cuts", "load_seconds", "transcribe_seconds", "peak_rss_mb",
-            "segments": [{"start", "end", "text", "words": [{"text", "start", "end", "probability"}]}]}
+Writes {"engine", "language", "language_probability", "duration", "model", "compute_type", "threads", "vad",
+        "chunks", "forced_cuts", "load_seconds", "transcribe_seconds", "peak_rss_mb",
+        "segments": [{"start", "end", "text", "words": [{"text", "start", "end", "probability"}]}]}
   Whisper writes words only with --words (word timestamps cost a little time); GigaAM always writes them and gives no
   probability. GigaAM is Russian only: its language is "ru".
+--engines (Whisper, no --language): the engine per language ({"ru": "gigaam+whisper", "default": "whisper"}). The same
+  process first detects the language on the first 30 seconds of speech (the Silero VAD, so silence and hold music at the
+  start do not decide it), then routes: under --language-floor the detection is unsure and --language-fallback decides
+  ("auto": Whisper alone, detecting on its own over the file; a language code: that language). It writes what it found
+  ({"mode": "detect", "detected": {"language", "probability", "speech_seconds", "floor", "fallback"}, "route":
+  {"language", "engine", "sure"}}) before transcribing, so the caller keeps it when the transcription fails. A language
+  that goes to GigaAM alone stops there; otherwise the same loaded model transcribes (with word times for
+  "gigaam+whisper") and the result carries "detected", "route", "detect_seconds" and "mode": "transcribe".
 Progress goes to stderr. Exit 0 on success, 2 on a usage error, 1 on any other failure (the reason on stderr).
 Models are downloaded into --models-dir on first use: Whisper from Hugging Face (small about 0.5 GB, large-v3-turbo
 1.6 GB), GigaAM from Sber's model server (v3_e2e_rnnt about 0.45 GB, into <models-dir>/gigaam).
@@ -35,6 +42,9 @@ import time
 SAMPLE_RATE = 16000
 CHUNK_MIN_S, CHUNK_MAX_S, CHUNK_HARD_S = 15.0, 22.0, 25.0   # GigaAM's own limit for one pass is 25 s
 VAD_DEFAULTS = {"threshold": 0.4, "min_silence_duration_ms": 400, "speech_pad_ms": 250}
+DETECT_SPEECH_S = 30.0  # the language is detected on this much speech
+DETECT_SCAN_S = 120.0   # audio is searched for it in pieces of this length, so a long file is not scanned whole
+LANGUAGE_FLOOR = 0.6
 GIGAAM_BATCH = 1        # chunks per forward pass: batching gave no speed on the CPU (measured), only memory
 
 
@@ -188,21 +198,49 @@ def whisper_model(a):
                         download_root=a.models_dir)
 
 
-def run_detect(a, started):
-    model = whisper_model(a)
-    loaded = time.monotonic()
-    audio = load_audio(a.audio)[: 30 * SAMPLE_RATE]
-    language, probability, _ = model.detect_language(audio)
-    done = time.monotonic()
-    log(f"language {language} ({probability:.0%}) from the first 30 s")
-    return {"engine": "whisper", "mode": "detect", "language": language, "language_probability": round(probability, 3),
-            "model": a.model, "load_seconds": round(loaded - started, 2), "detect_seconds": round(done - loaded, 2)}
+def speech_window(speech, limit=DETECT_SPEECH_S):
+    """The first `limit` seconds of speech from the VAD's segments [(start, end)], the last one cut short."""
+    out, total = [], 0.0
+    for start, end in speech:
+        take = min(end - start, limit - total)
+        if take <= 0:
+            if total >= limit:
+                break
+            continue
+        out.append((start, start + take))
+        total += take
+    return out
 
 
-def run_whisper(a, started):
-    model = whisper_model(a)
-    loaded = time.monotonic()
-    segments, info = model.transcribe(a.audio, language=a.language or None, vad_filter=True,
+def choose_route(language, probability, engines, floor=LANGUAGE_FLOOR, fallback="auto"):
+    """{"language", "engine", "sure"}: the engine for the detected language when the detection is at least `floor`
+    sure; otherwise `fallback` decides: "auto" is Whisper alone with no language (it detects on its own), a language
+    code is that language and its engine."""
+    sure = probability is not None and probability >= floor
+    lang = language if sure else (fallback if fallback and fallback != "auto" else None)
+    if lang is None:
+        return {"language": None, "engine": "whisper", "sure": False}
+    return {"language": lang, "engine": engines.get(lang) or engines.get("default") or "whisper", "sure": sure}
+
+
+def detect_speech_language(model, audio, vad_options):
+    """(language, probability, seconds of speech used): Whisper's detection on the first 30 s of speech the Silero VAD
+    finds, scanned in 2-minute pieces; the first 30 s of audio when there is no speech at all."""
+    import numpy as np
+    duration, spans, at = len(audio) / SAMPLE_RATE, [], 0.0
+    while at < duration and sum(e - s for s, e in spans) < DETECT_SPEECH_S:
+        end = min(duration, at + DETECT_SCAN_S)
+        spans = speech_window(spans + silero(audio[int(at * SAMPLE_RATE):int(end * SAMPLE_RATE)], vad_options, offset=at))
+        at = end
+    clip = np.concatenate([audio[int(s * SAMPLE_RATE):int(e * SAMPLE_RATE)] for s, e in spans]) if spans else audio[: int(DETECT_SPEECH_S * SAMPLE_RATE)]
+    language, probability, _ = model.detect_language(clip)
+    return language, probability, sum(e - s for s, e in spans)
+
+
+def run_whisper(a, started, model=None, audio=None, loaded=None):
+    model = model or whisper_model(a)
+    loaded = loaded or time.monotonic()
+    segments, info = model.transcribe(audio if audio is not None else a.audio, language=a.language or None, vad_filter=True,
                                       word_timestamps=a.words, hotwords=a.hotwords or None)
     log(f"language {info.language} ({info.language_probability:.0%}), {info.duration:.0f} s of audio")
     out, next_note = [], 300.0
@@ -219,6 +257,33 @@ def run_whisper(a, started):
     return {"engine": "whisper", "language": info.language, "language_probability": round(info.language_probability, 3),
             "duration": round(info.duration, 2), "model": a.model, "compute_type": a.compute_type, "threads": a.threads,
             "load_seconds": round(loaded - started, 2), "transcribe_seconds": round(done - loaded, 2), "segments": out}
+
+
+def run_auto(a, started):
+    """--engines: detect the language on the first 30 s of speech, route it, and transcribe with the model already
+    loaded, unless the language goes to GigaAM alone."""
+    model = whisper_model(a)
+    loaded = time.monotonic()
+    audio = load_audio(a.audio)
+    language, probability, speech = detect_speech_language(model, audio, a.vad_options)
+    detected = time.monotonic()
+    route = choose_route(language, probability, a.engines, a.language_floor, a.language_fallback)
+    note = "" if route["sure"] else f", under {a.language_floor:.0%}: {route['language'] or 'Whisper detects it'}"
+    log(f"language {language} ({probability:.0%}) from {speech:.0f} s of speech{note}; engine {route['engine']}")
+    head = {"engine": route["engine"], "mode": "detect", "language": route["language"] or language,
+            "language_probability": round(probability, 3), "model": a.model,
+            "detected": {"language": language, "probability": round(probability, 3), "speech_seconds": round(speech, 1),
+                         "floor": a.language_floor, "fallback": a.language_fallback},
+            "route": route, "load_seconds": round(loaded - started, 2), "detect_seconds": round(detected - loaded, 2)}
+    write_json(a.out, head)  # kept when the transcription below fails: the caller still knows the language
+    if route["engine"] == "gigaam":
+        return head
+    a.language = route["language"]
+    a.words = a.words or route["engine"] == "gigaam+whisper"
+    result = run_whisper(a, started, model=model, audio=audio, loaded=detected)
+    result.update(mode="transcribe", detected=head["detected"], route=route, load_seconds=head["load_seconds"],
+                  detect_seconds=head["detect_seconds"])
+    return result
 
 
 def run_gigaam(a, started):
@@ -267,7 +332,9 @@ def main():
     p.add_argument("audio")
     p.add_argument("--out", required=True, help="where to write the JSON result")
     p.add_argument("--engine", choices=["whisper", "gigaam"], default="whisper")
-    p.add_argument("--detect", action="store_true", help="only detect the language (Whisper, first 30 seconds)")
+    p.add_argument("--engines", default=None, help="Whisper without --language: JSON engine per language; detect, route, transcribe")
+    p.add_argument("--language-floor", type=float, default=LANGUAGE_FLOOR, help="with --engines: how sure the detection must be")
+    p.add_argument("--language-fallback", default="auto", help="with --engines: auto, or a language code for an unsure detection")
     p.add_argument("--words", action="store_true", help="Whisper: word timestamps and probabilities")
     p.add_argument("--hotwords", default="", help="Whisper: terms to favour (faster-whisper hotwords)")
     p.add_argument("--model", default="large-v3-turbo", help="the Whisper model")
@@ -285,6 +352,14 @@ def main():
     except (ValueError, AttributeError):
         log(f"error: --vad-options is not a JSON object: {a.vad_options}")
         return 2
+    try:
+        engines = json.loads(a.engines) if a.engines else None
+        if engines is not None and not isinstance(engines, dict):
+            raise ValueError
+    except ValueError:
+        log(f"error: --engines is not a JSON object: {a.engines}")
+        return 2
+    a.engines = engines
     if not os.path.isfile(a.audio):
         log(f"error: no such file: {a.audio}")
         return 1
@@ -295,8 +370,8 @@ def main():
     except ImportError as e:
         log(f"error: faster-whisper is not installed in this Python ({e}); run deploy/modules/transcribe.sh")
         return 1
-    if a.detect:
-        result = run_detect(a, started)
+    if a.engine == "whisper" and a.engines and not a.language:
+        result = run_auto(a, started)
     elif a.engine == "gigaam":
         result = run_gigaam(a, started)
     else:

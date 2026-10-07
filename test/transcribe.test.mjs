@@ -162,8 +162,8 @@ test('the queue: ready files oldest first, one at a time; dot files and other fi
   const logs = [], ready = [];
   const r = await T.runQueue({ s, settleMs: 1000, sleep: async () => {}, log: l => logs.push(l), notifyDone: async x => { ready.push(x); } });
   assert.deepEqual(r, { done: 2, failed: 0 });
-  assert.deepEqual(fakeCalls().map(c => [path.basename(c.audio), c.args.includes('--detect')]), [['first.mp3', true], ['first.mp3', false], ['second.wav', true], ['second.wav', false]],
-    'each file: the language first (Russian and the rest use different engines), then Whisper');
+  assert.deepEqual(fakeCalls().map(c => [path.basename(c.audio), c.args.includes('--engines')]), [['first.mp3', true], ['second.wav', true]],
+    'each file: one Whisper process that detects the language (Russian and the rest use different engines) and transcribes');
   assert.deepEqual(dirsIn(s.inbox).sort(), ['.upload.mp3', 'notes.txt']);
   assert.ok(fs.existsSync(part) && fs.existsSync(notes));
   assert.ok(logs.some(l => /ignored notes\.txt \(not an audio or video file\)/.test(l)));

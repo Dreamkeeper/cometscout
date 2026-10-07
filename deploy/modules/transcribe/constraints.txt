@@ -24,6 +24,20 @@ numpy==2.2.6; python_version < "3.11"
 # pip builds it in a second).
 torch==2.11.0+cpu
 torchaudio==2.11.0+cpu
+# torch's own libraries, which pip takes from the same PyTorch index (each version below is on it and on PyPI, checked
+# 2026-10-07): torch 2.11 asks for setuptools below 82 and sympy 1.14 for mpmath below 1.4; networkx 3.5 and newer need
+# Python 3.11 (3.6, as 3.6.1 refuses Python 3.14.1). MarkupSafe is the only compiled one (wheels for 3.10 to 3.14 on all
+# three platforms). filelock, fsspec and typing-extensions are also huggingface-hub's, so the base install gets these pins.
+sympy==1.14.0
+mpmath==1.3.0
+networkx==3.6; python_version >= "3.11"
+networkx==3.4.2; python_version < "3.11"
+jinja2==3.1.6
+MarkupSafe==3.0.3
+filelock==3.32.3
+fsspec==2026.7.0
+typing-extensions==4.15.0
+setuptools==78.1.0
 hydra-core==1.3.7
 omegaconf==2.3.1
 antlr4-python3-runtime==4.9.3

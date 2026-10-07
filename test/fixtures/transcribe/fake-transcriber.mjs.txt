@@ -1,9 +1,11 @@
 // A stand-in for deploy/modules/transcribe/transcribe.py (COMETSCOUT_TRANSCRIBE_CMD in test/transcribe.test.mjs, which copies
 // this file to a temp .mjs): the same arguments, canned output per engine. The audio file's text steers it: "FAIL" and
 // "BADPATH" exit 1 with an error line, "EMPTY" finds no speech, "NOJSON" exits 0 without writing. "RUSSIAN" is a synthetic
-// Russian call: --detect says ru, --engine gigaam and Whisper give canned words for it; "NOGIGAAM" makes GigaAM fail,
-// "NOWHISPER" makes Whisper fail on it, "DETECTFAIL" makes the detection fail. FAKE_TRANSCRIBE_LOG, when set, gets one
-// JSON line per call: the arguments and the thread caps it saw. Synthetic text only.
+// Russian call: with --engines (no fixed language) the Whisper run detects ru first and routes it like transcribe.py
+// (--language-floor, --language-fallback; GigaAM alone: detection only), --engine gigaam and Whisper give canned words
+// for it; "UNSURE" makes the detection 45% sure, "NOGIGAAM" makes GigaAM fail, "NOWHISPER" makes Whisper fail on it after
+// the detection, "DETECTFAIL" makes the detection fail. FAKE_TRANSCRIBE_LOG, when set, gets one JSON line per call: the
+// arguments and the thread caps it saw. Synthetic text only.
 import fs from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -20,11 +22,20 @@ if (text.includes('NOJSON')) process.exit(0);
 const russian = text.includes('RUSSIAN');
 const write = j => fs.writeFileSync(out, JSON.stringify(j));
 
-if (flag('detect')) {
+// --engines without --language: detect on the first 30 s of speech, then route (as transcribe.py's choose_route)
+let detected = null, language = opt('language'), words = flag('words');
+if (opt('engines') && engine !== 'gigaam') {
   if (text.includes('DETECTFAIL')) fail('RuntimeError: synthetic detection failure');
-  write({ engine: 'whisper', mode: 'detect', language: russian ? 'ru' : 'en', language_probability: russian ? 0.93 : 0.97, model, load_seconds: 1, detect_seconds: 2 });
-  process.exit(0);
+  const engines = JSON.parse(opt('engines')), floor = Number(opt('language-floor') ?? 0.6), fallback = opt('language-fallback') || 'auto';
+  const lang = russian ? 'ru' : 'en', p = russian ? (text.includes('UNSURE') ? 0.45 : 0.93) : 0.97;
+  const sure = p >= floor, routed = sure ? lang : fallback !== 'auto' ? fallback : null;
+  const route = { language: routed, engine: routed ? engines[routed] || engines.default || 'whisper' : 'whisper', sure };
+  detected = { mode: 'detect', detected: { language: lang, probability: p, speech_seconds: 14.2, floor, fallback }, route, model, load_seconds: 1, detect_seconds: 2 };
+  write({ engine: route.engine, language: routed || lang, language_probability: p, ...detected });
+  if (route.engine === 'gigaam') process.exit(0);
+  language = routed; words = words || route.engine === 'gigaam+whisper';
 }
+const extra = detected ? { ...detected, mode: 'transcribe' } : {};
 
 // [text, start, end, Whisper probability]: one synthetic Russian call heard by each engine
 const GIGAAM = [
@@ -62,8 +73,8 @@ if (engine === 'gigaam') {
 process.stderr.write(`loading model ${model}\n`);
 if (russian) {
   if (text.includes('NOWHISPER')) fail('RuntimeError: synthetic Whisper failure');
-  write({ engine: 'whisper', language: opt('language') || 'ru', language_probability: 0.93, duration: 16, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),
-    load_seconds: 1.5, transcribe_seconds: 8, peak_rss_mb: 1530, segments: segmentsOf(WHISPER, flag('words')) });
+  write({ engine: 'whisper', language: language || 'ru', language_probability: 0.93, duration: 16, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),
+    load_seconds: 1.5, transcribe_seconds: 8, peak_rss_mb: 1530, ...extra, segments: segmentsOf(WHISPER, words) });
   process.exit(0);
 }
 const segments = text.includes('EMPTY') ? [] : [
@@ -75,4 +86,4 @@ const segments = text.includes('EMPTY') ? [] : [
 // small is faster than medium in the bench; the numbers are fixed so the report math can be checked
 const speed = { small: 30, medium: 60, 'large-v3': 120 }[model] ?? 90;
 write({ engine: 'whisper', language: 'en', language_probability: 0.97, duration: 3730, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),
-  load_seconds: 1.5, transcribe_seconds: speed * 3730 / 600, peak_rss_mb: model === 'small' ? 812.4 : 1530, segments });
+  load_seconds: 1.5, transcribe_seconds: speed * 3730 / 600, peak_rss_mb: model === 'small' ? 812.4 : 1530, ...extra, segments });

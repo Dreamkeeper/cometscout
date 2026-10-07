@@ -30,7 +30,8 @@ const { translator } = await import('../lib/i18n.mjs');
 const quiet = () => {};
 const cli = args => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', cwd: tmp, env: process.env, timeout: 120000 });
 const fakeCalls = () => (fs.existsSync(FAKE_LOG) ? fs.readFileSync(FAKE_LOG, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : []);
-const kind = c => (c.args.includes('--detect') ? 'detect' : c.args.includes('--engine') ? c.args[c.args.indexOf('--engine') + 1] : 'whisper');
+// "auto": one Whisper process that detects the language and then transcribes (unless the language goes to GigaAM alone)
+const kind = c => (c.args.includes('--engines') ? 'auto' : c.args.includes('--engine') ? c.args[c.args.indexOf('--engine') + 1] : 'whisper');
 const settingsOf = cfg => ({ modules: { transcribe: { enabled: true, path: MOD, threads: 2, ...cfg } } });
 /** A synthetic "recording" (a text file the fake reads) outside the inbox, through transcribeFile: { r, md, j, srt, calls, raw }. */
 async function job(text, cfg = {}, opts = {}) {
@@ -44,24 +45,57 @@ async function job(text, cfg = {}, opts = {}) {
 }
 const arg = (c, n) => c.args[c.args.indexOf(`--${n}`) + 1];
 
-test('routing: detected Russian goes to GigaAM and Whisper, merged; detected English to Whisper alone', async () => {
+test('routing: one Whisper process detects the language and transcribes; Russian then goes to GigaAM and is merged', async () => {
   const ru = await job('RUSSIAN synthetic call');
   assert.ok(ru.r.ok, ru.r.error);
-  assert.deepEqual(ru.calls, ['detect', 'gigaam', 'whisper']);
-  const w = ru.raw[2];
-  assert.ok(w.args.includes('--words'), 'Whisper gives word times for the merge');
-  assert.equal(arg(w, 'language'), 'ru', 'with the detected language');
+  assert.deepEqual(ru.calls, ['auto', 'gigaam'], 'no separate detection process');
+  const w = ru.raw[0];
+  assert.deepEqual(JSON.parse(arg(w, 'engines')), { ru: 'gigaam+whisper', default: 'whisper' }, 'the engines map goes to transcribe.py');
+  assert.deepEqual([arg(w, 'language-floor'), arg(w, 'language-fallback')], ['0.6', 'auto']);
+  assert.ok(!w.args.includes('--language') && !w.args.includes('--words'), 'transcribe.py picks the language and the word times');
   assert.match(arg(w, 'hotwords'), /^Brightgrid, KPI, Northwind Robotics$/, 'the glossary as hotwords, the user\'s own terms first');
   assert.deepEqual([arg(ru.raw[1], 'gigaam-model'), arg(ru.raw[1], 'vad')], ['v3_e2e_rnnt', 'silero']);
   assert.deepEqual(JSON.parse(arg(ru.raw[1], 'vad-options')), { threshold: 0.4, min_silence_duration_ms: 400, speech_pad_ms: 250 });
   assert.deepEqual([ru.j.engine, ru.j.language, ru.j.language_probability], ['gigaam+whisper', 'ru', 0.93]);
+  assert.ok(ru.j.substitutions.some(x => x.after === 'roadmap'), 'Whisper\'s word times reached the merge');
   const en = await job('synthetic English call');
-  assert.deepEqual(en.calls, ['detect', 'whisper']);
-  assert.ok(!en.raw[1].args.includes('--words'));
-  assert.equal(arg(en.raw[1], 'language'), 'en');
+  assert.deepEqual(en.calls, ['auto'], 'English: one process, one model load');
+  assert.equal(en.j.language, 'en');
+  assert.match(en.md, /^- Language: en \(detected, 97%\)$/m);
   assert.match(en.md, /^- Model: large-v3-turbo \(int8, CPU, 2 threads\)$/m);
-  assert.match(en.md, /^- Glossary: 3 terms from your data \(glossary-used\.txt\)$/m);
+  assert.match(en.md, /^- Glossary: 3 terms from your data \(glossary-used\.txt\), 3 sent to Whisper as hints$/m);
   assert.ok(!/^- (Changes|Engines)/m.test(en.md), 'Whisper alone: no merge lines');
+});
+
+test('routing: an unsure detection (under language_floor) follows language_fallback and the transcript says so', async () => {
+  const auto = await job('RUSSIAN UNSURE call');
+  assert.ok(auto.r.ok, auto.r.error);
+  assert.deepEqual(auto.calls, ['auto'], '"auto": Whisper alone, detecting the language itself');
+  assert.equal(auto.j.engine, 'whisper');
+  assert.deepEqual(auto.j.language_unsure, { probability: 0.45, floor: 0.6, fallback: 'auto' });
+  assert.match(auto.md, /^- Language detection on the first 30 s of speech was unsure \(45%, under 60%\), so this is Whisper alone \(modules\.transcribe\.language_fallback: auto\)$/m);
+  const ru = await job('RUSSIAN UNSURE call', { language_fallback: 'ru' });
+  assert.deepEqual(ru.calls, ['auto', 'gigaam']);
+  assert.equal(arg(ru.raw[0], 'language-fallback'), 'ru');
+  assert.deepEqual([ru.j.engine, ru.j.language], ['gigaam+whisper', 'ru']);
+  assert.match(ru.md, /^- Language detection on the first 30 s of speech was unsure \(45%, under 60%\), so ru was assumed \(modules\.transcribe\.language_fallback\)$/m);
+  assert.match(T.renderMarkdown(ru.j, translator('ru')), /^- Язык не удалось уверенно определить по первым 30 с речи \(45%, порог 60%\), поэтому выбран ru \(modules\.transcribe\.language_fallback\)$/m);
+  const floor = await job('RUSSIAN UNSURE call', { language_floor: 0.4 });
+  assert.equal(arg(floor.raw[0], 'language-floor'), '0.4');
+  assert.deepEqual(floor.calls, ['auto', 'gigaam'], 'over a lower floor the detection is sure');
+  assert.ok(!floor.j.language_unsure);
+});
+
+test('hotwords: at most 50 glossary terms go to Whisper; the GigaAM sound match and glossary-used.txt keep them all', async () => {
+  const many = Array.from({ length: 60 }, (_, i) => `Synthterm${i}`);
+  const en = await job('synthetic English call', { glossary: many });
+  const hw = arg(en.raw[0], 'hotwords').split(', ');
+  assert.equal(hw.length, 50);
+  assert.deepEqual(hw.slice(0, 2), ['Brightgrid', 'KPI'], 'most important first');
+  assert.match(en.md, /^- Glossary: 63 terms from your data \(glossary-used\.txt\), 50 sent to Whisper as hints$/m);
+  assert.deepEqual([en.j.glossary_size, en.j.hotwords_size], [63, 50]);
+  assert.equal(fs.readFileSync(path.join(en.dir, 'glossary-used.txt'), 'utf8').trim().split('\n').length, 63);
+  assert.match(T.renderMarkdown(en.j, translator('ru')), /^- Словарь: терминов из ваших данных: 63 \(glossary-used\.txt\), подсказок для Whisper: 50$/m);
 });
 
 test('routing: a fixed language skips detection, so does one engine for every language; a failed detection fails the job', async () => {
@@ -69,7 +103,7 @@ test('routing: a fixed language skips detection, so does one engine for every la
   assert.deepEqual((await job('RUSSIAN call', { language: 'en' })).calls, ['whisper']);
   assert.deepEqual((await job('RUSSIAN call', { engines: { ru: 'whisper' } })).calls, ['whisper'], 'every language uses Whisper');
   const only = await job('RUSSIAN call', { engines: { ru: 'gigaam' } });
-  assert.deepEqual(only.calls, ['detect', 'gigaam'], 'GigaAM alone');
+  assert.deepEqual(only.calls, ['auto', 'gigaam'], 'GigaAM alone: the Whisper process only detects the language');
   assert.equal(only.j.engine, 'gigaam');
   assert.match(only.md, /^- Engines: GigaAM v3_e2e_rnnt \(CPU, 2 threads\)$/m);
   assert.match(only.md, /^\[00:00:00\] Добрый день\. Расскажите про роадмап для зигби датчеков\./m, 'GigaAM\'s own text');
@@ -84,7 +118,7 @@ test('the merged transcript: text, Check these words, Changes made, per-word sou
   const { md, j, srt, dir } = await job('RUSSIAN synthetic call');
   assert.match(md, /^- Language: ru \(detected, 93%\)$/m);
   assert.match(md, /^- Engines: GigaAM v3_e2e_rnnt merged with Whisper large-v3-turbo \(int8, CPU, 2 threads\)$/m);
-  assert.match(md, /^- Glossary: 3 terms from your data \(glossary-used\.txt\)$/m);
+  assert.match(md, /^- Glossary: 3 terms from your data \(glossary-used\.txt\), 3 sent to Whisper as hints$/m);
   assert.match(md, /^- Changes: 4 made, 1 to check \(listed at the end\)$/m);
   assert.match(md, /^\[00:00:00\] Добрый день\. Расскажите про roadmap для Zigbee датчеков\. Мы запустили 25 устройств за второй квартал, какие-то на базе E27\./m);
   assert.match(md, /Я работал в Brightgrid и в Сбере\. Это было семь лет назад\.$/m, 'the glossary spelling; the brand stays Cyrillic; 7 stays a word');
@@ -101,7 +135,7 @@ test('the merged transcript: text, Check these words, Changes made, per-word sou
   assert.equal(fs.readFileSync(path.join(dir, 'glossary-used.txt'), 'utf8'), 'Brightgrid\nKPI = кейпиай\nNorthwind Robotics\n');
   const ruMd = T.renderMarkdown(j, translator('ru'));
   assert.match(ruMd, /^- Движки: GigaAM v3_e2e_rnnt, сверенный с Whisper/m);
-  assert.match(ruMd, /^- Словарь: терминов из ваших данных: 3/m);
+  assert.match(ruMd, /^- Словарь: терминов из ваших данных: 3 \(glossary-used\.txt\), подсказок для Whisper: 3$/m);
   assert.match(ruMd, /^- Правки: внесено: 4, проверить: 1/m);
   assert.match(ruMd, /^## Проверьте эти слова$/m); assert.match(ruMd, /^## Внесённые правки$/m);
   assert.match(ruMd, /GigaAM «датчеков», Whisper «датчиков» \(97%\)/);
@@ -109,17 +143,19 @@ test('the merged transcript: text, Check these words, Changes made, per-word sou
 
 test('fallbacks: GigaAM missing or failing gives Whisper alone, Whisper failing gives GigaAM alone, and the transcript says so', async () => {
   const missing = await job('RUSSIAN call', {}, { gigaamReady: () => false });
-  assert.deepEqual(missing.calls, ['detect', 'whisper']);
-  assert.ok(!missing.raw[1].args.includes('--words'));
+  assert.deepEqual(missing.calls, ['auto']);
+  assert.equal(JSON.parse(arg(missing.raw[0], 'engines')).ru, 'whisper', 'Russian routed to Whisper without the extra');
+  assert.ok(!missing.raw[0].args.includes('--words'));
   assert.match(missing.md, /^- GigaAM is not installed, so this is Whisper alone \(install it: .*--with-gigaam\)$/m);
   assert.equal(missing.j.engine, 'whisper');
   const failed = await job('RUSSIAN NOGIGAAM call');
   assert.ok(failed.r.ok);
-  assert.deepEqual(failed.calls, ['detect', 'gigaam', 'whisper']);
+  assert.deepEqual(failed.calls, ['auto', 'gigaam'], 'Whisper already ran: no second Whisper run');
   assert.match(failed.md, /^- GigaAM failed \(RuntimeError: GigaAM is not installed in this Python \(No module named gigaam\)\), so this is Whisper alone$/m);
   assert.match(failed.md, /Расскажите про roadmap для Zigbee датчиков\./, 'Whisper\'s text');
   const noW = await job('RUSSIAN NOWHISPER call');
   assert.ok(noW.r.ok);
+  assert.deepEqual(noW.calls, ['auto', 'gigaam'], 'the language came through although Whisper failed after detecting it');
   assert.equal(noW.j.engine, 'gigaam');
   assert.match(noW.md, /^- Whisper failed \(RuntimeError: synthetic Whisper failure\), so this is GigaAM alone$/m);
   assert.equal(T.gigaamInstalled({ path: path.join(tmp, 'nothing') }), true, 'a fake transcriber stands in for the extra');
@@ -128,6 +164,12 @@ test('fallbacks: GigaAM missing or failing gives Whisper alone, Whisper failing 
 test('settings: engines, vad, keep_cyrillic and glossary; a wrong value is reported and the default used', () => {
   const d = T.transcribeSettings({}, '/r', '/d');
   assert.deepEqual([d.engines, d.vad, d.keep_cyrillic, d.glossary, d.problems], [{ ru: 'gigaam+whisper', default: 'whisper' }, 'silero', [], [], []]);
+  assert.deepEqual([d.language_floor, d.language_fallback], [0.6, 'auto']);
+  const lf = T.transcribeSettings({ modules: { transcribe: { language_floor: 2, language_fallback: 'Russian' } } }, '/r', '/d');
+  assert.deepEqual([lf.language_floor, lf.language_fallback], [0.6, 'auto']);
+  assert.match(lf.problems.join('\n'), /language_floor: 2 is not a number from 0 to 1/);
+  assert.match(lf.problems.join('\n'), /language_fallback: "Russian" is not "auto" or a language code such as ru/);
+  assert.equal(T.transcribeSettings({ modules: { transcribe: { language_fallback: 'RU' } } }, '/r', '/d').language_fallback, 'ru');
   const c = T.transcribeSettings({ modules: { transcribe: { engines: { RU: 'GIGAAM', en: 'gigaam+whisper', default: 'whisper' }, keep_cyrillic: ['Тинькофф'], glossary: ['Acme = экми'] } } }, '/r', '/d');
   assert.deepEqual([c.engines, c.keep_cyrillic, c.glossary, c.problems], [{ ru: 'gigaam', en: 'gigaam+whisper', default: 'whisper' }, ['Тинькофф'], ['Acme = экми'], []]);
   const bad = T.transcribeSettings({ modules: { transcribe: { engines: { ru: 'vosk', english: 'whisper' }, vad: 'pyannote', glossary: 'Acme' } } }, '/r', '/d');
@@ -149,8 +191,11 @@ test('settings: engines, vad, keep_cyrillic and glossary; a wrong value is repor
   assert.deepEqual(ga.slice(1, 8), ['--out', 'o.json', '--engine', 'gigaam', '--gigaam-model', 'v3_e2e_rnnt', '--vad']);
   const [, wa] = T.transcriberCommand(d, { audio: 'a.mp3', out: 'o.json', words: true, hotwords: 'KPI, Zigbee', language: 'ru' });
   assert.deepEqual(wa.slice(3, 7), ['--words', '--hotwords', 'KPI, Zigbee', '--model']);
-  const [, da] = T.transcriberCommand({ ...d, language: 'ru' }, { audio: 'a.mp3', out: 'o.json', detect: true, words: true, hotwords: 'x' });
-  assert.ok(da.includes('--detect') && !da.includes('--words') && !da.includes('--hotwords') && !da.includes('--language'));
+  const [, da] = T.transcriberCommand(d, { audio: 'a.mp3', out: 'o.json', engines: { ru: 'gigaam+whisper', default: 'whisper' }, hotwords: 'x', language: 'ru' });
+  assert.deepEqual(da.slice(3, 9), ['--engines', '{"ru":"gigaam+whisper","default":"whisper"}', '--language-floor', '0.6', '--language-fallback', 'auto']);
+  assert.ok(da.includes('--hotwords') && !da.includes('--language') && !da.includes('--words'), 'transcribe.py picks the language');
+  assert.deepEqual(T.effectiveEngines(d, false), { ru: 'whisper', default: 'whisper' }, 'GigaAM missing: every language to Whisper');
+  assert.deepEqual(T.effectiveEngines(d, true), d.engines);
 });
 
 test('bench per engine: time per audio hour for whisper, gigaam and the merge, and WER against a reference', () => {
@@ -217,6 +262,27 @@ print(json.dumps({"n": len(chunks), "lens": [round(e - s, 2) for s, e in chunks]
   assert.ok(j.flat_lens.every(l => l <= 25));
 });
 
+test('transcribe.py: the language from the first 30 s of speech, and the route under the floor', t => {
+  if (!PY) return t.skip('no python3 here');
+  const r = chunking(`
+engines = {"ru": "gigaam+whisper", "default": "whisper"}
+routes = [t.choose_route("ru", 0.93, engines), t.choose_route("en", 0.97, engines), t.choose_route("ru", 0.45, engines),
+  t.choose_route("ru", 0.45, engines, 0.6, "ru"), t.choose_route("ru", 0.45, engines, 0.4), t.choose_route("de", 0.9, {"ru": "gigaam"})]
+# 40 s of hold music, then speech in 12 s turns with pauses: 30 s of speech, the last turn cut short
+window = t.speech_window([(40.0, 52.0), (53.0, 65.0), (66.0, 78.0), (79.0, 91.0)])
+print(json.dumps({"routes": routes, "window": window, "short": t.speech_window([(0.0, 5.0)]), "floor": t.LANGUAGE_FLOOR, "speech": t.DETECT_SPEECH_S}))
+`);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.deepEqual(j.routes, [
+    { language: 'ru', engine: 'gigaam+whisper', sure: true }, { language: 'en', engine: 'whisper', sure: true },
+    { language: null, engine: 'whisper', sure: false }, { language: 'ru', engine: 'gigaam+whisper', sure: false },
+    { language: 'ru', engine: 'gigaam+whisper', sure: true }, { language: 'de', engine: 'whisper', sure: true }]);
+  assert.deepEqual(j.window, [[40, 52], [53, 65], [66, 72]], 'speech only, 30 s of it');
+  assert.deepEqual(j.short, [[0, 5]]);
+  assert.deepEqual([j.floor, j.speech], [0.6, 30]);
+});
+
 test('the installer with --with-gigaam: CPU-only PyTorch from its index, GigaAM at its commit, its libraries pinned', () => {
   const settings = { modules: { transcribe: { path: path.join(tmp, 'giga-mod') } } };
   const is = T.transcribeSettings(settings, HOME, DATA);
@@ -242,6 +308,13 @@ test('the installer with --with-gigaam: CPU-only PyTorch from its index, GigaAM 
   const pins = T.pinnedVersions();
   assert.match(pins.torch, /^\d+\.\d+\.\d+\+cpu$/); assert.match(pins.torchaudio, /^\d+\.\d+\.\d+\+cpu$/, 'CPU builds only');
   for (const p of ['hydra-core', 'omegaconf', 'sentencepiece', 'soundfile', 'antlr4-python3-runtime']) assert.ok(pins[p], `${p} pinned`);
+  // torch's own dependencies come from the PyTorch index too: pinned, with markers where the Python range differs
+  for (const p of ['sympy', 'mpmath', 'networkx', 'jinja2', 'markupsafe', 'filelock', 'fsspec', 'typing-extensions', 'setuptools']) assert.ok(pins[p], `${p} pinned`);
+  const lines = fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').filter(l => /^networkx==/.test(l));
+  assert.deepEqual(lines.map(l => l.split(';')[1]?.trim()), ['python_version >= "3.11"', 'python_version < "3.11"'], 'networkx 3.5 and newer need Python 3.11');
+  assert.ok(Number(pins.mpmath.split('.')[1]) < 4, 'sympy 1.14 takes mpmath below 1.4');
+  assert.ok(Number(pins.setuptools.split('.')[0]) < 82, 'torch 2.11 takes setuptools below 82');
+  assert.ok(!logs.some(l => /^Installing faster-whisper .*sympy/.test(l)), 'torch\'s libraries are the extra\'s');
   assert.match(T.GIGAAM_COMMIT, /^[0-9a-f]{40}$/);
   assert.ok(logs.some(l => /PyTorch 2\.\d+\.\d+\+cpu .*built for the CPU only, from https:\/\/download\.pytorch\.org\/whl\/cpu \(no CUDA; about 115 MB to download on Windows/.test(l)));
   assert.ok(logs.some(l => /GigaAM's model \(v3_e2e_rnnt, about 0\.45 GB\) is downloaded .* by the first Russian job/.test(l)));

@@ -175,3 +175,76 @@ test('glossary: GigaAM words that sound like a term take its spelling; common wo
   assert.equal(G.applyGlossary([{ text: 'брайтгрид', start: 0, end: 1, source: 'whisper' }], terms).substitutions.length, 0);
   assert.ok(G.knownWords([{ term: 'Philips Hue', spoken: ['филипс'] }]).has('филипс'));
 });
+
+// ---------- review fixes (PR 25) ----------
+test('numbers: number words match whole words, so look-alike words never block a substitution', () => {
+  for (const w of ['однако', 'Однако', 'ставка', 'семинар', 'стоп', 'столица', 'пятно', 'семья', 'одежда', 'сотрудник', 'тренер']) assert.equal(M.numValue(w), null, w);
+  assert.deepEqual(['двадцать', 'двадцати', 'пятого', 'второй', 'тысячи', 'тысяч', 'миллионов', 'сорока', 'двухсот', 'девяносто'].map(M.numValue), [20, 20, 5, 2, 1000, 1000, 1e6, 40, 200, 90]);
+  assert.equal(text(merged('Однако двадцать пять человек пришли.', 'Однако 25 человек пришли.')), 'Однако 25 человек пришли.');
+  assert.equal(text(merged('Ставка двадцать пять процентов.', 'Ставка 25 процентов.')), 'Ставка 25 процентов.');
+  assert.equal(text(merged('Семинар сто двадцать минут.', 'Семинар 120 минут.')), 'Семинар 120 минут.');
+  // a scale word after the number stays a word when Whisper wrote it as a word too
+  assert.equal(text(merged('Это двадцать пять тысяч рублей.', 'Это 25 тысяч рублей.')), 'Это 25 тысяч рублей.');
+  assert.equal(text(merged('Это двадцать пять тысяч рублей.', 'Это 25000 рублей.')), 'Это 25000 рублей.', 'the whole value in digits');
+  assert.equal(text(merged('Это две тысячи двадцать пять.', 'Это 2025.')), 'Это 2025.');
+  assert.equal(text(merged('Это двадцать пять тысяч рублей.', 'Это 26 тысяч рублей.')), 'Это двадцать пять тысяч рублей.', 'the value still has to match');
+});
+
+test('a replaced word keeps GigaAM\'s times, so words and subtitles never overlap', () => {
+  const g = [['Мы', 0, 0.4], ['про', 0.5, 0.9], ['роадмап', 1.0, 1.6], ['говорили.', 1.7, 2.2]].map(([text, start, end]) => ({ text, start, end }));
+  const w = [['Мы', 0, 0.4], ['про', 0.5, 0.7], ['roadmap', 0.75, 1.9], ['говорили.', 1.7, 2.2]].map(([text, start, end]) => ({ text, start, end, probability: 0.95 }));
+  const r = M.mergeWords(g, w);
+  const rm = r.words.find(x => x.text === 'roadmap');
+  assert.deepEqual([rm.start, rm.end, rm.source], [1.0, 1.6, 'whisper']);
+  r.words.forEach((x, i) => { if (i) assert.ok(x.start >= r.words[i - 1].end, `${x.text} starts after ${r.words[i - 1].text} ends`); });
+});
+
+test('a short Russian word needs a confident Whisper and a Latin word that is not just that word transliterated', () => {
+  assert.equal(text(merged('Нет, я так не думаю.', 'Net, я так не думаю.')), 'Нет, я так не думаю.');
+  assert.equal(text(merged('Нет, я так не думаю.', 'Net@0.99, я так не думаю.')), 'Нет, я так не думаю.', 'a common word, however sure');
+  assert.equal(text(merged('Да, так.', 'Da@0.97, так.')), 'Да, так.');
+  assert.equal(text(merged('Нужен апи сервис.', 'Нужен API@0.6 сервис.')), 'Нужен апи сервис.', '3 letters: Whisper must be 0.85 sure');
+  assert.equal(text(merged('Нужен апи сервис.', 'Нужен API@0.9 сервис.')), 'Нужен API сервис.');
+});
+
+test('review: only a sure Whisper (0.9) or a close word (0.3) is listed, never a glossary word GigaAM already wrote', () => {
+  assert.equal(M.dratio(M.squash('корова'), M.squash('карава')) > 0.3, true);
+  assert.equal(merged('Там корова стоит.', 'Там карава@0.87 стоит.').review.length, 0, 'a loose pair with Whisper under 0.9');
+  assert.equal(merged('Там корова стоит.', 'Там карава@0.93 стоит.').review.length, 1);
+  assert.equal(merged('Купили датчеков пять штук.', 'Купили датчиков@0.87 пять штук.').review.length, 1, 'a close pair at 0.87');
+  const known = new Set(['лунабанк']);
+  assert.equal(merged('Был в Лунабанк вчера.', 'Был в Лунобанк@0.97 вчера.').review.length, 1);
+  assert.equal(merged('Был в Лунабанк вчера.', 'Был в Лунобанк@0.97 вчера.', { known }).review.length, 0, 'GigaAM wrote the glossary word');
+});
+
+test('glossary: an inflected Cyrillic form never rewrites a correct GigaAM word, and free text keeps such forms for Whisper only', () => {
+  const ws = line => words(line).map(w => ({ text: w.text, start: w.start, end: w.end, source: 'gigaam' }));
+  const curated = [{ term: 'Лунабанке', spoken: [] }];
+  const r = G.applyGlossary(ws('Я работал в Лунабанк долго.'), curated);
+  assert.equal(r.substitutions.length, 0, 'differs only in the ending');
+  assert.equal(G.applyGlossary(ws('Я работал в Лунобанк долго.'), [{ term: 'Лунабанк', spoken: [] }]).substitutions.length, 1, 'a real sound match still applies');
+  // free text: "Лунабанке" alone is an inflected form, kept as a Whisper hint but never matched on GigaAM's words
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-glossary-inflected-'));
+  fs.writeFileSync(path.join(dir, 'profile.md'), 'Я долго работал в Лунабанке. Потом пришёл в Квазар и в Звездолёте.\n');
+  let g = G.buildGlossary({ profileDir: dir });
+  const by = t => g.find(x => x.term === t);
+  assert.equal(by('Лунабанке').match, false); assert.equal(by('Звездолёте').match, false);
+  assert.equal(by('Квазар').match, true, 'a form with no ending is a base form');
+  assert.match(G.renderGlossary(g), /^Лунабанке  # Whisper hint only$/m);
+  assert.equal(G.applyGlossary(ws('Я был в Лунобанке вчера.'), g).substitutions.length, 0, 'a hint-only term is not matched');
+  // the base form seen elsewhere in the text absorbs the inflected one
+  fs.writeFileSync(path.join(dir, 'profile.md'), 'Я долго работал в Лунабанке. Потом Лунабанк закрылся.\n');
+  g = G.buildGlossary({ profileDir: dir });
+  assert.deepEqual(g.filter(x => /^Лунабанк/.test(x.term)).map(x => [x.term, x.match, x.count]), [['Лунабанк', true, 2]]);
+  // curated terms are matched whatever their ending
+  fs.writeFileSync(path.join(dir, 'glossary.txt'), 'Звездолёте\n');
+  assert.equal(G.buildGlossary({ profileDir: dir }).find(x => x.term === 'Звездолёте').match, true);
+});
+
+test('hotwords: at most 50 terms go to Whisper, most important first', () => {
+  const terms = Array.from({ length: 60 }, (_, i) => ({ term: `Term${i}`, spoken: [] }));
+  assert.equal(G.HOTWORDS_MAX, 50);
+  assert.equal(G.hotwords(terms).split(', ').length, 50);
+  assert.equal(G.hotwords(terms).split(', ')[0], 'Term0');
+  assert.equal(G.hotwordCount(terms), 50); assert.equal(G.hotwordCount(terms.slice(0, 3)), 3);
+});
