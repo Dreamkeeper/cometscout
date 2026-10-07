@@ -195,6 +195,17 @@ Hirify (вакансии на удалёнку и с релокацией) чи�
 
 CometScout умеет поставить рядом с собой [Interview Coach](https://github.com/noamseg/interview-coach-skill), открытый навык для Claude Code от Noam Segal (лицензия MIT): подготовка к компании, тренировка ответов, разбор записи собеседования, переговоры об оффере. Это отдельный проект, он ставится из своего репозитория. Установить или обновить: `bash deploy/modules/coach.sh`. Передать ему ваш профиль, резюме, стиль письма и отклики: `node cli.mjs coach-handoff` (файл появится в папке тренера, в `materials/cometscout-handoff.md`; токены, тексты вакансий и пакеты в него не попадают). Когда в настройках `modules.coach.enabled` равно `true`, вечерний запуск обновляет этот файл сам. Затем `cd ../interview-coach && claude`, скажите `kickoff` и дайте ему файл `materials/cometscout-handoff.md`. Подробности: раздел [Interview coach](README.md#interview-coach-optional) в README.
 
+## 11. По желанию: расшифровка записей собеседований
+
+CometScout умеет превращать запись собеседования в текст прямо на сервере, чтобы тренер мог её разобрать (`analyze`). Запись никуда не уходит; модель (около 1,5 ГБ для `medium` по умолчанию) скачивается один раз при первой расшифровке. Говорящие пока не разделяются.
+
+```bash
+bash deploy/modules/transcribe.sh                   # нужны python3 и python3-venv: sudo apt-get install -y python3 python3-venv
+node cli.mjs transcribe --bench sample.m4a --models small,medium   # какая модель успевает на этой машине
+```
+
+Затем в `settings.json` поставьте `modules.transcribe.enabled` в `true` (и `model`, которую подсказал замер) и выполните `node cli.mjs timer`. Записи кладите в `data/audio/inbox` (scp или Syncthing), загружайте кнопкой «Расшифровать» в рабочем окне или присылайте боту (до 20 МБ). Расшифровки появятся в `data/transcripts/`, а при включённом тренере ещё и в его `materials/transcripts/`. Подробности: раздел [Transcription](README.md#transcription-optional) в README.
+
 ## Если что-то не работает
 
 - `node cli.mjs doctor` показывает, чего не хватает, и как это исправить.

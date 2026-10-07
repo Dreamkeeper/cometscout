@@ -4,11 +4,13 @@
 export class ApiError extends Error { constructor(message, status) { super(message); this.status = status; } }
 
 export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
-  async function call(method, path, body) {
+  // raw: { body, headers } sent as it is (the audio upload); otherwise body goes as JSON
+  async function call(method, path, body, raw = null) {
     let res;
     try {
       res = await fetch(base + path, method === 'GET' ? { headers: { Accept: 'application/json' } }
-        : { method, headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CometScout': '1' }, body: JSON.stringify(body) });
+        : raw ? { method, headers: { Accept: 'application/json', 'X-CometScout': '1', ...raw.headers }, body: raw.body }
+          : { method, headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CometScout': '1' }, body: JSON.stringify(body) });
     } catch (e) { throw new ApiError(e?.message || 'network error', 0); }
     let data = null; try { data = await res.json(); } catch { /* not JSON */ }
     if (!res.ok) throw new ApiError(data?.error || `HTTP ${res.status}`, res.status);
@@ -40,5 +42,9 @@ export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
     labelJob: (set, file) => call('GET', `/api/label/job?set=${encodeURIComponent(set)}&file=${encodeURIComponent(file)}`),
     /** surface: yes, no or unsure; reason required for unsure. */
     saveLabel: (set, file, surface, reason, failure_mode) => call('POST', '/api/label', { set, file, surface, reason: reason || '', ...(failure_mode ? { failure_mode } : {}) }),
+    /** The transcription queue: { enabled, installed, max_upload_mb, waiting, running, failed, done } */
+    transcribe: () => call('GET', '/api/transcribe'),
+    /** A File (or Blob with a name) as the body, streamed by the browser; its name percent-encoded in X-File-Name. */
+    uploadAudio: file => call('POST', '/api/transcribe/upload', null, { body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) } }),
   };
 }

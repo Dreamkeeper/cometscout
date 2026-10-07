@@ -1,4 +1,4 @@
-// The Today screen (and the settings dialog, the update banner and What is new), or the labelling screen on /label. Desktop (>= 1100 px): list, job and pack side by side. Narrower: the list, then one job with
+// The Today screen (and the settings dialog, the transcription dialog, the update banner and What is new), or the labelling screen on /label. Desktop (>= 1100 px): list, job and pack side by side. Narrower: the list, then one job with
 // tabs Job / Pack and a fixed action bar. State lives here; the panes are in components/, the logic in lib/.
 import { render } from 'preact';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'preact/hooks';
@@ -13,6 +13,7 @@ import { PackPane } from './components/PackPane.js';
 import { ActionBar, SkipDialog, LaterDialog, HelpDialog, InterviewDialog } from './components/Actions.js';
 import { SettingsDialog } from './components/Settings.js';
 import { WhatsNewDialog } from './components/WhatsNew.js';
+import { TranscribeDialog } from './components/Transcribe.js';
 import { bannerFor } from './lib/updates.js';
 import { LabelApp } from './components/Label.js';
 import { setFromSearch } from './lib/label.js';
@@ -55,6 +56,7 @@ function App() {
   const [update, setUpdate] = useState(null);         // GET /api/update: the banner
   const [whatsNew, setWhatsNew] = useState(null);     // GET /api/whats-new: shown once after an update
   const [settingsFocus, setSettingsFocus] = useState(null);
+  const [transcribe, setTranscribe] = useState(null);   // GET /api/transcribe: the button shows when the module is on
   const searchRef = useRef(null);
 
   const groups = useMemo(() => groupItems(today, filters), [today, filters]);
@@ -72,6 +74,7 @@ function App() {
   // the update banner and What is new are extras: a failure here never blocks the screen
   useEffect(() => {
     api.update().then(setUpdate).catch(() => {});
+    api.transcribe().then(setTranscribe).catch(() => {});
     api.whatsNew().then(w => { if (w?.show) { setWhatsNew(w); setDialog(d => d || 'whats-new'); } }).catch(() => {});
   }, []);
   const updateAct = async action => {
@@ -182,6 +185,7 @@ function App() {
       <header class="top">
         <span class="brand">CometScout</span>
         <span class="title">${t('ws.title')}${today?.date ? ` · ${formatDate(today.date, locale)}` : ''}</span>
+        ${transcribe?.enabled && html`<button type="button" class="btn btn-small" onClick=${() => setDialog('transcribe')}>${t('ws.transcribe')}</button>`}
         <button type="button" class="btn btn-small" onClick=${() => setDialog('settings')}>${t('ws.settings')}</button>
         <button type="button" class="btn btn-small help-btn" onClick=${() => setDialog('help')} title="?">?</button>
       </header>
@@ -205,6 +209,7 @@ function App() {
       ${dialog === 'later' && html`<${LaterDialog} t=${t} onPick=${d => act('later', d)} onClose=${() => setDialog(null)} />`}
       ${dialog === 'help' && html`<${HelpDialog} t=${t} onClose=${() => setDialog(null)} />`}
       ${dialog === 'interview' && item && html`<${InterviewDialog} t=${t} today=${today?.date} onSave=${recordInterview} onClose=${() => setDialog(null)} />`}
+      ${dialog === 'transcribe' && html`<${TranscribeDialog} t=${t} api=${api} onClose=${() => setDialog(null)} />`}
       ${dialog === 'settings' && html`<${SettingsDialog} t=${t} locale=${locale} api=${api} focus=${settingsFocus} onSaved=${settingsSaved} onClose=${afterSettings} />`}
       ${dialog === 'whats-new' && whatsNew && html`<${WhatsNewDialog} t=${t} data=${whatsNew} api=${api} onOpenSetting=${key => { setSettingsFocus(key); setDialog('settings'); }} onDone=${() => { setWhatsNew(null); setDialog(null); }} />`}
     </div>`;

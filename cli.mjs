@@ -24,6 +24,8 @@
 //                                    # (default: materials/cometscout-handoff.md in the coach's folder; the run refreshes it when modules.coach.enabled)
 //   node cli.mjs interview <company> <YYYY-MM-DD> [HH:MM] [role words] [--round "..."] [--manual]
 //                                    # record a booked interview (time in settings.timezone); prep mode uses it
+//   node cli.mjs transcribe <file> | --queue                 # speech to text on this machine's CPU (optional module, README: Transcription)
+//   node cli.mjs transcribe --bench <file> [--models small,medium] [--threads N]   # time, real-time factor and memory per model
 //   node cli.mjs bot                 # the Telegram bot: /schedule, /time, /interview, /update, /help (cli.mjs timer installs it as a service)
 //   node cli.mjs update [--to vX.Y.Z]                        # back up, install side by side, migrate, switch, verify; rolls back by itself on failure
 //   node cli.mjs update --check | --tonight [vX.Y.Z] | --skip vX.Y.Z   # ask GitHub now; install after tonight's run; never offer this version again
@@ -60,6 +62,7 @@ import { sendText, telegramOn } from './lib/telegram.mjs';
 import { startServer, vendorCheck } from './lib/server.mjs';
 import { takeLock } from './lib/lock.mjs';
 import { coachDoctor, coachHandoff, refreshHandoff } from './lib/coach.mjs';
+import { transcribeDoctor, transcribeCommand, transcribeSettings, scanInbox, kickQueue, installed as transcribeInstalled } from './lib/transcribe.mjs';
 import { updateCommands } from './lib/update-cli.mjs';
 import { afterRun as updateAfterRun, updateDoctor } from './lib/update.mjs';
 import { evalsCommand } from './evals/cli.mjs';
@@ -203,6 +206,7 @@ function doctor() {
   ok(!!spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['--version']).stdout, 'Python 3 (packs the DOCX files)', 'install python3');
   for (const b of backupDoctor()) if (b.level === 'warn') warn(`${b.text}  ->  ${b.fix}`); else ok(b.level === 'ok', b.text, b.fix);
   for (const c of coachDoctor()) ok(c.level === 'ok', c.text, c.fix);   // modules.coach (optional)
+  for (const c of transcribeDoctor()) if (c.level === 'warn') warn(c.text); else ok(c.level === 'ok', c.text, c.fix);   // modules.transcribe (optional)
   for (const u of updateDoctor()) ok(u.level === 'ok', u.text, u.fix);   // app/releases and the update check (lib/update.mjs)
   // leftovers from before the rename to CometScout (lib/legacy-names.mjs): they still work, for a release or two
   for (const u of oldUnitsDoctor()) warn(`${u.text}  ->  ${u.fix}`);
@@ -229,6 +233,9 @@ async function evening() {
   const packStart = new Date().toISOString(); const pack = SETTINGS.pack.enabled ? node('pack/pack.mjs') : null;
   const refused = refusedSince(packStart);   // packs refused in this run (vetted CV text breaks a lint rule); not a failure
   if (SETTINGS.modules?.coach?.enabled && !PROFILE.isExample) await optional('coach-handoff', () => refreshHandoff());   // the interview coach's snapshot; no network
+  // audio left in the transcription inbox (a file that landed as the last job finished) gets its queue started; no wait
+  const tr = transcribeSettings();
+  if (tr.enabled && transcribeInstalled(tr)) await optional('transcribe', () => { if (scanInbox(tr).ready.length) console.log(`transcribe: audio waiting in the inbox; queue started (${kickQueue()})`); });
   if (SETTINGS.tracker_export?.enabled) await optional('tracker-export', () => { const r = trackerExport(); for (const l of [...exportNotes(r), r.message]) console.log(`tracker-export: ${l}`); });
   runHook('run_done', { date: today(), seconds: Math.round((Date.now() - t0) / 1000), decoder_exit: decoder, pack_exit: pack, sources_failed: failed, refused });
   const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];
@@ -322,6 +329,7 @@ const codes = {
     return res.code;
   },
   bot: () => runBot(),
+  transcribe: () => transcribeCommand(rest),
   evals: () => evalsCommand(rest),
   'coach-handoff': () => {
     const i = rest.indexOf('--out'); if (i >= 0 && (!rest[i + 1] || rest[i + 1].startsWith('--'))) { console.log('Usage: node cli.mjs coach-handoff [--out <file>]'); return 1; }

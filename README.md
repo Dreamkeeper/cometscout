@@ -61,6 +61,7 @@ node cli.mjs export-secrets --out <file> | import-secrets --from <file>
 node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]
 node cli.mjs serve [--port 8787]          # the workspace in your browser (preview), see below
 node cli.mjs coach-handoff [--out <file>] # your profile, CV, voice and applications for the interview coach, see below
+node cli.mjs transcribe <file> | --queue | --bench <file>   # interview recordings to text on this server (optional module), see below
 node cli.mjs update [--to vX.Y.Z] | --check | --tonight | --skip vX.Y.Z   # updates, see below
 node cli.mjs rollback [--to vX.Y.Z] [--restore-data]                     # back to the previous version
 node cli.mjs evals sample | sets | decode | pack | voice                  # evals against your own labels, see below
@@ -80,6 +81,7 @@ node cli.mjs serve           # then open http://127.0.0.1:8787
 - **Middle:** the job: company, role, location, source, band, verdict and priority, the next step, why, fit signals, gaps, why held, fact check, your history with the company, and the job text (folded).
 - **Right:** the pack: "Check before sending" (flags and lint) first, then the form answers with a copy button each, the cover letter, the CV PDF (half the pane; "Larger preview" grows it), the files and the apply link. An older pack (a `<date>--<company>` folder, or one without `pack.json`) is shown from its `answers.md`, and the pane says so instead of claiming nothing was flagged.
 - **Settings and interviews:** Settings (top bar) sets the digest days, the time and the prep window. Record interview (in the job's header) records a booked interview with its date, time and round. During prep mode the list opens with the interview and the day's prep step.
+- **Transcribe** (top bar, when the transcription module is on): upload a recording (streamed to the server's disk, up to `max_upload_mb`) and see the queue: waiting, transcribing, failed, and the latest transcripts with their `.md`, `.srt` and `.json` files. See [Transcription](#transcription-optional).
 - **Actions:** Applied, Skip (with a reason: too senior, too junior, wrong domain, location or visa, language, company, already in contact, other), Later (1, 3 or 7 days) and Open job link. After an action the next job opens. Applied and Skip write the same record as `node cli.mjs status` (the event says `source: "workspace"`); Later adds a `later` event and keeps the job out of the picks and, with "hide later", out of the list until that day. A note is at most 500 characters, on the command line too. While the evening run (or a decode, pack, import, backup or restore) holds the run lock, actions answer "CometScout is busy, try again in a minute" and nothing is written. Every write carries the header `X-CometScout: 1` (the old header name is still accepted).
 - **Keyboard** (desktop): `j` / `k` next and previous, `a` applied, `s` skip (then `1` to `8` for the reason), `l` later (then `1`, `3` or `7`), `o` open the job link, `/` search, `?` help, `Esc` closes a dialog. Dialogs take the focus and keep `Tab` inside.
 - On a phone (or any window under 1100 px) it is one column: the list, then the job with tabs Job and Pack and the actions fixed at the bottom. Light and dark follow your system; labels follow `locale`.
@@ -216,6 +218,7 @@ The evening run starts every day at `schedule.time` in `timezone`, and sends its
 - `/interview <company> <YYYY-MM-DD> [HH:MM] [role words]`: the same as the command; put a company name with spaces in quotes.
 - `/update`: the installed and the newest version, with Update now, Tonight and Skip when a newer one is out (see Updates).
 - `/help`: the commands.
+- An audio file, voice message or video: saved to the transcription inbox when the transcription module is on (up to 20 MB, the Bot API limit; for a bigger file the bot names the other ways in). See [Transcription](#transcription-optional).
 
 The bot and the workspace save through the same writer: it checks the values like `doctor`, changes only those keys in `settings.json` (your other keys and layout stay), and reinstalls the timer only when the time changed (on a host without systemd it says to run `node cli.mjs timer`).
 
@@ -571,6 +574,27 @@ cd ../interview-coach && claude           # then say: kickoff, and give it mater
 - **When it is written:** `node cli.mjs coach-handoff` writes it now, into the coach's `materials/` folder, which the coach's git ignores. With `modules.coach.enabled`, the evening run writes a fresh one too (no network; a coach that is not installed is one log line and never fails the run).
 - **It leaves out** the contact line, `.env`, tokens and cookies, job postings, application packs, your status notes and the notes taken from emails. If a value from `.env` would end up in the file, nothing is written.
 
+### Transcription (optional)
+
+Turns your interview recordings into text on your own server, so the interview coach can score them (`analyze`). It uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (MIT license) on the server's CPU, in a Python environment of its own; nothing in CometScout itself needs Python for it.
+
+```bash
+bash deploy/modules/transcribe.sh                  # Python venv with the pinned faster-whisper (Windows: deploy\modules\transcribe.ps1)
+node cli.mjs transcribe --bench sample.m4a --models small,medium   # pick the model for this machine
+node cli.mjs transcribe call.m4a                   # one file now
+node cli.mjs transcribe --queue                    # everything in the inbox, oldest first
+```
+
+- **Private:** the audio never leaves the server. The only download is the model, once, from Hugging Face, by the first job (small about 0.5 GB, medium about 1.5 GB, large-v3 about 3 GB), into the module's folder. Plan for the model plus about 1 GB of free disk; `doctor` checks it.
+- **What it does not do yet:** it does not separate speakers. The transcript says "speakers not separated"; the coach can still analyze it. Speaker labels need extra models and an account token, and are a later option.
+- **Getting audio in:** copy files into the inbox (`data/audio/inbox` by default; scp, rsync or Syncthing), upload them in the workspace (the Transcribe button, up to `max_upload_mb`), or send an audio file or voice message to the Telegram bot (bots can download only up to 20 MB, so for a bigger file the bot answers with the other ways). With the module enabled, `node cli.mjs timer` installs `cometscout-transcribe.path`, so a file landing in the inbox starts the queue. Files still being copied (changed in the last 30 seconds) are waited for; dot files (rsync and Syncthing temporary files) are skipped.
+- **Output:** `data/transcripts/<date>--<name>/` holds `transcript.md` (language, length, model, how long it took, a timestamp on every paragraph), `transcript.srt` and `segments.json`. A file from the inbox then moves to `data/audio/done/` and is deleted after `keep_audio_days` (0 deletes it at once); a file you name elsewhere is left where it is. With Telegram on, you get a short "Transcript ready" message.
+- **For the coach:** with the interview coach enabled, `transcript.md` is also copied to the coach's `materials/transcripts/`, and the next `coach-handoff` lists it as ready for analyze. In the coach: say `analyze` and give it the file.
+- **Load:** one job at a time on the whole machine (its own lock, separate from the evening run's), under `nice` and `ionice`, with `threads` CPU threads, so the rest of CometScout stays responsive.
+- **Failure:** the audio stays in the inbox with a `<name>.failed` note, and you get one alert. Delete the note to try again.
+- **Speed:** run `--bench` on a short recording of your own; it prints, per model, the load time, the transcription time, the real-time factor (processing time divided by the audio's length), what an hour of audio takes and the peak memory. As a rough guide: on a laptop CPU (AMD Ryzen 7 7840U) with the default 2 threads, `small` ran at a real-time factor of 0.32 and `medium` at 0.93 (an hour of audio in about 20 and 55 minutes); with 4 threads, 0.22 and 0.68. A 4-vCPU VPS is usually slower per thread, so expect roughly 0.4 to 0.7 for `small` and 1 to 2 for `medium` with 2 threads: `medium` can take longer than the recording itself. If nothing else runs on the server at that hour, raise `threads` to 3 or 4, or pick `small`. The VPS figures are an estimate; `--bench` gives yours. Peak memory was about 0.7 GB for `small` and 1.8 GB for `medium`.
+- **Settings:** `"modules": { "transcribe": { "enabled": false, "path": null, "model": "medium", "compute_type": "int8", "threads": 2, "nice": 10, "language": null, "inbox": "data/audio/inbox", "keep_audio_days": 30, "max_upload_mb": 500 } }`. `path: null` is a folder named `cometscout-transcribe` next to the home; `language: null` detects the language, `"ru"` or `"en"` fixes it; an inbox path starting with `data/` is inside the data folder. `doctor` shows the environment, the faster-whisper version, whether the model is downloaded (and its size), free disk, and `ffmpeg` (optional: faster-whisper decodes audio with its own bundled FFmpeg libraries).
+
 ### Language of the messages
 
 `"locale": "ru"` in `settings.json` writes CometScout's own labels in Russian: the digest, the picks block, verdict names, the pack messages in Telegram, the scorecard's Telegram text and the workspace. The default is `"en"`. What the model writes (reasons, actions, form answers, cover letters) is not translated.
@@ -603,7 +627,7 @@ Planned, in order (details and task briefs in [ROADMAP.md](ROADMAP.md) and `docs
    - screens for the pack editor, your pipeline, sources, settings and gates ("wrong pick: why?" turns into a suggested setting), and a guided onboarding that replaces the setup session.
    - First pieces built: the "Today" screen, a settings dialog and the first bot commands (`/schedule`, `/time`, `/interview`).
 3. **Backups, export and updates (in progress).** One ZIP export you can open and read (your data, profile and settings), import with a preview and conflict choices, nightly backups with restore, an encrypted export for secrets. Updates are notify only: release notes in the bot and the app, one tap to update, a backup first, automatic rollback if anything fails, and a manual rollback.
-4. **Optional modules,** installed from their own projects: an interview coach (the install and hand-off are done, see [Interview coach](#interview-coach-optional)), meeting transcription (on your own GPU or the server's CPU), OpenClaw and career-ops.
+4. **Optional modules,** installed from their own projects: an interview coach (the install and hand-off are done, see [Interview coach](#interview-coach-optional)), meeting transcription (on the server's CPU, done, see [Transcription](#transcription-optional); a GPU worker stays an option), OpenClaw and career-ops.
 5. **Later:** a hosted option for people who do not want to run a server, after the self-hosted version has been through testers.
 
 ## Install guides
