@@ -62,6 +62,7 @@ node cli.mjs import --from <file.zip> [--dry-run] [--on-conflict keep|theirs|bot
 node cli.mjs export-secrets --out <file> | import-secrets --from <file>
 node cli.mjs backup [--label <text>] | backups | restore <backup> [--dry-run]
 node cli.mjs serve [--port 8787]          # the workspace in your browser (preview), see below
+node cli.mjs mcp [--scope read|operate|admin]   # the MCP server for Claude Code, Claude Desktop or Codex, see below
 node cli.mjs coach-handoff [--out <file>] # your profile, CV, voice and applications for the interview coach, see below
 node cli.mjs transcribe <file> | --queue | --bench <file>   # interview recordings to text on this server (optional module), see below
 node cli.mjs update [--to vX.Y.Z] | --check | --tonight | --skip vX.Y.Z   # updates, see below
@@ -96,6 +97,50 @@ COMETSCOUT_DATA=/tmp/cometscout-demo node cli.mjs serve
 ```
 
 ![The Today screen on the desktop](docs/screenshots/workspace-today-desktop.png)
+
+## Use it from an AI client (MCP)
+
+`node cli.mjs mcp` is an MCP server: the AI client you already talk to (Claude Code, Claude Desktop, Codex) can read CometScout's state, explain what is missing, record what happened to a role and change settings, with the same checks as the command line and the workspace. It speaks MCP over stdio (revision 2026-07-28, and the older handshake revisions 2025-11-25, 2025-06-18 and 2025-03-26), so on a VPS the client starts it through SSH. Nothing else listens on a port.
+
+The commands below assume `cometscout` is on the server's PATH (run `npm link` once in the CometScout folder) and that `ssh <host>` logs in with a key, without a password prompt. Otherwise use `ssh <host> node /home/you/cometscout/cli.mjs mcp` (an SSH command does not always load your shell profile, so `ssh <host> cometscout help` is a quick check). On the same computer, drop the `ssh <host>` part.
+
+**Claude Code:**
+
+```bash
+claude mcp add cometscout -- ssh <host> cometscout mcp
+claude mcp add cometscout-admin -- ssh <host> cometscout mcp --scope admin   # for setup and settings changes
+```
+
+**Claude Desktop** (Settings, Developer, Edit config: `claude_desktop_config.json`):
+
+```json
+{ "mcpServers": { "cometscout": { "command": "ssh", "args": ["-o", "BatchMode=yes", "<host>", "cometscout", "mcp"] } } }
+```
+
+**Codex:** `codex mcp add cometscout -- ssh <host> cometscout mcp`, or in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.cometscout]
+command = "ssh"
+args = ["-o", "BatchMode=yes", "<host>", "cometscout", "mcp"]
+```
+
+**Scopes.** `--scope read|operate|admin` (default `operate`) decides which tools exist; `mcp.scope` in `settings.json` can lower it, never raise it (the lower of the two wins).
+
+| Scope | Tools |
+|---|---|
+| `read` | `status`, `doctor`, `run_log`, `settings_get`, `settings_schema`, `onboarding_state`, `today`, `jobs_search`, `job_get`, `applications_list`, `secrets_status` |
+| `operate` | the above, plus `set_status` and `record_interview` (the same writes as `cli.mjs status` and `cli.mjs interview`) and `add_job` (a link CometScout fetches itself, or pasted text, into the inbox like the drop-dir source) |
+| `admin` | the above, plus `settings_set` and `secrets_form` |
+
+Resources: `cometscout://settings/schema`, `cometscout://digest/latest`, `cometscout://doctor`, `cometscout://onboarding`. Prompts: `setup` (the onboarding, one step at a time), `tune-gates` (recent rejections and picks, with gate or title changes proposed as dry runs), `weekly-review` (applications, outcomes and picks of the week).
+
+- **Settings.** `settings_set` takes a dotted path and a value and is a dry run unless `dry_run` is `false`: it checks the whole resulting `settings.json` like `doctor` and returns a unified diff. The write goes through the same writer as the workspace and the bot, so your layout, other keys and line endings stay, and a new `schedule.time` or `timezone` reinstalls the timer. Unknown keys and secret-looking keys are refused, and so are keys that name a program, a path, a hook or where code comes from (`llm.bin`, `hooks`, `sources.drop_dir.dir`, `update.repo`, `health.ping_url` and the like; `settings_schema` marks them): edit those by hand over SSH.
+- **Secrets never pass through it.** `secrets_status` says which secrets each enabled feature needs and whether each is set, never the value. `secrets_form` returns a one-time link to the workspace (`/secrets?t=...`): open the tunnel (`ssh -L 8787:127.0.0.1:8787 <host>`), open the link in your own browser within 15 minutes and type the value; the workspace writes it to `.env` (mode 600) and the link stops working. The workspace has to be running for that (`node cli.mjs serve`; the tool says when it is not).
+- **Never exposed:** secrets and `.env`, a shell, arbitrary files (only CometScout's own queue, settings and state are read), and nothing outside the scope you chose.
+- **Run lock.** While the evening run (or a decode, pack, import, backup or restore) holds the lock, every write is refused with "CometScout is busy" and nothing is written.
+- **Audit log.** Every call to a tool that can write adds one line to `data/state/mcp-log.jsonl`: the time, the tool, its arguments with secret-looking values removed and long text cut, and what happened.
+- The server logs to stderr only; stdout carries protocol messages and nothing else.
 
 ## Evals
 
