@@ -18,7 +18,7 @@ Steps, each printed as PASS or FAIL with timing, and a summary at the end (non-z
 7. Backup and restore: `backup`, change a file, `restore --dry-run` lists it, `restore` brings it back.
 8. Export and import into a second fresh home: round trip with the same file hashes.
 9. Update: adopt is a no-op on an installed layout; `update --to <the same version>` refused cleanly; with `--from-zip <path>` (a test hook that installs a locally built source zip of the next version instead of downloading it, with its sha256) an update to a fake next version runs backup, install, migrate, switch, verify; `rollback` returns to the first version; the units still point at `app/current`.
-10. Old-name migration: create `jobpilot.timer` and `jobpilot.service` user units, run `cli.mjs timer`, check they are gone and the new ones enabled.
+10. Old-name migration: create the timer and service user units from before the rename (their names come from `OLD_UNITS` in `lib/legacy-names.mjs`), run `cli.mjs timer`, check they are gone and the new ones enabled.
 11. Uninstall check: a documented `tools/rehearse/cleanup.sh` disables the units and removes the test home, so the script can run on a machine that is kept.
 
 `--keep` leaves the install in place for a look. The script never touches anything outside the test home and the user's systemd units it created.
