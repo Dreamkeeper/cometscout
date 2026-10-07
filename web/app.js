@@ -1,4 +1,4 @@
-// The Today screen (and the settings dialog, the update banner and What is new). Desktop (>= 1100 px): list, job and pack side by side. Narrower: the list, then one job with
+// The Today screen (and the settings dialog, the update banner and What is new), or the labelling screen on /label. Desktop (>= 1100 px): list, job and pack side by side. Narrower: the list, then one job with
 // tabs Job / Pack and a fixed action bar. State lives here; the panes are in components/, the logic in lib/.
 import { render } from 'preact';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'preact/hooks';
@@ -14,6 +14,8 @@ import { ActionBar, SkipDialog, LaterDialog, HelpDialog, InterviewDialog } from 
 import { SettingsDialog } from './components/Settings.js';
 import { WhatsNewDialog } from './components/WhatsNew.js';
 import { bannerFor } from './lib/updates.js';
+import { LabelApp } from './components/Label.js';
+import { setFromSearch } from './lib/label.js';
 
 const api = createApi();
 const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
@@ -208,4 +210,6 @@ function App() {
     </div>`;
 }
 
-render(html`<${App} />`, document.getElementById('app'));
+// /label?set=<name> is the labelling screen (components/Label.js); every other path is Today
+const labelling = location.pathname.replace(/\/+$/, '') === '/label';
+render(labelling ? html`<${LabelApp} api=${api} set=${setFromSearch(location.search)} />` : html`<${App} />`, document.getElementById('app'));

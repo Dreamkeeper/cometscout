@@ -139,17 +139,21 @@ export function factFlags(v, rules = PROFILE.factRules) {
   return out;
 }
 
-async function decodeOne(file, prompt) {
-  const job = loadJob(file);
+/**
+ * One verdict for a job { file, fm, body, text }. before and excludeFile cut the history (evals/decode.mjs replays a
+ * job as of its own date, so no later outcome reaches the prompt); call is lib/llm.mjs callJson unless a test injects one.
+ */
+export async function decodeText(job, prompt, { before = null, excludeFile = null, call = callJson } = {}) {
   if (job.fm.full_text === 'missing' || job.body.replace(/^#.*$/m, '').trim().length < MIN_TEXT) {
     return { verdict: 'unreadable', confidence: 'low', rationale: 'No readable job text; open the link and judge by hand.', fit_signals: [], gaps: [], action: 'Open the link and decide manually.' };
   }
-  const input = `${prompt}\n\n## History with ${job.fm.company}\n${history(job.fm.company)}\n\n## Job file\n\n${job.text.slice(0, 16000)}\n`;
-  const { value } = await callJson({ prompt: input, schema: SCHEMA, model: SETTINGS.llm.model });
-  if (!value.verdict) throw new Error('no verdict');
+  const input = `${prompt}\n\n## History with ${job.fm.company}\n${history(job.fm.company, { before, excludeFile })}\n\n## Job file\n\n${job.text.slice(0, 16000)}\n`;
+  const { value } = await call({ prompt: input, schema: SCHEMA, model: SETTINGS.llm.model });
+  if (!value?.verdict) throw new Error('no verdict');
   value.fact_flags = factFlags(value);
   return value;
 }
+const decodeOne = (file, prompt) => decodeText(loadJob(file), prompt);
 function resultBlock(v) {
   return ['', '## Decode Result', `Decoded ${today()} by CometScout (${SETTINGS.llm.provider}${SETTINGS.llm.model ? `/${SETTINGS.llm.model}` : ''}).`,
     `verdict: ${v.verdict}${v.gate ? ` (${v.gate})` : ''}`, `confidence: ${v.confidence}`, v.apply_priority ? `apply_priority: ${v.apply_priority}` : null,

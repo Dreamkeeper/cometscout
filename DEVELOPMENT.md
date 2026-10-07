@@ -18,13 +18,13 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`, `interview`, `bot`, `update`, `rollback`, `migrate`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`, `interview`, `bot`, `update`, `rollback`, `migrate`, `evals`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
 | `lib/applications.mjs` | Writes to `applications.json`: `setStatus` (the CLI's `applied` / `status` and the workspace's `POST /api/status`), `addLater`, `laterUntil`, `addInterview` (`cli.mjs interview`, `POST /api/interview`, the bot) |
 | `lib/lock.mjs` | The run lock (`data/state/run.lock`): `takeLock` for the commands, `lockHolder` for the workspace's writes |
-| `lib/workspace.mjs`, `lib/server.mjs` | The workspace: API payloads (today, job, pack, labels, status, later, pack files) and the `node:http` server behind `cli.mjs serve` |
+| `lib/workspace.mjs`, `lib/server.mjs` | The workspace: API payloads (today, job, pack, labels, status, later, pack files, label sets for `/label`) and the `node:http` server behind `cli.mjs serve` |
 | `web/` | The workspace's browser code, no build step: `index.html` (import map), `app.js`, `components/` (Preact + htm), `lib/` (pure logic with no DOM, tested by `node --test`), `styles.css` |
 | `lib/schedule.mjs` | `settings.schedule` (digest days and time, `offDay`) and `picks.prep` (`prepState`, `prepQualifies`), interview dates from events |
 | `lib/settings-writer.mjs`, `lib/jsonedit.mjs` | The one writer for settings the workspace and the bot change: validates like doctor, edits only those values in settings.json, reinstalls the timer on a time change |
@@ -48,6 +48,7 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 | `sources/*.mjs` | One file per source; each writes job files with `writeJob()` |
 | `decoder/` | Verdicts, picks, digest (`digest.mjs` renders the text; `finishRun` handles off days and prep mode) |
 | `pack/` | Tailored CV, cover letter, form answers (`message.mjs` is the Telegram text) |
+| `evals/` | Evals (`cli.mjs evals`): `sets.mjs` (label sets: sampling, `labels.jsonl`, what the labelling screen may show), `decode.mjs` (verdicts against labels, replay, compare), `pack.mjs` and `voice.mjs` (model judges), `packs.mjs` (reading pack folders), `stats.mjs` (seeded random, McNemar), `cli.mjs` (arguments). Everything they write goes under `data/evals/` |
 | `lib/coach.mjs`, `deploy/modules/` | The interview coach module: installer (`coach.sh`, `coach.ps1` both run `node lib/coach.mjs install`), doctor lines, the hand-off file |
 | `tools/` | `gmail-auth.mjs`; `workspace-demo.mjs` (demo data for the workspace) and `text-pdf.mjs` (small text PDFs for it and the tests) |
 | `test/` | `node --test` unit tests; `test/fixtures/` synthetic inputs |

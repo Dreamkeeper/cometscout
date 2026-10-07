@@ -63,6 +63,7 @@ node cli.mjs serve [--port 8787]          # the workspace in your browser (previ
 node cli.mjs coach-handoff [--out <file>] # your profile, CV, voice and applications for the interview coach, see below
 node cli.mjs update [--to vX.Y.Z] | --check | --tonight | --skip vX.Y.Z   # updates, see below
 node cli.mjs rollback [--to vX.Y.Z] [--restore-data]                     # back to the previous version
+node cli.mjs evals sample | sets | decode | pack | voice                  # evals against your own labels, see below
 ```
 
 ## Workspace (preview)
@@ -91,6 +92,47 @@ COMETSCOUT_DATA=/tmp/cometscout-demo node cli.mjs serve
 ```
 
 ![The Today screen on the desktop](docs/screenshots/workspace-today-desktop.png)
+
+## Evals
+
+Numbers instead of impressions: how often a "worth applying" verdict matches what you would have said, how many good roles it hides, and whether a new prompt writes better packs than the old one. Your labels stay in your own `data/evals/`; the repository holds only synthetic fixtures. Export and backups include `data/evals`.
+
+| Eval | What it answers |
+|---|---|
+| `evals decode` | Do the verdicts match your labels? A confusion table (surfaced, meaning strong fit or investable stretch, against your yes or no), surfaced precision and recall with their counts, the good roles it missed and the noise it surfaced (each with your reason), gate rejects you would have wanted, fact-flag counts. |
+| `evals decode --compare` | Is system B better than system A on the same labelled jobs? Both tables, the jobs where they disagree, which one your label agreed with, the paired counts and an exact McNemar p-value. |
+| `evals pack` | Which of two sets of packs for the same jobs is better? A blind model judge, each pair judged twice with the order swapped. |
+| `evals voice` | Do the generated cover letters and answers sound like you? |
+
+**1. Make a label set.** About 70 jobs, drawn evenly across the verdicts (worth applying, held, weak, gate rejects, unreadable), so rare verdicts are in it too. The same seed gives the same sample.
+
+```bash
+node cli.mjs evals sample --set week-41 [--size 70] [--from 2026-09-01] [--to 2026-10-01] [--seed 1] [--include <queue file>]
+```
+
+This writes `data/evals/week-41/sample.json`: the jobs' text as the decoder saw it, frozen now. No verdict is stored; the evals read it from the queue later.
+
+**2. Label it, in one focused sitting.** `node cli.mjs serve`, then open `http://127.0.0.1:8787/label?set=week-41`. One job at a time with its title, company, location and description, never the verdict, gates or decoder notes. Answer "should I have seen this as worth applying to?": Yes, No or Unsure, with a one-line reason (optional for Yes and No, required for Unsure: which fact is missing). Keys: `Y`, `N`, `U`, `Enter` saves and goes on, the arrows move. You can go back and change a label, and the screen opens where you stopped. If `profile/eval-rubric.md` exists (your own criteria; the onboarding can draft it from your profile, see `profile.example/eval-rubric.md`), it is shown next to the job. It works on a phone, but a computer and one sitting give better labels. Every save appends a line to `labels.jsonl`, and the latest line per job wins.
+
+**3. Run the evals.**
+
+```bash
+node cli.mjs evals decode --set week-41                          # the verdicts already in the queue
+node cli.mjs evals decode --set week-41 --system replay          # decode the sampled jobs again now, with today's prompt
+node cli.mjs evals decode --set week-41 --system replay --compare queue
+node cli.mjs evals decode --set week-41 --system file:other.json # verdicts from any other pipeline: { "<queue file>": "<verdict>" }
+node cli.mjs evals pack --a <packs folder> --b <packs folder> [--judge-model opus]
+node cli.mjs evals voice --dir data/packs
+```
+
+- `replay` is a dry run: nothing in the queue changes, the verdicts go to `data/evals/<set>/replay-<date>.json` (which `file:` can read back), and each job's history with the company is cut at the job's own date, so no later rejection or decode leaks into the prompt. A job with no date is skipped (its history cannot be cut). The files in `decoder.context_files` cannot be cut by date; the replay says so, and `--no-context` leaves them out. A job the decoder gave up on (`failed`) counts as having no verdict, not as "not surfaced".
+- Labels travel with export and backups (`data/evals`). To bring labels from another install, import with `--on-conflict both` and append the copied `labels.jsonl` lines to yours: the newest line per job wins, so nothing is lost.
+- Reports are written next to the set as `report-<date>-<system>[-vs-<other>].md` and `.json`. Unsure labels stay out of the rates and are counted on their own. The sample is stratified, so the rates describe the sample, not your whole queue.
+- `evals pack` pairs pack folders by name without the date (`<date>--company--role`). A pair counts only when both orders pick the same pack; otherwise it is "inconsistent" (the order decided, not the content). A pack whose CV, cover letter or answers break a banned lint rule loses without a judge call. The report lists wins, ties, inconsistent pairs and the judge's reasons, then the lint failures. Written to `data/evals/pack-report-<date>.md`.
+- `evals voice` needs `profile/voice.md` or your own writing in `profile/voice-samples/*.md`. Each cover letter and answer of 15 words or more gets a score from 1 to 5 and the phrases that sound least like you; the report has the mean, the distribution, the worst five and the lint phrases counted in the same texts. Written to `data/evals/voice-report-<date>.md`.
+- Model calls use your own Claude Code or Codex subscription, like decode and pack.
+
+**Do not tune the prompt on the labels you report on.** If you change the prompt until one set looks good, its numbers say more about that set than about the prompt. Keep a second, held-out set and quote its numbers.
 
 ## Configuration
 
@@ -554,7 +596,7 @@ The pipeline it replaces ran one person's search for three months; CometScout re
 
 Planned, in order (details and task briefs in [ROADMAP.md](ROADMAP.md) and `docs/tasks/`):
 
-1. **Evals.** Decoder verdicts scored against human labels, blind A/B judging of CVs and form answers, a check that answers sound like you, and a side-by-side diff of two systems on the same days. Quality is proven before anyone relies on it.
+1. **Evals (tooling done, see [Evals](#evals)).** Decoder verdicts scored against human labels, blind A/B judging of CVs and form answers, a check that answers sound like you. Next: the maintainer's own numbers from a labelled set, and a side-by-side diff of two systems on the same days. Quality is proven before anyone relies on it.
 2. **Workspace (in progress).** A web app served by CometScout itself, so nobody needs a Claude Code session after setup:
    - fullscreen and dense on the desktop (picks, decode and pack side by side, keyboard shortcuts), installable on the phone with offline access and notifications;
    - the same app opens as a Telegram Mini App; one bot in a private chat brings picks with Apply / Skip / Later buttons, outcome cards and alerts;

@@ -38,7 +38,7 @@ test('textPdf: a valid PDF; pages break by themselves; Latin-1 is kept, other ch
   checkPdf(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'workspace', 'tiny.pdf')));
 });
 
-test('writeDemo: decodes, two picks for today, packs with valid PDFs; refuses a folder that is not empty', async () => {
+test('writeDemo: decodes, two picks for today, packs with valid PDFs, a label set; refuses a folder that is not empty', async () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-demo-'));
   const now = new Date('2026-10-02T09:00:00Z');
   const r = await writeDemo(out, { now });
@@ -66,6 +66,9 @@ test('writeDemo: decodes, two picks for today, packs with valid PDFs; refuses a 
   assert.deepEqual(fs.readdirSync(path.join(out, 'packs', old)), ['answers.md'], 'answers.md only, no pack.json');
   const apps = JSON.parse(fs.readFileSync(path.join(out, 'state', 'applications.json'), 'utf8'));
   assert.equal(apps[r.files.tidewater].events[0].until, '2026-10-05');
+  const set = JSON.parse(fs.readFileSync(path.join(out, 'evals', 'demo', 'sample.json'), 'utf8'));
+  assert.equal(r.labelSet, 'demo'); assert.equal(set.jobs.length, 8, 'every demo job, decoded and rejected');
+  assert.ok(set.jobs.every(j => j.text.startsWith('---\n') &&!/Decode Result|verdict:/.test(j.text)), 'the label set holds the text only');
   await assert.rejects(writeDemo(out, { now }), /is not empty/);
   await writeDemo(out, { now, force: true });
   const cli = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'workspace-demo.mjs')], { encoding: 'utf8', timeout: 30000 });
