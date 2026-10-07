@@ -1,7 +1,7 @@
 # Pinned libraries for the transcription module (pip install -c this file, from lib/transcribe.mjs install, which both
 # transcribe.sh and transcribe.ps1 run). faster-whisper itself is pinned in lib/transcribe.mjs (FASTER_WHISPER_VERSION).
 # Python 3.11 to 3.14 (and 3.10, for Ubuntu 22.04, through the python_version markers below) on Linux x86_64 and aarch64 (manylinux, glibc 2.28 or newer) and Windows x64: every
-# version below has a wheel for each of them, so pip never builds from source.
+# version below has a wheel for each of them, so pip never builds from source (one exception in the extra, below).
 # The benchmark in the README ran faster-whisper 1.2.1 with ctranslate2 4.8.2 and av 19.0.1 on Python 3.14. av 19 has no
 # wheels for Python 3.11, so av is 18.1.0, the newest release with wheels for 3.11 to 3.14; numpy likewise (2.5 needs 3.12).
 # Changing a version here changes what a new install gets and what the installer switches an existing one to: run the
@@ -15,3 +15,20 @@ onnxruntime==1.23.2; python_version < "3.11"
 huggingface-hub==1.33.0
 numpy==2.4.6; python_version >= "3.11"
 numpy==2.2.6; python_version < "3.11"
+# The GigaAM extra (transcribe.sh --with-gigaam, for Russian): PyTorch built for the CPU only, from the PyTorch CPU index
+# (https://download.pytorch.org/whl/cpu, never the CUDA wheels), about 115 MB to download on Windows and 150 to 190 MB on
+# Linux. torch 2.11 and torchaudio 2.11 have CPU wheels for Python 3.10 to 3.14 on Linux x86_64, aarch64 and Windows x64
+# (none for 3.15 yet): that is the extra's Python range (GIGAAM_PYTHON in lib/transcribe.mjs). GigaAM itself is pinned to
+# a commit in lib/transcribe.mjs (GIGAAM_COMMIT, version 0.2.0 is not on PyPI) and installed without its own pins, which
+# would downgrade onnxruntime; the libraries it imports are pinned here. antlr4-python3-runtime has no wheel (pure Python,
+# pip builds it in a second).
+torch==2.11.0+cpu
+torchaudio==2.11.0+cpu
+hydra-core==1.3.7
+omegaconf==2.3.1
+antlr4-python3-runtime==4.9.3
+sentencepiece==0.2.2
+soundfile==0.14.0
+cffi==2.1.1
+PyYAML==6.0.3
+tqdm==4.70.1

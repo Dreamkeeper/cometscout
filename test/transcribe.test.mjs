@@ -162,7 +162,8 @@ test('the queue: ready files oldest first, one at a time; dot files and other fi
   const logs = [], ready = [];
   const r = await T.runQueue({ s, settleMs: 1000, sleep: async () => {}, log: l => logs.push(l), notifyDone: async x => { ready.push(x); } });
   assert.deepEqual(r, { done: 2, failed: 0 });
-  assert.deepEqual(fakeCalls().map(c => path.basename(c.audio)), ['first.mp3', 'second.wav']);
+  assert.deepEqual(fakeCalls().map(c => [path.basename(c.audio), c.args.includes('--detect')]), [['first.mp3', true], ['first.mp3', false], ['second.wav', true], ['second.wav', false]],
+    'each file: the language first (Russian and the rest use different engines), then Whisper');
   assert.deepEqual(dirsIn(s.inbox).sort(), ['.upload.mp3', 'notes.txt']);
   assert.ok(fs.existsSync(part) && fs.existsSync(notes));
   assert.ok(logs.some(l => /ignored notes\.txt \(not an audio or video file\)/.test(l)));
@@ -696,7 +697,7 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
 test('the installer pins the compiled dependencies in one constraints file that both installers use', () => {
   const pins = T.pinnedVersions();
   for (const p of ['ctranslate2', 'av', 'tokenizers', 'onnxruntime']) assert.match(pins[p] || '', /^\d+(\.\d+)+$/, `${p} pinned`);
-  assert.ok(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').every(l => !l.trim() || l.startsWith('#') || /^[a-z0-9._-]+==[\d.]+(; python_version [<>]=? "3\.\d+")?$/i.test(l)), 'name==version lines, with an optional python_version marker');
+  assert.ok(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').every(l => !l.trim() || l.startsWith('#') || /^[a-z0-9._-]+==[\d.]+(\+cpu)?(; python_version [<>]=? "3\.\d+")?$/i.test(l)), 'name==version lines (+cpu for PyTorch), with an optional python_version marker');
   // Python 3.10 (Ubuntu 22.04) gets its own pins where the newest ones need 3.11
   assert.match(fs.readFileSync(T.CONSTRAINTS, 'utf8'), /onnxruntime==[\d.]+; python_version < "3\.11"/);
   assert.deepEqual(T.MIN_PYTHON, [3, 10]);
