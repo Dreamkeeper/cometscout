@@ -670,9 +670,9 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
   const env = { PYTHON: 'python3.12' };
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: null }), log, env }), 1);
   assert.match(logs.at(-1), /^Python 3 is needed for the transcription module/);
-  for (const v of ['3.8', '3.10']) {
+  for (const v of ['3.8', '3.9']) {
     assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: v }), log, env }), 1);
-    assert.match(logs.at(-1), /needs Python 3\.11 or newer \(its pinned libraries have no wheels for older ones\)/);
+    assert.match(logs.at(-1), /needs Python 3.10 or newer \(its pinned libraries have no wheels for older ones\)/);
   }
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ venvOk: false }), log, env }), 1);
   assert.ok(!fs.existsSync(path.join(is.path, 'venv')), 'a half-made venv is removed');
@@ -695,8 +695,10 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
 test('the installer pins the compiled dependencies in one constraints file that both installers use', () => {
   const pins = T.pinnedVersions();
   for (const p of ['ctranslate2', 'av', 'tokenizers', 'onnxruntime']) assert.match(pins[p] || '', /^\d+(\.\d+)+$/, `${p} pinned`);
-  assert.ok(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').every(l => !l.trim() || l.startsWith('#') || /^[a-z0-9._-]+==[\d.]+$/i.test(l)), 'name==version lines only');
-  assert.deepEqual(T.MIN_PYTHON, [3, 11]);
+  assert.ok(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').every(l => !l.trim() || l.startsWith('#') || /^[a-z0-9._-]+==[\d.]+(; python_version [<>]=? "3\.\d+")?$/i.test(l)), 'name==version lines, with an optional python_version marker');
+  // Python 3.10 (Ubuntu 22.04) gets its own pins where the newest ones need 3.11
+  assert.match(fs.readFileSync(T.CONSTRAINTS, 'utf8'), /onnxruntime==[\d.]+; python_version < "3\.11"/);
+  assert.deepEqual(T.MIN_PYTHON, [3, 10]);
   // both installers hand over to lib/transcribe.mjs install, which passes -c CONSTRAINTS to pip
   for (const f of ['transcribe.sh', 'transcribe.ps1']) {
     const text = fs.readFileSync(path.join(ROOT, 'deploy', 'modules', f), 'utf8');

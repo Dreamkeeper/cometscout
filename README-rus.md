@@ -201,7 +201,7 @@ CometScout умеет поставить рядом с собой [Interview Coa
 CometScout умеет превращать запись собеседования в текст прямо на сервере, чтобы тренер мог её разобрать (`analyze`). Запись никуда не уходит; модель (около 1,5 ГБ для `medium` по умолчанию) скачивается один раз при первой расшифровке. Говорящие пока не разделяются.
 
 ```bash
-bash deploy/modules/transcribe.sh                   # нужны Python 3.11-3.14 и python3-venv: sudo apt-get install -y python3 python3-venv
+bash deploy/modules/transcribe.sh                   # нужны Python 3.10-3.14 и python3-venv: sudo apt-get install -y python3 python3-venv
 node cli.mjs transcribe --bench sample.m4a --models small,medium   # какая модель успевает на этой машине
 ```
 

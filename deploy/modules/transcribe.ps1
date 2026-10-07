@@ -5,7 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File deploy\modules\transcribe.ps1
 #   $env:PYTHON = 'C:\Python312\python.exe'; powershell -ExecutionPolicy Bypass -File deploy\modules\transcribe.ps1
 # The work is done by lib\transcribe.mjs (the same code runs on Linux through transcribe.sh). It installs with the
-# pinned libraries in deploy\modules\transcribe\constraints.txt (pip -c) and needs Python 3.11 to 3.14.
+# pinned libraries in deploy\modules\transcribe\constraints.txt (pip -c) and needs Python 3.10 to 3.14.
 $ErrorActionPreference = 'Stop'
 $code = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not $env:PYTHON -and -not (Get-Command py -ErrorAction SilentlyContinue) -and -not (Get-Command python -ErrorAction SilentlyContinue)) {
