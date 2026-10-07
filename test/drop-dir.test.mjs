@@ -43,6 +43,10 @@ test('a file younger than settle_sec is left alone', async () => {
   const r = await run({ fetch: async () => { throw new Error('must not fetch'); } });
   assert.ok(r.report.some(l => l.startsWith('fresh.queue.json: too new')));
   assert.ok(fs.existsSync(file), 'left in the drop dir');
+  // stamped a moment ahead of this clock (Windows does this to a file just written): still fresh
+  const t = Date.now() / 1000 + 1; fs.utimesSync(file, t, t);
+  const r2 = await run({ fetch: async () => { throw new Error('must not fetch'); } });
+  assert.ok(r2.report.some(l => l.startsWith('fresh.queue.json: too new')), r2.report.join(' / '));
   fs.rmSync(file);
 });
 

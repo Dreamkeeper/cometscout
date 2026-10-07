@@ -252,3 +252,27 @@ test('decode --file decodes one job again only as a dry run, and writes nothing'
   assert.equal(cli(['decode', '--dry-run', '--file', '../settings.json']).status, 1);
   assert.deepEqual(hashHome(), before);
 });
+
+test('update --from-zip (the rehearsal hook): a local source zip checked against the given sha256, GitHub never asked; refusals change nothing', async () => {
+  await makeRelease('0.2.1');
+  const zip = path.join(tmp, 'cometscout-0.2.1.zip'), good = RELEASES['0.2.1'].sha;
+  const calls = fetchCalls.length, dls = downloads.length;
+  const noNet = { fetch: async u => { throw new Error(`no network in this test: ${u}`); }, download: async u => { throw new Error(`no download in this test: ${u}`); } };
+  const before = hashHome(), backups = listBackups().length;
+  const refused = async (fromZip, re) => { const r = await U.runUpdate(deps({ to: '0.2.1', fromZip, ...noNet })); assert.equal(r.code, 1); assert.equal(r.step, 'preflight'); assert.match(r.lines.join('\n'), re); };
+  await refused({ file: zip, sha256: '0'.repeat(64) }, /does not match the sha256 given with --sha256/);
+  await refused({ file: zip, sha256: 'abc' }, /--from-zip needs --sha256/);
+  await refused({ file: path.join(tmp, 'missing.zip'), sha256: good }, /missing\.zip does not exist/);
+  assert.deepEqual(hashHome(), before); assert.equal(listBackups().length, backups); assert.equal(L.currentVersion(H), '0.2.0');
+  const r = await U.runUpdate(deps({ to: '0.2.1', fromZip: { file: zip, sha256: good.toUpperCase() }, verify: () => ({ ok: true }), ...noNet }));
+  assert.equal(r.code, 0, r.lines.join('\n'));
+  assert.match(r.lines[0], /^Test hook: installing v0\.2\.1 from the local source zip .*cometscout-0\.2\.1\.zip, not from GitHub\.$/);
+  assert.equal(L.currentVersion(H), '0.2.1');
+  assert.ok(listBackups().some(b => b.label === 'pre-update-v0.2.0-to-v0.2.1'));
+  assert.equal(fetchCalls.length, calls); assert.equal(downloads.length, dls);
+  // the command line takes the hook only with --to and --sha256
+  for (const args of [['update', '--from-zip', zip], ['update', '--to', 'v0.2.2', '--from-zip', zip], ['update', '--to', 'v0.2.2', '--sha256', good], ['update', '--to', 'v0.2.2', '--from-zip', '--sha256', good]]) {
+    const c = cli(args); assert.equal(c.status, 1, args.join(' ')); assert.match(c.stdout, /--from-zip is a test hook: node cli\.mjs update --to vX\.Y\.Z --from-zip <source zip> --sha256 <its sha256>/);
+  }
+  assert.equal(L.currentVersion(H), '0.2.1');
+});

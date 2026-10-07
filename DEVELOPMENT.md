@@ -52,6 +52,8 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 | `lib/coach.mjs`, `deploy/modules/` | The interview coach module: installer (`coach.sh`, `coach.ps1` both run `node lib/coach.mjs install`), doctor lines, the hand-off file |
 | `lib/transcribe.mjs`, `deploy/modules/transcribe*` | The transcription module: installer (`transcribe.sh`, `transcribe.ps1` both run `node lib/transcribe.mjs install`: a venv with a pinned faster-whisper and the pinned libraries in `transcribe/constraints.txt`), `transcribe/transcribe.py` (one file in, JSON segments out), `cli.mjs transcribe`, the queue and its lock, outputs, doctor lines, the path unit. Tests use a fake transcriber through `COMETSCOUT_TRANSCRIBE_CMD`; Python is only ever inside the module's venv |
 | `tools/` | `gmail-auth.mjs`; `workspace-demo.mjs` (demo data for the workspace) and `text-pdf.mjs` (small text PDFs for it and the tests) |
+| `tools/rehearse/` | The install rehearsal: `rehearse.sh` (the new-user path on a fresh Debian or Ubuntu machine with systemd, step by step, PASS or FAIL), `cleanup.sh`, and `lib.mjs` (its helpers: the fake next version and its source zip, settings, the canned model answer, synthetic jobs, expected doctor TODOs, the report) |
+| `.github/workflows/` | CI: `test.yml` (`npm test` on Linux and Windows, Node 20 and 22) and `rehearse.yml` (the rehearsal on Ubuntu 24.04, weekly and when the install, update or backup code changes) |
 | `test/` | `node --test` unit tests; `test/fixtures/` synthetic inputs |
 | `ROADMAP.md` | Milestones and what is in progress |
 | `docs/tasks/` | Self-contained task briefs (good for cloud sessions) |
@@ -70,6 +72,10 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 A release that changes stored data ships a migration: `migrations/NNN-name.mjs` (the next free number) exporting `id` (the file name without `.mjs`) and `async up(ctx)`, and lists the id in its `release.json` entry. `ctx` has `root`, `data`, `state(name)`, `settingsFile`, `readJson`, `writeJson` (atomic) and `log`. `node cli.mjs migrate` (an update runs the new release's own) applies the ones `data/state/schema.json` does not list yet, in order, and records each right after it ran. Write each one so it can run again safely (check before you write).
 
 **Expand, then contract.** A release only adds files and fields that the previous release ignores. Removing or renaming a file or a field waits for the release after that, once no supported version reads the old shape. So the previous release always runs on the newer data, and switching the code back (`cli.mjs rollback`, or an update that failed its checks) is always safe. A migration never deletes or rewrites data the previous release needs.
+
+## Install rehearsal
+
+`bash tools/rehearse/rehearse.sh` walks the path a new user takes on a fresh Debian 12/13 or Ubuntu 22.04/24.04 machine with systemd, as a normal user with passwordless sudo: `deploy/install.sh`, the layout and doctor, a profile and settings, the units, one evening run through `systemctl --user start cometscout.service`, the workspace, backup and restore, export and import into a second home, an update from a locally built source zip (`update --from-zip`, a test hook) and a rollback, the units from before the rename, and cleanup. No model, Telegram, Gmail or job board: three synthetic jobs go through the drop-dir source and the model is a canned answer (`COMETSCOUT_LLM_FAKE`, set only for its own run). `--ref <tag|branch|sha>` installs another commit, `--keep` leaves everything for a look (`tools/rehearse/cleanup.sh` removes it). It refuses to start where CometScout units are already installed for the user. CI runs it in `.github/workflows/rehearse.yml`; run it yourself in a throwaway VM, container or WSL distro with systemd when you change the install, units, update or backup code.
 
 ## Releases
 

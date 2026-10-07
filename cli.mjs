@@ -30,6 +30,7 @@
 //   node cli.mjs update [--to vX.Y.Z]                        # back up, install side by side, migrate, switch, verify; rolls back by itself on failure
 //   node cli.mjs update --check | --tonight [vX.Y.Z] | --skip vX.Y.Z   # ask GitHub now; install after tonight's run; never offer this version again
 //   node cli.mjs update --adopt [--no-units] [--keep-old-units]         # move a git-clone install's code into app/releases (once)
+//   node cli.mjs update --to vX.Y.Z --from-zip <zip> --sha256 <hex>     # test hook (tools/rehearse): a local source zip instead of GitHub's
 //   node cli.mjs rollback [--to vX.Y.Z] [--restore-data [--yes]]        # switch the code back; --restore-data also restores the pre-update backup
 //   node cli.mjs migrate [--dry-run]                         # apply this version's data migrations (an update runs it)
 //   node cli.mjs evals sample --set <name> [--size 70] [--from D] [--to D] [--seed N] [--include <file>]   # a label set (label it at /label?set=<name>)
@@ -196,7 +197,7 @@ function doctor() {
   if (sch.legacy) warn(`run_time is read as schedule.time  ->  replace it with "schedule": { "days": [1, 2, 3, 4, 5, 6, 7], "time": "${sch.time}" } (saving in the workspace or the bot does this)`);
   ok(true, `interview prep: ${prep.days_before ? `${prep.days_before} day(s) before an interview, at most ${prep.max} pick(s)` : 'off (picks.prep.days_before is 0)'}`);
   const vendor = vendorCheck();
-  ok(vendor.ok, `workspace modules: ${vendor.ok ? Object.entries(vendor.versions).map(([k, v]) => `${k} ${v}`).join(', ') : 'preact and htm not installed'}`, `run npm install in ${CODE} (needed for node cli.mjs serve only)`);
+  ok(vendor.ok, `workspace modules: ${vendor.ok ? Object.entries(vendor.versions).map(([k, v]) => `${k} ${v}`).join(', ') : 'preact and htm not installed'}`, `run npm ci --omit=dev in ${CODE} (needed for node cli.mjs serve only)`);
   ok(localeOk(), `locale: ${SETTINGS.locale || 'en'}`, `unknown locale "${SETTINGS.locale}"; use one of ${LOCALES.join(', ')} (English is used meanwhile)`);
   ok(true, `health ping: ${SETTINGS.health?.ping_url ? 'set' : 'not set (optional: health.ping_url, so a run that never happens is noticed)'}`);
   if (SETTINGS.tracker_export?.enabled) { const o = SETTINGS.tracker_export.out || 'tracker/pipeline.json'; ok(true, `tracker export: ${path.isAbsolute(o) ? o : path.posix.join(path.basename(DATA), o.replace(/\\/g, '/'))}`); }

@@ -492,10 +492,12 @@ test('onPath finds a command, with PATHEXT on Windows', () => {
   const bin = path.join(tmp, 'bin'); fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'claude'), '');
   fs.writeFileSync(path.join(bin, 'codex.cmd'), '');
-  assert.equal(coach.onPath('claude', { env: { PATH: bin }, platform: 'linux' }), true);
-  assert.equal(coach.onPath('nothing-here', { env: { PATH: bin }, platform: 'linux' }), false);
+  // platform 'linux' splits PATH on ":", which a Windows path with a drive letter cannot pass through
+  const host = process.platform === 'win32' ? 'win32' : 'linux';
+  assert.equal(coach.onPath('claude', { env: { PATH: bin }, platform: host }), true);
+  assert.equal(coach.onPath('nothing-here', { env: { PATH: bin }, platform: host }), false);
   assert.equal(coach.onPath('codex', { env: { Path: bin, PATHEXT: '.EXE;.CMD' }, platform: 'win32' }), true);
-  assert.equal(coach.onPath('codex', { env: { PATH: bin }, platform: 'linux' }), false);
+  if (host === 'linux') assert.equal(coach.onPath('codex', { env: { PATH: bin }, platform: 'linux' }), false, 'no PATHEXT off Windows');
 });
 
 test('cli doctor prints the coach lines', () => {

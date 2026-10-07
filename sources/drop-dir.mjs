@@ -14,7 +14,7 @@
 // the cap are not touched: their file stays and they are fetched on the next run.
 // Only *.md and *.queue.json are read; dotfiles and anything else (desktop.ini, editor swap files, sync clients'
 // temp files) are ignored. A file younger than settle_sec is left for the next run: another program may still be
-// writing it (a modification time in the future counts as settled, so a skewed clock cannot pin a file).
+// writing it (a modification time more than settle_sec in the future counts as settled, so a skewed clock cannot pin a file).
 // A file that fails validation (bad JSON, no candidates list, a job file without company/role) is moved to
 // <dir>/failed/ with a "<name>.reason.txt" beside it. A file that keeps failing for another reason (permissions,
 // a sync client holding it) is retried on the next run and moved to failed/ after 3 runs.
@@ -225,7 +225,9 @@ export async function run({ fetch: fetchFn, dryRun = false, pageDelayMs = PAGE_D
       const file = path.join(cfg.dir, e.name);
       try {
         const age = Date.now() - fs.statSync(file).mtimeMs;
-        if (age >= 0 && age < settleMs) { report.push(`${e.name}: too new, left for the next run`); continue; }
+        // a file stamped a moment in the future is still fresh (Windows can stamp a file just written a few ms ahead
+        // of Date.now()); only one further ahead than settle_sec counts as settled
+        if (age > -settleMs && age < settleMs) { report.push(`${e.name}: too new, left for the next run`); continue; }
         const r = isQueueFile(e.name)
           ? await handleQueueFile(file, { processedDir, failedDir, dryRun, fetch: fetchFn, seen: state.seen, tried, pageDelayMs, sleep, clock, pages })
           : handleJobFile(file, { processedDir, failedDir, dryRun });
