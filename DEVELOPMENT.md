@@ -18,7 +18,7 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 
 | Path | What |
 |---|---|
-| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `coach-handoff`, `interview`, `bot`, `transcribe`, `update`, `rollback`, `migrate`, `evals`) |
+| `cli.mjs` | Every command (`run`, `sources`, `decode`, `pack`, `picks`, `applied`, `status`, `list`, `doctor`, `timer`, `reset`, `export`, `import`, `export-secrets`, `import-secrets`, `backup`, `backups`, `restore`, `tracker-export`, `sources-report`, `notify`, `serve`, `mcp`, `coach-handoff`, `interview`, `bot`, `transcribe`, `update`, `rollback`, `migrate`, `evals`) |
 | `lib/config.mjs` | Settings, profile, `.env`, data dirs, `num()`, `today()`, model environment |
 | `lib/queue.mjs` | Job files: `writeJob`, `loadJob`, `alreadyQueued` (dedupe), `matchesAny` (filters), `parseResult` |
 | `lib/llm.mjs` | `callJson()` for Claude Code or Codex with a JSON schema |
@@ -27,7 +27,13 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 | `lib/workspace.mjs`, `lib/server.mjs` | The workspace: API payloads (today, job, pack, labels, status, later, pack files, label sets for `/label`) and the `node:http` server behind `cli.mjs serve` |
 | `web/` | The workspace's browser code, no build step: `index.html` (import map), `app.js`, `components/` (Preact + htm), `lib/` (pure logic with no DOM, tested by `node --test`), `styles.css` |
 | `lib/schedule.mjs` | `settings.schedule` (digest days and time, `offDay`) and `picks.prep` (`prepState`, `prepQualifies`), interview dates from events |
-| `lib/settings-writer.mjs`, `lib/jsonedit.mjs` | The one writer for settings the workspace and the bot change: validates like doctor, edits only those values in settings.json, reinstalls the timer on a time change |
+| `lib/settings-writer.mjs`, `lib/jsonedit.mjs` | The one writer for settings the workspace and the bot change: validates like doctor, edits only those values in settings.json, reinstalls the timer on a time change; `setSetting` (one value by its path, with a unified diff) is what the MCP server's `settings_set` writes through |
+| `lib/settings-schema.mjs` | Every known setting (type, default, allowed values, one line of help, locked or not) and `SOURCES`; `settingsProblems` is doctor's settings checks on a settings object. A new setting needs a row here: `test/settings-schema.test.mjs` fails when doctor reads a key the table lacks |
+| `lib/doctor.mjs` | `doctorItems()`: the doctor check as items { level, text, fix }; `cli.mjs doctor` prints them (`--json` as JSON) |
+| `lib/run-log.mjs` | `data/state/runs.jsonl`: one line per evening run (sources and their exits, counts, failures) for the MCP server's status and run_log |
+| `lib/mcp.mjs`, `lib/mcp-tools.mjs` | The MCP server (`cli.mjs mcp`): JSON-RPC over stdio written by hand (MCP 2026-07-28, plus initialize for older clients), scopes, and the tools, resources and prompts. Writes go through the writers above, check the run lock and append to `data/state/mcp-log.jsonl`; stdout is protocol only |
+| `lib/env-names.mjs` | Environment variable names: the names `.env` may never set (start-up, proxy, certificate and `COMETSCOUT_*` names; `lib/secrets.mjs` refuses to write them and `lib/config.mjs` to load them), the fixed list of secrets CometScout reads (the only names a secrets link offers), and `secretEnvName`, the checked name behind every `*_env` setting (never another feature's secret). Read a `*_env` setting through it, never directly |
+| `lib/secrets-form.mjs`, `web/secrets.js` | Which secrets each feature needs (never the values), and the one-time links behind the workspace's `/secrets` page, which writes `.env` through `lib/secrets.mjs` |
 | `lib/bot.mjs` | The Telegram bot (`cli.mjs bot`): `COMMANDS` and `BUTTONS` tables, a transport injected in tests, the long-poll loop |
 | `lib/hooks.mjs` | `runHook(event, payload)` |
 | `lib/legacy-names.mjs` | Every fallback for a name from before the rename: environment variables, the workspace header, systemd units, backup, export and secrets names |

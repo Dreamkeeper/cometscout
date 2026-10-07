@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import { SETTINGS, STATE, readJson, secret, log, num } from '../lib/config.mjs';
 import { writeJob, matchesAny, applications } from '../lib/queue.mjs';
 import { checkGates, fromRtj, gateTally, settle } from '../lib/gates.mjs';
+import { secretEnvName } from '../lib/env-names.mjs';
 
 const cfg = SETTINGS.sources.rtj || {};
 const args = process.argv.slice(2);
@@ -17,8 +18,10 @@ const DRY = args.includes('--dry-run');
 const HOURS = num((i => i >= 0 ? args[i + 1] : null)(args.indexOf('--hours')) ?? cfg.hours, 24, 1);
 const MAX_BACK = num(cfg.max_lookback_hours, 168, HOURS);   // after missed days, catch up at most this far back
 if (!cfg.enabled) { log('rtj: disabled in settings.json'); process.exit(0); }
-const token = secret(cfg.token_env || 'RTJ_API_TOKEN');
-if (!token) { log(`rtj: ${cfg.token_env || 'RTJ_API_TOKEN'} is not set in .env`); process.exit(2); }
+const tokenEnv = secretEnvName(cfg.token_env, 'RTJ_API_TOKEN');   // never another feature's secret (lib/env-names.mjs)
+if (tokenEnv.problem) { log(`rtj: sources.rtj.token_env: ${tokenEnv.problem}`); process.exit(2); }
+const token = secret(tokenEnv.name);
+if (!token) { log(`rtj: ${tokenEnv.name} is not set in .env`); process.exit(2); }
 applications();   // a broken applications.json stops the source before it marks anything seen
 
 const stateFile = STATE('rtj-state.json'); const state = readJson(stateFile, { last_before: null });

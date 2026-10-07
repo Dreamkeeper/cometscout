@@ -32,6 +32,7 @@ import crypto from 'node:crypto';
 import { SETTINGS, STATE, read, log, num, today, isMain } from '../lib/config.mjs';
 import { writeJob, matchesAny, htmlText, applications } from '../lib/queue.mjs';
 import { checkGates, countriesIn, gateTally, settle } from '../lib/gates.mjs';
+import { secretEnvName } from '../lib/env-names.mjs';
 
 export const API = 'https://api.hirify.me';
 export const SITE = 'https://hirify.me';
@@ -246,8 +247,9 @@ function retryAfterMs(h, now) {
  */
 export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSleep, send = null, dryRun = false, now = new Date(),
   cfg = SETTINGS.sources.hirify || {}, gates = SETTINGS.gates, check = checkGates, env = process.env } = {}) {
-  const envName = cfg.cookie_env || 'HIRIFY_COOKIE';
-  const envCookie = String(env[envName] || '').trim();
+  // the checked name: never a refused variable or another feature's secret (lib/env-names.mjs); '' reads nothing
+  const cookieEnv = secretEnvName(cfg.cookie_env, 'HIRIFY_COOKIE'), envName = cookieEnv.name || 'HIRIFY_COOKIE';
+  const envCookie = cookieEnv.name ? String(env[cookieEnv.name] || '').trim() : '';
   const jarFile = COOKIE_FILE(), stateFile = STATE('hirify.json');
   const jar = envCookie ? loadJar(envCookie, jarFile) : {};
   let jarChanged = false;
@@ -270,6 +272,7 @@ export async function run({ fetch: fetchFn = globalThis.fetch, sleep = defaultSl
     }
     return result(EXIT_SESSION);
   }
+  if (cookieEnv.problem) { say(`hirify: sources.hirify.cookie_env: ${cookieEnv.problem}`); return result(2); }
   if (!envCookie) return needsUser(`${envName} is not set in .env`);
 
   const DELAY = num(cfg.delay_ms, 1500, 0), MAX_PAGES = num(cfg.max_pages_per_filter, 3, 1), MAX_AGE = num(cfg.max_age_days, 14, 0);
