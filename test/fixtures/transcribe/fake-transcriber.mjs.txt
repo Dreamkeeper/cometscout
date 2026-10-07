@@ -6,6 +6,11 @@
 // for it; "UNSURE" makes the detection 45% sure, "NOGIGAAM" makes GigaAM fail, "NOWHISPER" makes Whisper fail on it after
 // the detection, "DETECTFAIL" makes the detection fail. FAKE_TRANSCRIBE_LOG, when set, gets one JSON line per call: the
 // arguments and the thread caps it saw. Synthetic text only.
+// Speakers (task 21): --diarize gives canned turns for the same synthetic calls (English: speaker 0 asks, speaker 1
+// answers; "SPLIT" moves the change into the middle of a segment, "OVERLAP" adds 1.6 s of overlapping speech, "THREE"
+// adds a third speaker, "DIARBROKEN" fails) and fake embeddings: speaker 0 is [1, 0, 0], speaker 1 [0, 1, 0], a third
+// [0, 0, 1]; each --samples file's text "VEC a,b,c" is its embedding. --convert (a list, or a file with it) copies each source to its destination.
+// --words gives English words too (evenly timed in each segment).
 import fs from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -14,7 +19,28 @@ const flag = n => args.includes(`--${n}`);
 const audio = args[args.length - 1];
 const out = opt('out'), model = opt('model') || 'medium', engine = opt('engine') || 'whisper';
 if (process.env.FAKE_TRANSCRIBE_LOG) fs.appendFileSync(process.env.FAKE_TRANSCRIBE_LOG, `${JSON.stringify({ args, audio, omp: process.env.OMP_NUM_THREADS || null })}\n`);
+if (opt('convert')) {
+  const pairs = JSON.parse(fs.existsSync(opt('convert')) ? fs.readFileSync(opt('convert'), 'utf8') : opt('convert'));
+  for (const [src, dst] of pairs) fs.copyFileSync(src, dst);
+  fs.writeFileSync(out, JSON.stringify({ engine: 'convert', converted: pairs.length }));
+  process.exit(0);
+}
 const text = fs.readFileSync(audio, 'utf8');
+if (flag('diarize')) {
+  if (text.includes('DIARBROKEN')) { process.stderr.write('error: RuntimeError: synthetic separation failure\n'); process.exit(1); }
+  const ru = text.includes('RUSSIAN');
+  const turns = ru ? [{ start: 0, end: 9.5, speaker: 0 }, { start: 10.4, end: 15.4, speaker: 1 }]
+    : [{ start: 0, end: text.includes('SPLIT') ? 7.0 : 10.0, speaker: 0 }, { start: text.includes('SPLIT') ? 7.1 : 12.9, end: 21, speaker: 1 }, { start: 3725, end: 3730, speaker: 0 }];
+  if (text.includes('OVERLAP')) turns.push({ start: 8.0, end: 9.6, speaker: 1 });
+  if (text.includes('THREE')) turns.push({ start: 21.5, end: 24, speaker: 2 });
+  turns.sort((a, b) => a.start - b.start);
+  const vec = { 0: [1, 0, 0], 1: [0, 1, 0], 2: [0, 0, 1] };
+  const speakers = Object.fromEntries([...new Set(turns.map(x => x.speaker))].map(k => [String(k), { embedding: vec[k], seconds: turns.filter(x => x.speaker === k).reduce((n, x) => n + x.end - x.start, 0), turns_used: 1 }]));
+  const samples = JSON.parse(opt('samples') || '[]').map(f => ({ file: f, embedding: (fs.readFileSync(f, 'utf8').match(/VEC ([\d.,-]+)/)?.[1] || '0,0,0').split(',').map(Number), seconds: 30 }));
+  fs.writeFileSync(out, JSON.stringify({ engine: 'diarize', duration: ru ? 16 : 3730, turns, speakers, samples, num_speakers: Object.keys(speakers).length, reclustered: false,
+    threads: Number(opt('threads')), load_seconds: 0.5, diarize_seconds: 3, cpu_seconds: ru ? 4 : 120, peak_rss_mb: 300 }));
+  process.exit(0);
+}
 const fail = line => { process.stderr.write(`loading model\nerror: ${line}\n`); process.exit(1); };
 if (text.includes('BADPATH')) { process.stderr.write(`error: InvalidDataError: Invalid data found when processing input: ${JSON.stringify(audio)}\n`); process.exit(1); }
 if (text.includes('FAIL') && !text.includes('DETECTFAIL')) fail('RuntimeError: synthetic decoder failure');
@@ -77,12 +103,16 @@ if (russian) {
     load_seconds: 1.5, transcribe_seconds: 8, peak_rss_mb: 1530, ...extra, segments: segmentsOf(WHISPER, words) });
   process.exit(0);
 }
-const segments = text.includes('EMPTY') ? [] : [
+const segments = (text.includes('EMPTY') ? [] : [
   { start: 0, end: 4.2, text: ' Hello, thanks for joining the call today.' },
   { start: 4.5, end: 9.8, text: ' Could you walk me through your last product launch?' },
   { start: 13.1, end: 20.4, text: ' Sure. We shipped a synthetic billing feature in six weeks.' },
   { start: 3725.4, end: 3729.0, text: ' Thank you, that is all from me.' },
-];
+]).map(seg => {
+  if (!words) return seg;
+  const ws = seg.text.trim().split(' '), step = (seg.end - seg.start) / ws.length;
+  return { ...seg, words: ws.map((w, i) => ({ text: w, start: Math.round((seg.start + i * step) * 100) / 100, end: Math.round((seg.start + (i + 1) * step) * 100) / 100, probability: 0.9 })) };
+});
 // small is faster than medium in the bench; the numbers are fixed so the report math can be checked
 const speed = { small: 30, medium: 60, 'large-v3': 120 }[model] ?? 90;
 write({ engine: 'whisper', language: 'en', language_probability: 0.97, duration: 3730, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),

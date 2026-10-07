@@ -24,5 +24,18 @@ export function length(sec) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${r}` : `${m}:${r}`;
 }
 
+/**
+ * The names to send for a transcript's speakers: { label: name } for each one the user changed (names typed, trimmed),
+ * compared with what the server shows now. An emptied field sends '' (back to the label).
+ */
+export function renames(speakers, typed) {
+  const out = {};
+  for (const x of speakers || []) {
+    const v = String(typed?.[x.label] ?? '').trim();
+    if (v !== String(x.name ?? '').trim() && !(v === '' && x.name === x.label)) out[x.label] = v;
+  }
+  return out;
+}
+
 /** True while something is waiting or running: the dialog keeps polling. */
 export const busyQueue = status => !!(status?.running || status?.waiting?.length);

@@ -45,6 +45,8 @@ export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
     /** The transcription queue: { enabled, installed, max_upload_mb, waiting, running, failed, done } */
     transcribe: () => call('GET', '/api/transcribe'),
     /** A File (or Blob with a name) as the body, streamed by the browser; its name percent-encoded in X-File-Name. */
+    /** Names for a transcript's speakers: { ok, dir, names, status } */
+    renameSpeakers: (dir, names) => call('POST', '/api/transcribe/rename', { dir, names }),
     uploadAudio: file => call('POST', '/api/transcribe/upload', null, { body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) } }),
   };
 }

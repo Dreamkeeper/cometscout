@@ -31,6 +31,19 @@ threshold, min_silence_duration_ms, speech_pad_ms, tuned for cutting rather than
 minimum silence gives a few very long segments), grouped into chunks of 15 to 22 seconds (never more than 25) cut only
 at pauses where there are any ("forced_cuts" counts the cuts made inside speech), and each chunk's word times are moved
 back to the file's time.
+
+Speakers (the --with-speakers extra: sherpa-onnx and the models in <models-dir>/speakers, from k2-fsa's GitHub releases):
+  python transcribe.py --diarize --out result.json --segmentation MODEL.onnx --embedding-model MODEL.onnx
+                       [--num-speakers N | --min-speakers 2 --max-speakers 4] [--cluster-threshold 0.5]
+                       [--samples JSON] [--threads 2] AUDIO
+  writes {"engine": "diarize", "duration", "turns": [{"start", "end", "speaker"}], "speakers": {"0": {"embedding",
+  "seconds", "turns_used"}}, "samples": [{"file", "embedding", "seconds"}], "num_speakers", "reclustered",
+  "load_seconds", "diarize_seconds", "cpu_seconds", "peak_rss_mb"}. A speaker's embedding is the mean of its longest
+  turns that no other speaker overlaps (up to 30 s); --samples (a JSON list of files, such as the user's voice sample)
+  are embedded whole with the same model. Without --num-speakers the count is found by the threshold, then clamped to
+  --min-speakers and --max-speakers (one more clustering pass when it falls outside).
+  python transcribe.py --out result.json --convert JSON|FILE
+  (a list of [source, destination], or a file holding it: each to a 16 kHz mono 16-bit WAV, for the bench's calls)
 """
 import argparse
 import json
@@ -327,9 +340,128 @@ def run_gigaam(a, started):
             "load_seconds": round(loaded - started, 2), "transcribe_seconds": round(done - loaded, 2), "segments": out}
 
 
+# ---------- speakers ----------
+EMB_TURNS_S = 30.0   # a speaker's embedding is taken from up to this much of its clean turns
+EMB_TURN_MAX_S = 15.0
+EMB_MIN_TURN_S = 1.0
+
+
+def embed(extractor, samples):
+    """One speaker embedding (a list of floats) for a stretch of 16 kHz samples, or None when it is too short."""
+    stream = extractor.create_stream()
+    stream.accept_waveform(SAMPLE_RATE, samples)
+    stream.input_finished()
+    if not extractor.is_ready(stream):
+        return None
+    return list(extractor.compute(stream))
+
+
+def mean_embedding(vectors):
+    """The normalised mean of normalised vectors, rounded for the JSON; None without any."""
+    import numpy as np
+    vs = [np.asarray(v, dtype=np.float64) for v in vectors if v]
+    vs = [v / (np.linalg.norm(v) or 1.0) for v in vs]
+    if not vs:
+        return None
+    m = np.mean(vs, axis=0)
+    return [round(float(x), 6) for x in m / (np.linalg.norm(m) or 1.0)]
+
+
+def speaker_embeddings(extractor, audio, turns):
+    """{speaker: {"embedding", "seconds", "turns_used"}}: each speaker's longest turns that no other speaker overlaps (its
+    longest turns of any kind when it has no clean one), up to EMB_TURNS_S seconds, embedded and averaged."""
+    out = {}
+    for sp in sorted({t["speaker"] for t in turns}):
+        mine = [t for t in turns if t["speaker"] == sp]
+        clean = [t for t in mine if not any(o["speaker"] != sp and o["start"] < t["end"] and t["start"] < o["end"] for o in turns)]
+        long_clean = [t for t in clean if t["end"] - t["start"] >= EMB_MIN_TURN_S]
+        pool = sorted(long_clean or clean or mine, key=lambda t: t["start"] - t["end"])
+        used, total, vectors = 0, 0.0, []
+        for t in pool:
+            if total >= EMB_TURNS_S:
+                break
+            take = min(t["end"] - t["start"], EMB_TURNS_S - total, EMB_TURN_MAX_S)
+            vectors.append(embed(extractor, audio[int(t["start"] * SAMPLE_RATE):int((t["start"] + take) * SAMPLE_RATE)]))
+            total += take
+            used += 1
+        out[str(sp)] = {"embedding": mean_embedding(vectors), "seconds": round(sum(t["end"] - t["start"] for t in mine), 2),
+                        "turns_used": used}
+    return out
+
+
+def run_diarize(a, started):
+    try:
+        import sherpa_onnx
+    except ImportError as e:
+        raise RuntimeError(f"sherpa-onnx is not installed in this Python ({e}); run deploy/modules/transcribe.sh --with-speakers")
+    cpu0 = time.process_time()
+    for f in (a.segmentation, a.embedding_model):
+        if not f or not os.path.isfile(f):
+            raise RuntimeError(f"no speaker model at {f}; run deploy/modules/transcribe.sh --with-speakers")
+    threads = max(1, a.threads)
+
+    def config(num_clusters):
+        return sherpa_onnx.OfflineSpeakerDiarizationConfig(
+            segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
+                pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=a.segmentation), num_threads=threads),
+            embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=a.embedding_model, num_threads=threads),
+            clustering=sherpa_onnx.FastClusteringConfig(num_clusters=num_clusters, threshold=a.cluster_threshold),
+            min_duration_on=0.3, min_duration_off=0.5)
+
+    first = config(a.num_speakers or -1)
+    if not first.validate():
+        raise RuntimeError("the speaker models do not load (sherpa-onnx refused the configuration)")
+    sd = sherpa_onnx.OfflineSpeakerDiarization(first)
+    extractor = sherpa_onnx.SpeakerEmbeddingExtractor(
+        sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=a.embedding_model, num_threads=threads))
+    loaded = time.monotonic()
+    audio = load_audio(a.audio)
+    duration = len(audio) / SAMPLE_RATE
+    log(f"separating speakers in {duration:.0f} s of audio ({threads} threads)")
+
+    def turns_of(result):
+        return [{"start": round(r.start, 2), "end": round(r.end, 2), "speaker": int(r.speaker)} for r in result.sort_by_start_time()]
+
+    turns = turns_of(sd.process(audio))
+    found, reclustered = len({t["speaker"] for t in turns}), False
+    if not a.num_speakers and turns and not (a.min_speakers <= found <= a.max_speakers):
+        want = min(max(found, a.min_speakers), a.max_speakers)
+        log(f"{found} speaker(s) found, outside {a.min_speakers} to {a.max_speakers}: clustering again for {want}")
+        sd.set_config(config(want))
+        turns, reclustered = turns_of(sd.process(audio)), True
+    log(f"{len({t['speaker'] for t in turns})} speaker(s) in {len(turns)} turns")
+    speakers = speaker_embeddings(extractor, audio, turns)
+    samples = []
+    for f in a.samples:
+        wav = load_audio(f)
+        samples.append({"file": f, "embedding": mean_embedding([embed(extractor, wav)]), "seconds": round(len(wav) / SAMPLE_RATE, 1)})
+    done = time.monotonic()
+    return {"engine": "diarize", "duration": round(duration, 2), "segmentation": os.path.basename(os.path.dirname(a.segmentation)),
+            "embedding_model": os.path.basename(a.embedding_model), "threads": threads,
+            "num_speakers": len({t["speaker"] for t in turns}), "reclustered": reclustered, "turns": turns,
+            "speakers": speakers, "samples": samples, "load_seconds": round(loaded - started, 2),
+            "diarize_seconds": round(done - loaded, 2), "cpu_seconds": round(time.process_time() - cpu0, 2)}
+
+
+def run_convert(pairs):
+    """[source, destination] pairs: each to a 16 kHz mono 16-bit WAV (the bench's synthetic calls are mixed from these)."""
+    import wave
+    import numpy as np
+    for src, dst in pairs:
+        pcm = (np.clip(load_audio(src), -1.0, 1.0) * 32767).astype("<i2")
+        tmp = dst + ".tmp"
+        with wave.open(tmp, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SAMPLE_RATE)
+            w.writeframes(pcm.tobytes())
+        os.replace(tmp, dst)
+    return {"engine": "convert", "converted": len(pairs)}
+
+
 def main():
     p = argparse.ArgumentParser(description="Transcribe one audio file on the CPU with faster-whisper or GigaAM.")
-    p.add_argument("audio")
+    p.add_argument("audio", nargs="?", default=None)
     p.add_argument("--out", required=True, help="where to write the JSON result")
     p.add_argument("--engine", choices=["whisper", "gigaam"], default="whisper")
     p.add_argument("--engines", default=None, help="Whisper without --language: JSON engine per language; detect, route, transcribe")
@@ -345,7 +477,41 @@ def main():
     p.add_argument("--models-dir", default=None, help="where models are downloaded and cached")
     p.add_argument("--vad", choices=sorted(VADS), default="silero", help="GigaAM: how speech is found in long audio")
     p.add_argument("--vad-options", default="{}", help="GigaAM: JSON with threshold, min_silence_duration_ms, speech_pad_ms")
+    p.add_argument("--diarize", action="store_true", help="separate speakers instead of transcribing (the --with-speakers extra)")
+    p.add_argument("--segmentation", default=None, help="--diarize: the pyannote segmentation model (model.onnx)")
+    p.add_argument("--embedding-model", default=None, help="--diarize: the speaker embedding model (.onnx)")
+    p.add_argument("--num-speakers", type=int, default=0, help="--diarize: a fixed number of speakers (0: found)")
+    p.add_argument("--min-speakers", type=int, default=1)
+    p.add_argument("--max-speakers", type=int, default=20)
+    p.add_argument("--cluster-threshold", type=float, default=0.5, help="--diarize: lower finds more speakers")
+    p.add_argument("--samples", default="[]", help="--diarize: JSON list of voice samples to embed with the same model")
+    p.add_argument("--convert", default=None, help="JSON list of [source, destination], or a file with it: 16 kHz mono WAVs (the bench)")
     a = p.parse_args()
+    if a.convert is not None:
+        try:
+            pairs = json.loads(open(a.convert, encoding="utf-8").read() if os.path.isfile(a.convert) else a.convert)
+            if not isinstance(pairs, list) or not all(isinstance(x, list) and len(x) == 2 for x in pairs):
+                raise ValueError
+        except ValueError:
+            log(f"error: --convert is not a JSON list of [source, destination]: {a.convert}")
+            return 2
+        try:
+            import faster_whisper  # noqa: F401  (its audio decoder)
+        except ImportError as e:
+            log(f"error: faster-whisper is not installed in this Python ({e}); run deploy/modules/transcribe.sh")
+            return 1
+        write_json(a.out, run_convert(pairs))
+        return 0
+    if not a.audio:
+        log("error: no audio file given")
+        return 2
+    try:
+        a.samples = json.loads(a.samples or "[]")
+        if not isinstance(a.samples, list):
+            raise ValueError
+    except ValueError:
+        log(f"error: --samples is not a JSON list of files: {a.samples}")
+        return 2
     try:
         given = json.loads(a.vad_options or "{}")
         a.vad_options = {k: given.get(k, v) for k, v in VAD_DEFAULTS.items()}
@@ -370,7 +536,9 @@ def main():
     except ImportError as e:
         log(f"error: faster-whisper is not installed in this Python ({e}); run deploy/modules/transcribe.sh")
         return 1
-    if a.engine == "whisper" and a.engines and not a.language:
+    if a.diarize:
+        result = run_diarize(a, started)
+    elif a.engine == "whisper" and a.engines and not a.language:
         result = run_auto(a, started)
     elif a.engine == "gigaam":
         result = run_gigaam(a, started)

@@ -46,3 +46,9 @@ soundfile==0.14.0
 cffi==2.1.1
 PyYAML==6.0.3
 tqdm==4.70.1
+# The speakers extra (transcribe.sh --with-speakers): sherpa-onnx 1.13.8 and sherpa-onnx-core 1.13.8 (Apache-2.0; the core
+# carries its own onnxruntime) have wheels for Python 3.10 to 3.14 on Linux x86_64, aarch64 and Windows x64 (checked on
+# PyPI 2026-10-07), so they need no markers. The models come from k2-fsa's GitHub releases, pinned with their sha256 in
+# lib/transcribe-speakers.mjs.
+sherpa-onnx==1.13.8
+sherpa-onnx-core==1.13.8
