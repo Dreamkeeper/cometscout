@@ -29,3 +29,4 @@ How to work on one:
 | 15 | `15-digest-days-and-interview-prep.md` digest days and time as settings (workspace + Telegram bot commands), off days decode silently, interview prep mode before new applications, interview date and time recording | 14 |
 | 16 | `16-rename-to-cometscout.md` rename the product to CometScout in code, units, env vars, file names and docs, old names kept working for a release or two | 15 |
 | 17 | `17-evals-and-labelling.md` label sets, the Label view (verdict hidden), decode eval (confusion, precision/recall, replay with history cutoff, paired compare), pack A/B judge, voice judge | none |
+| 18 | `18-transcription-module.md` optional CPU transcription (faster-whisper in its own venv): inbox, queue one at a time at low priority, transcripts to the coach, upload in the workspace and the bot, --bench | none |
