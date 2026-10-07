@@ -5,7 +5,8 @@
 # move to a newer pin. No model is downloaded here: the first job downloads the configured one into the module folder.
 #   bash deploy/modules/transcribe.sh
 #   PYTHON=/usr/bin/python3.12 bash deploy/modules/transcribe.sh     # another Python
-# The work is done by lib/transcribe.mjs (the same code runs on Windows through transcribe.ps1).
+# The work is done by lib/transcribe.mjs (the same code runs on Windows through transcribe.ps1). It installs with the
+# pinned libraries in deploy/modules/transcribe/constraints.txt (pip -c) and needs Python 3.11 to 3.14.
 set -euo pipefail
 CODE="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PYTHON:-python3}"

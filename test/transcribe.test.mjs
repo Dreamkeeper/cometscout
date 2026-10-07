@@ -97,8 +97,12 @@ test('rendering: timestamps, paragraphs, SubRip; transcript.md in English and Ru
 
 test('file names: only the last part, no control or reserved characters, an audio or video extension', () => {
   const cases = { '../../etc/passwd': null, '..\\..\\Windows\\x.mp3': 'x.mp3', '.hidden.mp3': 'hidden.mp3', 'a\u0000b\u0007.wav': 'ab.wav', 'notes.txt': null, '.mp3': null,
-    'C:evil.MP3': 'Cevil.mp3', 'Собеседование 7 окт.m4a': 'Собеседование 7 окт.m4a', 'call?.<x>.ogg': 'call.x.ogg', '': null, [`${'a'.repeat(300)}.opus`]: `${'a'.repeat(115)}.opus` };
+    'C:evil.MP3': 'Cevil.mp3', 'Собеседование 7 окт.m4a': 'Собеседование 7 окт.m4a', 'call?.<x>.ogg': 'call.x.ogg', '': null, [`${'a'.repeat(300)}.opus`]: `${'a'.repeat(115)}.opus`,
+    // Windows device names, with any extension: a "_" in front on every platform
+    'nul.mp3': '_nul.mp3', 'CON.m4a': '_CON.m4a', 'prn.backup.ogg': '_prn.backup.ogg', 'aux.MP4': '_aux.mp4', 'com1 .wav': '_com1.wav', 'LPT9.mp3': '_LPT9.mp3', 'COM¹.mp3': '_COM¹.mp3',
+    'null.mp3': 'null.mp3', 'console.mp3': 'console.mp3', 'com10.mp3': 'com10.mp3', 'nul': null };
   for (const [raw, want] of Object.entries(cases)) assert.equal(T.safeAudioName(raw), want, raw);
+  assert.equal(audioOf({ audio: { file_id: 'n', file_name: 'nul.ogg', mime_type: 'audio/ogg' } }).name, '_nul.ogg', 'the bot uses the same rule');
   assert.equal(T.slug('Call with ACME (final).m4a'), 'call-with-acme-final-m4a');
   assert.equal(T.slug('Собеседование!'), 'собеседование');
   assert.equal(T.slug('***'), 'audio');
@@ -161,7 +165,9 @@ test('the queue: ready files oldest first, one at a time; dot files and other fi
   assert.deepEqual(dirsIn(s.inbox).sort(), ['.upload.mp3', 'notes.txt']);
   assert.ok(fs.existsSync(part) && fs.existsSync(notes));
   assert.ok(logs.some(l => /ignored notes\.txt \(not an audio or video file\)/.test(l)));
-  assert.match(ready[0], /^Transcript ready: first\.mp3 \(01:02:10, en\), data\/transcripts\/\d{4}-\d{2}-\d{2}--first$/);
+  // the real transcripts folder (COMETSCOUT_DATA here), not a fixed data/transcripts
+  assert.ok(ready[0].startsWith(`Transcript ready: first.mp3 (01:02:10, en), ${path.join(s.transcripts, '')}`), ready[0]);
+  assert.match(ready[0], /\d{4}-\d{2}-\d{2}--first$/);
   assert.equal(dirsIn(s.done).length, 2);
 });
 
@@ -223,6 +229,120 @@ test('a failure: the audio stays with a .failed note, one alert; the next run sk
   // the full path in an error becomes the file's name (JSON.stringify doubles backslashes, as Python's repr does)
   const bad = await T.transcribeFile(audio('Long name.ogg', 'BADPATH'), { s, fromInbox: true, log: quiet, alert });
   assert.equal(bad.error, 'InvalidDataError: Invalid data found when processing input: "Long name.ogg"');
+});
+
+test('a transcriber that cannot even be spawned (spawn throws at once) is a normal failure: the note and one alert', async () => {
+  clean();
+  const start = () => { throw new Error('spawn EINVAL (synthetic)'); };
+  const r = await T.runTranscriber(s, { audio: 'x.mp3', start, echo: false });
+  assert.deepEqual([r.code, r.json, r.err], [null, null, 'spawn EINVAL (synthetic)']);
+  const f = audio('nostart.mp3');
+  const alerts = [];
+  assert.deepEqual(await T.runQueue({ s, settleMs: 0, log: quiet, alert: async x => { alerts.push(x); }, notifyDone: async () => {}, start }), { done: 0, failed: 1 });
+  assert.ok(fs.existsSync(f));
+  assert.match(fs.readFileSync(`${f}.failed`, 'utf8'), /spawn EINVAL \(synthetic\)/);
+  assert.deepEqual(alerts, ['Transcription failed: nostart.mp3. spawn EINVAL (synthetic). The audio stays in the inbox with a .failed note; delete the note to try again.']);
+});
+
+test('a file stamped in the future (a wrong clock) is ready at once instead of settling for hours', async () => {
+  clean();
+  const f = audio('future.m4a', 'x', 0);
+  const ahead = new Date(Date.now() + 3 * 3600000); fs.utimesSync(f, ahead, ahead);
+  assert.deepEqual(T.scanInbox(s).ready.map(x => x.name), ['future.m4a']);
+  let sleeps = 0;
+  assert.deepEqual(await T.runQueue({ s, sleep: async () => { sleeps++; }, log: quiet, notifyDone: async () => {} }), { done: 1, failed: 0 });
+  assert.equal(sleeps, 0, 'no waiting');
+  audio('fresh.m4a', 'x', 0);
+  assert.deepEqual(T.scanInbox(s).settling.map(x => x.name), ['fresh.m4a'], 'a file written just now still settles');
+});
+
+test('a job that throws outside its failure path (no transcripts folder can be made): note, one alert, next file, exit 0', async () => {
+  clean();
+  const a = audio('one.mp3', 'x', 300000), b = audio('two.mp3', 'x', 200000);
+  const blocker = path.join(tmp, 'a-file-not-a-folder'); fs.writeFileSync(blocker, 'x');
+  const alerts = [];
+  const r = await T.runQueue({ s: { ...s, transcripts: blocker }, settleMs: 0, log: quiet, alert: async x => { alerts.push(x); }, notifyDone: async () => {} });
+  assert.deepEqual(r, { done: 0, failed: 2 }, 'both tried, one after the other');
+  for (const f of [a, b]) { assert.ok(fs.existsSync(f)); assert.match(fs.readFileSync(`${f}.failed`, 'utf8'), /EEXIST|ENOTDIR/); }
+  assert.equal(alerts.length, 2);
+  assert.match(alerts[0], /^Transcription failed: one\.mp3\. .*(EEXIST|ENOTDIR)/);
+  // through the CLI, as the path unit runs it: data/transcripts is a file, the queue still exits 0
+  clean();
+  fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSync(s.transcripts, 'not a folder');
+  const c = audio('cli.mp3');
+  try {
+    const q = cli(['transcribe', '--queue']);
+    assert.equal(q.status, 0, q.stdout + q.stderr);
+    assert.match(q.stdout, /queue done \(0 transcribed, 1 failed\)/);
+    assert.ok(fs.existsSync(`${c}.failed`));
+  } finally { fs.rmSync(s.transcripts, { force: true }); }
+});
+
+test('enabled but not installed: the queue alerts once, leaves the audio waiting and exits 0; installing clears that', async () => {
+  clean();
+  const bare = { ...s, path: path.join(tmp, 'never-installed') };
+  const memory = path.join(DATA, 'state', 'transcribe-not-installed.json');
+  fs.rmSync(memory, { force: true });
+  const f = audio('waiting.mp3');
+  const alerts = [], logs = [];
+  const opts = { s: bare, log: l => logs.push(l), alert: async x => { alerts.push(x); } };
+  delete process.env.COMETSCOUT_TRANSCRIBE_CMD;
+  try {
+    for (let i = 0; i < 3; i++) assert.equal(await T.transcribeCommand(['--queue'], opts), 0);
+    assert.equal(alerts.length, 1, 'one alert, not one per inbox event');
+    assert.match(alerts[0], /^Transcription is on, but the module is not installed at .*never-installed, so recordings wait in the inbox\. Install it: .*transcribe\.(sh|ps1)\. This alert is sent once\.$/);
+    assert.ok(fs.existsSync(memory));
+    assert.equal(logs.filter(l => /not installed/.test(l)).length, 3);
+    assert.ok(fs.existsSync(f) && !fs.existsSync(`${f}.failed`), 'the audio waits, with no failure note');
+    assert.deepEqual(fakeCalls(), []);
+    assert.equal(await T.transcribeCommand([f], { ...opts, log: quiet }), 1, 'one file by hand still exits 1');
+    // as the path unit starts it: exit 0, no new alert
+    const q = cli(['transcribe', '--queue'], { COMETSCOUT_TRANSCRIBE_CMD: '' });
+    assert.equal(q.status, 0, q.stdout + q.stderr); assert.match(q.stdout, /not installed .*audio waits in the inbox/);
+  } finally { process.env.COMETSCOUT_TRANSCRIBE_CMD = FAKE; }
+  // installed (the fake transcriber stands in): the memory goes and the audio is transcribed
+  assert.equal(await T.transcribeCommand(['--queue'], { ...opts, notifyDone: async () => {} }), 0);
+  assert.ok(!fs.existsSync(memory)); assert.ok(!fs.existsSync(f));
+  // removed again later: one new alert
+  delete process.env.COMETSCOUT_TRANSCRIBE_CMD;
+  try { await T.transcribeCommand(['--queue'], opts); } finally { process.env.COMETSCOUT_TRANSCRIBE_CMD = FAKE; }
+  assert.equal(alerts.length, 2);
+  fs.rmSync(memory, { force: true });
+});
+
+test('"Transcript ready" attaches transcript.md as a document; text only with the setting off, over 50 MB or when the upload fails', async () => {
+  clean();
+  const sent = [];
+  const tg = { on: () => true, send: async x => { sent.push(['text', x]); }, sendDoc: async (file, caption) => { sent.push(['document', path.basename(file), caption, fs.readFileSync(file, 'utf8').split('\n')[0]]); } };
+  audio('attach.mp3');
+  assert.deepEqual(await T.runQueue({ s, settleMs: 0, log: quiet, tg }), { done: 1, failed: 0 });
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].slice(0, 2), ['document', 'transcript.md']);
+  assert.match(sent[0][2], /^Transcript ready: attach\.mp3 \(01:02:10, en\), /, 'the short text is the caption');
+  assert.equal(sent[0][3], '# Transcript: attach.mp3');
+  sent.length = 0; audio('plain.mp3');
+  await T.runQueue({ s: { ...s, telegram_attach: false }, settleMs: 0, log: quiet, tg });
+  assert.deepEqual(sent.map(x => x[0]), ['text'], 'telegram_attach: false');
+  sent.length = 0; audio('small-limit.mp3');
+  const logs = [];
+  await T.runQueue({ s, settleMs: 0, log: l => logs.push(l), tg: { ...tg, max: 10 } });
+  assert.deepEqual(sent.map(x => x[0]), ['text']);
+  assert.ok(logs.some(l => /transcript\.md is .* MB, over the .* a bot can send; sending the text only/.test(l)));
+  // a real file over the 50 MB bot upload limit
+  const huge = path.join(tmp, 'huge-transcript.md');
+  fs.writeFileSync(huge, ''); fs.truncateSync(huge, T.TELEGRAM_UPLOAD_MAX + 1);
+  try {
+    sent.length = 0;
+    assert.equal(await T.sendReady('Transcript ready: huge', { file: huge, log: quiet, tg }), 'text');
+    assert.deepEqual(sent, [['text', 'Transcript ready: huge']]);
+  } finally { fs.rmSync(huge, { force: true }); }
+  const md = path.join(s.transcripts, dirsIn(s.transcripts)[0], 'transcript.md');
+  sent.length = 0;
+  assert.equal(await T.sendReady('refused', { file: md, log: quiet, tg: { ...tg, sendDoc: async () => { throw new Error('Telegram sendDocument 400'); } } }), 'text');
+  assert.deepEqual(sent, [['text', 'refused']]);
+  assert.equal(await T.sendReady('off', { file: md, tg: { ...tg, on: () => false } }), false, 'Telegram off: nothing');
+  assert.equal(T.transcribeSettings({}).telegram_attach, true, 'on by default');
+  assert.equal(T.transcribeSettings({ modules: { transcribe: { telegram_attach: false } } }).telegram_attach, false);
 });
 
 test('audio in done/ is deleted after keep_audio_days; 0 deletes it right after the transcript', async () => {
@@ -300,12 +420,24 @@ test('the workspace upload: streamed into the inbox under a safe name, size limi
   assert.equal((await up('notes.txt', small)).status, 400);
   assert.equal((await up('../../etc/passwd', small)).status, 400);
   assert.equal((await up('empty.mp3', Buffer.alloc(0))).status, 400);
-  const big = Buffer.alloc(1048576 + 10, 1);
-  const r413 = await up('big.mp3', big);
-  assert.equal(r413.status, 413); assert.match(r413.json.error, /over 1 MB/);
-  assert.equal((await up('big.mp3', big, { 'Transfer-Encoding': 'chunked' }).catch(e => ({ status: e.code }))).status, 413, 'chunked, no length');
-  const chunked = await req('POST', '/api/transcribe/upload', { headers: { 'X-CometScout': '1', 'X-File-Name': 'big2.mp3' }, body: big, chunked: true });
-  assert.equal(chunked.status, 413);
+  // Over the limit: the 413 comes and the server closes the connection without reading the rest. The client never
+  // ends its request, so a server that waited for the end of the body would answer nothing (or never close) here.
+  const overLimit = (headers, bodyBytes) => new Promise(resolve => {
+    let status = null, body = '';
+    const r = http.request({ host: '127.0.0.1', port: srv.port, method: 'POST', path: '/api/transcribe/upload', agent: false,
+      headers: { Host: `127.0.0.1:${srv.port}`, 'X-CometScout': '1', 'X-File-Name': 'big.mp3', ...headers } });
+    const timer = setTimeout(() => { r.destroy(); resolve({ status, body, closed: false }); }, 5000);
+    r.on('response', res => { status = res.statusCode; res.on('data', c => { body += c; }); });
+    r.on('error', () => {});   // the server hangs up on a body it does not want
+    r.on('close', () => { clearTimeout(timer); resolve({ status, body, closed: true }); });
+    r.flushHeaders();
+    if (bodyBytes) r.write(Buffer.alloc(bodyBytes, 1));
+  });
+  const declared = await overLimit({ 'Content-Length': String(500 * 1048576) }, 0);
+  assert.deepEqual([declared.status, declared.closed], [413, true], 'by Content-Length: answered and closed with no body read');
+  assert.match(JSON.parse(declared.body).error, /over 1 MB/);
+  const streamed = await overLimit({ 'Transfer-Encoding': 'chunked' }, 1048576 + 1);
+  assert.deepEqual([streamed.status, streamed.closed], [413, true], 'no length: counted as it streams, answered and closed at the limit');
   assert.deepEqual(dirsIn(s.inbox), [], 'nothing kept');
   assert.deepEqual(dirsIn(s.staging).filter(n => n.startsWith('.part-')), [], 'no partial file left');
   assert.equal(kicks, 0);
@@ -329,6 +461,18 @@ test('the workspace upload: streamed into the inbox under a safe name, size limi
   assert.equal(md.status, 200); assert.match(md.headers['content-type'], /^text\/markdown/); assert.match(String(md.buf), /^# Transcript: Final round\.m4a/);
   for (const bad of ['/files/transcripts/..%2F..%2Fsettings.json', '/files/transcripts/x/../../settings.json', `/files/transcripts/${done.dir}/..%5C..%5Csettings.json`, `/files/transcripts/${done.dir}`, '/files/transcripts/a/b/c.md'])
     assert.equal((await req('GET', bad)).status, 404, bad);
+
+  // two uploads of one name at the same moment: both kept, under different names, none overwritten
+  const both = await Promise.all([up('Same call.m4a', Buffer.from('synthetic first')), up('Same call.m4a', Buffer.from('synthetic second'))]);
+  assert.deepEqual(both.map(x => x.json.name).sort(), ['Same call-2.m4a', 'Same call.m4a']);
+  assert.deepEqual(['Same call.m4a', 'Same call-2.m4a'].map(n => fs.readFileSync(path.join(s.inbox, n), 'utf8')).sort(), ['synthetic first', 'synthetic second']);
+  // claimInto never renames over a file that is there, whatever was checked before
+  const staged = T.stagingFile(s); fs.writeFileSync(staged, 'synthetic new');
+  fs.writeFileSync(path.join(s.inbox, 'Taken.mp3'), 'synthetic theirs');
+  assert.equal(path.basename(T.claimInto(s.inbox, 'Taken.mp3', staged)), 'Taken-2.mp3');
+  assert.equal(fs.readFileSync(path.join(s.inbox, 'Taken.mp3'), 'utf8'), 'synthetic theirs');
+  assert.equal(fs.readFileSync(path.join(s.inbox, 'Taken-2.mp3'), 'utf8'), 'synthetic new');
+  assert.ok(!fs.existsSync(staged));
 
   // the module turned off: uploads are refused
   const off = http.createServer((q, s2) => uploadAudio(q, s2, { settings: () => ({ ...s, enabled: false }), kick: () => { kicks++; } }));
@@ -379,7 +523,11 @@ test('the bot: a voice message and an audio document go to the inbox; over 20 MB
   calls.length = 0;
   await make({ transcribe: () => ({ ...s, enabled: false }) }).handle(msg({ voice: { file_id: 'v2', file_size: 10 } }));
   assert.match(calls.at(-1).params.text, /^Transcription is off/);
+  assert.ok(calls.at(-1).params.text.includes(T.INSTALL_COMMAND), 'names the installer for this platform');
   assert.ok(!calls.some(c => c.method === 'getFile'));
+  await make({ transcribe: () => ({ ...s, enabled: false }), install: T.installCommand('win32') }).handle(msg({ voice: { file_id: 'v3', file_size: 10 } }));
+  assert.match(calls.at(-1).params.text, /^Transcription is off\. To turn it on: powershell -ExecutionPolicy Bypass -File deploy\\modules\\transcribe\.ps1, then set modules\.transcribe\.enabled/);
+  assert.equal(T.installCommand('linux'), 'bash deploy/modules/transcribe.sh');
 
   calls.length = 0;
   await make({ t: translator('ru') }).handle(msg({ audio: { file_id: 'a2', file_size: 30 * 1048576 } }));
@@ -512,7 +660,7 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
   const runs = [];
   const fakeRun = ({ version = '3.12', pipStatus = 0, venvOk = true } = {}) => (cmd, args) => {
     runs.push([path.basename(cmd), ...args.map(a => (a === T.venvPython(is) || a === path.join(is.path, 'venv') ? '<venv>' : a))].join(' '));
-    if (args.includes('-c')) return version ? { status: 0, stdout: `${version}\n` } : { status: 1, error: new Error('ENOENT') };
+    if (args.some(a => String(a).startsWith('import sys'))) return version ? { status: 0, stdout: `${version}\n` } : { status: 1, error: new Error('ENOENT') };
     if (args.includes('venv') && venvOk) { fs.mkdirSync(path.dirname(T.venvPython(is)), { recursive: true }); fs.writeFileSync(T.venvPython(is), ''); return { status: 0 }; }
     if (args.includes('pip')) return { status: pipStatus };
     return { status: 1 };
@@ -522,20 +670,37 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
   const env = { PYTHON: 'python3.12' };
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: null }), log, env }), 1);
   assert.match(logs.at(-1), /^Python 3 is needed for the transcription module/);
-  assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: '3.8' }), log, env }), 1);
-  assert.match(logs.at(-1), /needs Python 3\.9 or newer/);
+  for (const v of ['3.8', '3.10']) {
+    assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: v }), log, env }), 1);
+    assert.match(logs.at(-1), /needs Python 3\.11 or newer \(its pinned libraries have no wheels for older ones\)/);
+  }
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ venvOk: false }), log, env }), 1);
   assert.ok(!fs.existsSync(path.join(is.path, 'venv')), 'a half-made venv is removed');
   runs.length = 0;
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ pipStatus: 1 }), log, env }), 1);
-  assert.match(logs.at(-1), /pip could not install faster-whisper 1\.2\.1 for Python 3\.12\. If no wheel exists for this Python yet, set PYTHON/);
+  assert.match(logs.at(-1), /pip could not install faster-whisper 1\.2\.1 with the pinned libraries \(.*constraints\.txt\) for Python 3\.12\. If no wheel exists for this Python yet, set PYTHON/);
   runs.length = 0; logs.length = 0;
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun(), log, env }), 0);
-  assert.deepEqual(runs.slice(1), [`${path.basename(T.venvPython(is))} -m pip install --disable-pip-version-check --no-input faster-whisper==${T.FASTER_WHISPER_VERSION}`], 'the venv exists now, so only pip runs');
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(is.path, 'installed.json'), 'utf8')).faster_whisper, '1.2.1');
+  assert.deepEqual(runs.slice(1), [`${path.basename(T.venvPython(is))} -m pip install --disable-pip-version-check --no-input -c ${T.CONSTRAINTS} faster-whisper==${T.FASTER_WHISPER_VERSION}`], 'the venv exists now, so only pip runs, with the constraints');
+  const inst = JSON.parse(fs.readFileSync(path.join(is.path, 'installed.json'), 'utf8'));
+  assert.deepEqual([inst.faster_whisper, inst.pinned], ['1.2.1', T.pinnedVersions()]);
+  assert.ok(logs.some(l => /with pinned libraries \(ctranslate2 \d/.test(l)));
   assert.ok(logs.some(l => /No model is downloaded yet: the first job downloads medium/.test(l)));
   assert.ok(logs.some(l => /node cli\.mjs transcribe --bench/.test(l)));
   assert.ok(logs.some(l => /set modules\.transcribe\.enabled to true/.test(l)));
   assert.ok(!fs.existsSync(path.join(is.path, 'models')), 'no model download at install time');
   assert.deepEqual(T.pythonCommand({}, 'linux'), ['python3', []]); assert.deepEqual(T.pythonCommand({}, 'win32'), ['py', ['-3']]); assert.deepEqual(T.pythonCommand({ PYTHON: '/opt/py' }, 'linux'), ['/opt/py', []]);
+});
+
+test('the installer pins the compiled dependencies in one constraints file that both installers use', () => {
+  const pins = T.pinnedVersions();
+  for (const p of ['ctranslate2', 'av', 'tokenizers', 'onnxruntime']) assert.match(pins[p] || '', /^\d+(\.\d+)+$/, `${p} pinned`);
+  assert.ok(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').every(l => !l.trim() || l.startsWith('#') || /^[a-z0-9._-]+==[\d.]+$/i.test(l)), 'name==version lines only');
+  assert.deepEqual(T.MIN_PYTHON, [3, 11]);
+  // both installers hand over to lib/transcribe.mjs install, which passes -c CONSTRAINTS to pip
+  for (const f of ['transcribe.sh', 'transcribe.ps1']) {
+    const text = fs.readFileSync(path.join(ROOT, 'deploy', 'modules', f), 'utf8');
+    assert.match(text, /lib[\\/]transcribe\.mjs["')]* install/, f);
+    assert.match(text, /constraints\.txt/, f);
+  }
 });

@@ -186,6 +186,7 @@ Hirify (вакансии на удалёнку и с релокацией) чи�
 - Вернуть данные из копии: `node cli.mjs restore <имя файла> --dry-run` покажет, что изменится; та же команда без `--dry-run` восстановит данные. Перед этим CometScout сам сохранит текущее состояние.
 - Выгрузить всё в один ZIP (его можно открыть двойным щелчком): `node cli.mjs export`. Только отклики в таблицу для Excel: `node cli.mjs export --csv отклики.csv`.
 - Перенести на новый сервер: `node cli.mjs export --out cometscout.zip` на старом, скопировать файл, `node cli.mjs import --from cometscout.zip` на новом.
+- Расшифровки записей (`data/transcripts`) входят в выгрузку и копии, сами аудиозаписи (`data/audio`) нет.
 - Токены из `.env` в выгрузку и копии не попадают. Их переносят отдельно, в зашифрованном файле: `node cli.mjs export-secrets --out secrets.enc` и `node cli.mjs import-secrets --from secrets.enc` (пароль спросят).
 - Если будете сами перепаковывать выгрузку на Windows, берите 7-Zip или PowerShell (`Compress-Archive`). Проводник и `tar.exe` пишут имена в старой кодировке; если такой архив потом загружается на сервер, укажите там в `settings.json` `"backup": { "zip_codepage": 866 }`.
 
@@ -200,11 +201,11 @@ CometScout умеет поставить рядом с собой [Interview Coa
 CometScout умеет превращать запись собеседования в текст прямо на сервере, чтобы тренер мог её разобрать (`analyze`). Запись никуда не уходит; модель (около 1,5 ГБ для `medium` по умолчанию) скачивается один раз при первой расшифровке. Говорящие пока не разделяются.
 
 ```bash
-bash deploy/modules/transcribe.sh                   # нужны python3 и python3-venv: sudo apt-get install -y python3 python3-venv
+bash deploy/modules/transcribe.sh                   # нужны Python 3.11-3.14 и python3-venv: sudo apt-get install -y python3 python3-venv
 node cli.mjs transcribe --bench sample.m4a --models small,medium   # какая модель успевает на этой машине
 ```
 
-Затем в `settings.json` поставьте `modules.transcribe.enabled` в `true` (и `model`, которую подсказал замер) и выполните `node cli.mjs timer`. Записи кладите в `data/audio/inbox` (scp или Syncthing), загружайте кнопкой «Расшифровать» в рабочем окне или присылайте боту (до 20 МБ). Расшифровки появятся в `data/transcripts/`, а при включённом тренере ещё и в его `materials/transcripts/`. Подробности: раздел [Transcription](README.md#transcription-optional) в README.
+Затем в `settings.json` поставьте `modules.transcribe.enabled` в `true` (и `model`, которую подсказал замер) и выполните `node cli.mjs timer`. Записи кладите в `data/audio/inbox` (scp или Syncthing), загружайте кнопкой «Расшифровать» в рабочем окне или присылайте боту (до 20 МБ). Расшифровки появятся в `data/transcripts/`, а при включённом тренере ещё и в его `materials/transcripts/`. Если включён Telegram, бот пришлёт сообщение «Расшифровка готова» с файлом `transcript.md` (выключить файл: `modules.transcribe.telegram_attach` в `false`; файл больше 50 МБ бот не отправит, придёт только сообщение). Расшифровки попадают в выгрузку и резервные копии, аудио нет. Подробности: раздел [Transcription](README.md#transcription-optional) в README.
 
 ## Если что-то не работает
 

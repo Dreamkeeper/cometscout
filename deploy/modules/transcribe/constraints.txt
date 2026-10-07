@@ -1,0 +1,14 @@
+# Pinned libraries for the transcription module (pip install -c this file, from lib/transcribe.mjs install, which both
+# transcribe.sh and transcribe.ps1 run). faster-whisper itself is pinned in lib/transcribe.mjs (FASTER_WHISPER_VERSION).
+# One set for Python 3.11 to 3.14 on Linux x86_64 and aarch64 (manylinux, glibc 2.28 or newer) and Windows x64: every
+# version below has a wheel for each of them, so pip never builds from source.
+# The benchmark in the README ran faster-whisper 1.2.1 with ctranslate2 4.8.2 and av 19.0.1 on Python 3.14. av 19 has no
+# wheels for Python 3.11, so av is 18.1.0, the newest release with wheels for 3.11 to 3.14; numpy likewise (2.5 needs 3.12).
+# Changing a version here changes what a new install gets and what the installer switches an existing one to: run the
+# bench again (node cli.mjs transcribe --bench) before raising one.
+ctranslate2==4.8.2
+av==18.1.0
+tokenizers==0.23.2
+onnxruntime==1.30.0
+huggingface-hub==1.33.0
+numpy==2.4.6
