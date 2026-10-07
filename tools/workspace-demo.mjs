@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Demo data for the workspace: a data folder with synthetic decodes, today's picks, an application history and two
-// packs (CV PDFs built from profile.example/cv-library.json) for the example candidate. Every company, job and
-// answer is invented. It never touches your own data/: it writes only into the folder you name, and only if that
+// Demo data for the workspace: a data folder with synthetic decodes, today's picks, an application history, two
+// packs (CV PDFs built from profile.example/cv-library.json) for the example candidate and a label set "demo" for
+// /label?set=demo. Every company, job and answer is invented. It never touches your own data/: it writes only into the folder you name, and only if that
 // folder is empty (or with --force).
 //   node tools/workspace-demo.mjs --out <folder> [--force]
 //   then: COMETSCOUT_DATA=<folder> node cli.mjs serve        (PowerShell: $env:COMETSCOUT_DATA="<folder>"; node cli.mjs serve)
@@ -147,6 +147,14 @@ export async function writeDemo(out, { now = new Date(), force = false } = {}) {
     packsJson[files[key]] = { built: today, dir };
   }
   fs.writeFileSync(path.join(out, 'state', 'packs.json'), JSON.stringify(packsJson, null, 2));
+  // A label set with every demo job (evals/sets.mjs format: the text only, no verdict), for /label?set=demo.
+  const sampled = [];
+  for (const d of ['decoded', 'rejected']) for (const f of fs.readdirSync(path.join(out, d)).sort()) {
+    const t = fs.readFileSync(path.join(out, d, f), 'utf8'); sampled.push({ file: f, date: f.slice(0, 10), text: t.slice(0, t.indexOf('## Decode Result')).trimEnd() + '\n' });
+  }
+  const order = sampled.map((j, i) => ({ j, k: (i * 5) % sampled.length })).sort((a, b) => a.k - b.k).map(x => x.j);   // mixed, so the order says nothing about the verdict
+  fs.mkdirSync(path.join(out, 'evals', 'demo'), { recursive: true });
+  fs.writeFileSync(path.join(out, 'evals', 'demo', 'sample.json'), JSON.stringify({ set: 'demo', created: today, seed: 1, size: order.length, from: null, to: null, include: [], jobs: order }, null, 1) + '\n');
   // A pack as the older pipeline wrote it: "<date>--<company>", answers.md only, not in packs.json.
   const old = `${day(-2, now)}--meshwork-systems`;
   fs.mkdirSync(path.join(out, 'packs', old), { recursive: true });
@@ -154,7 +162,7 @@ export async function writeDemo(out, { now = new Date(), force = false } = {}) {
     '## Check before sending', '- The posting asks for OTA update experience; the CV does not claim it.', '- Be precise about the Parcelpoint scope (carrier integrations only).', '',
     '## Form answers (drafts)', '### What draws you to device platforms? (rewrite in your own words)', '', 'I have worked on connected devices and their data for seven years, and fleet health is where product decisions show up fastest.', '',
     '### Earliest start date', '', 'Four weeks after an offer.', ''].join('\n'));
-  return { files, picks: Object.keys(picks).filter(f => picks[f].last === today), packs: [...Object.values(packsJson).map(p => p.dir), old] };
+  return { files, picks: Object.keys(picks).filter(f => picks[f].last === today), packs: [...Object.values(packsJson).map(p => p.dir), old], labelSet: 'demo' };
 }
 
 const isMain = (() => { try { return fs.realpathSync(process.argv[1] || '') === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })();
@@ -164,7 +172,7 @@ if (isMain) {
   const out = path.resolve(args[i + 1]);
   try {
     const r = await writeDemo(out, { force: args.includes('--force') });
-    console.log(`Demo data in ${out}: ${Object.keys(r.files).length} decodes, ${r.picks.length} picks for today, ${r.packs.length} packs.`);
+    console.log(`Demo data in ${out}: ${Object.keys(r.files).length} decodes, ${r.picks.length} picks for today, ${r.packs.length} packs, label set "${r.labelSet}" (open /label?set=${r.labelSet}).`);
     console.log(`Start the workspace on it:\n  COMETSCOUT_DATA="${out}" node cli.mjs serve\n  (PowerShell: $env:COMETSCOUT_DATA="${out}"; node cli.mjs serve)`);
   } catch (e) { console.log(`workspace-demo: ${e.message}`); process.exit(1); }
 }

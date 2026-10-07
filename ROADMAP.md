@@ -43,7 +43,11 @@ Updates are notify only: a daily check, release notes in the bot and the workspa
 
 ## Evals (M3)
 
-`evals/decode.mjs` (verdicts against human labels: confusion table, surfaced precision/recall, gate correctness, paired comparison of two systems, no history leakage), `evals/pack.mjs` (blind A/B judge for CVs and answers), `evals/voice.mjs` (does it sound like the user), `evals/shadow-diff.mjs` (two systems on the same days). ⏳ next; starts with a human labelling session of about 70 jobs.
+| Piece | Brief | Status |
+|---|---|---|
+| Tooling: label sets (`cli.mjs evals sample`, stratified and seeded), the labelling screen in the workspace (`/label?set=<name>`, verdicts hidden, keys, resume, rubric from `profile/eval-rubric.md`), `evals/decode.mjs` (confusion table, surfaced precision and recall, missed and noise lists, gate correctness, replay with the history cut at each job's date, `--compare` with paired counts and an exact McNemar p-value, `file:` systems), `evals/pack.mjs` (blind A/B judge with the order swapped, lint losers), `evals/voice.mjs` (does it sound like the user), reports in Markdown and JSON | `docs/tasks/17-evals-and-labelling.md` | ✅ |
+| The maintainer's own numbers: a labelling session of about 70 jobs on his real queue, a held-out second set, the first decode and pack reports | | ⏳ |
+| `evals/shadow-diff.mjs`: two systems on the same days | later brief | 💤 |
 
 ## Workspace (M5)
 

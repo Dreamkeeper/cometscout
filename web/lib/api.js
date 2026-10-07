@@ -34,5 +34,11 @@ export function createApi({ fetch = globalThis.fetch, base = '' } = {}) {
     updateAction: (action, version) => call('POST', '/api/update', { action, version }),
     whatsNew: () => call('GET', '/api/whats-new'),
     whatsNewSeen: version => call('POST', '/api/whats-new', { seen: version }),
+    /** Label sets ({ sets }) without a name; with one, its files, labels, resume index and rubric. */
+    labelSet: set => call('GET', `/api/label${set ? `?set=${encodeURIComponent(set)}` : ''}`),
+    /** One job as the labeller sees it: no verdict, gate or decoder notes. */
+    labelJob: (set, file) => call('GET', `/api/label/job?set=${encodeURIComponent(set)}&file=${encodeURIComponent(file)}`),
+    /** surface: yes, no or unsure; reason required for unsure. */
+    saveLabel: (set, file, surface, reason, failure_mode) => call('POST', '/api/label', { set, file, surface, reason: reason || '', ...(failure_mode ? { failure_mode } : {}) }),
   };
 }

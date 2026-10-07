@@ -30,6 +30,9 @@
 //   node cli.mjs update --adopt [--no-units] [--keep-old-units]         # move a git-clone install's code into app/releases (once)
 //   node cli.mjs rollback [--to vX.Y.Z] [--restore-data [--yes]]        # switch the code back; --restore-data also restores the pre-update backup
 //   node cli.mjs migrate [--dry-run]                         # apply this version's data migrations (an update runs it)
+//   node cli.mjs evals sample --set <name> [--size 70] [--from D] [--to D] [--seed N] [--include <file>]   # a label set (label it at /label?set=<name>)
+//   node cli.mjs evals decode --set <name> [--system queue|replay|file:<path>] [--compare <system>]      # verdicts against your labels
+//   node cli.mjs evals pack --a <dir> --b <dir> [--judge-model m] | evals voice --dir <packs> | evals sets   # blind pack A/B, voice, sets
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -59,6 +62,7 @@ import { takeLock } from './lib/lock.mjs';
 import { coachDoctor, coachHandoff, refreshHandoff } from './lib/coach.mjs';
 import { updateCommands } from './lib/update-cli.mjs';
 import { afterRun as updateAfterRun, updateDoctor } from './lib/update.mjs';
+import { evalsCommand } from './evals/cli.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (COMETSCOUT_HOME) is where profile/ and settings live, which may be elsewhere.
@@ -318,6 +322,7 @@ const codes = {
     return res.code;
   },
   bot: () => runBot(),
+  evals: () => evalsCommand(rest),
   'coach-handoff': () => {
     const i = rest.indexOf('--out'); if (i >= 0 && (!rest[i + 1] || rest[i + 1].startsWith('--'))) { console.log('Usage: node cli.mjs coach-handoff [--out <file>]'); return 1; }
     return coachHandoff({ out: i >= 0 ? rest[i + 1] : undefined });

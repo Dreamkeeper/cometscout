@@ -164,3 +164,37 @@ kbd { font: 12px var(--mono); border: 1px solid var(--line); border-bottom-width
 .whats-new .media { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
 .note-warn { color: var(--warn); margin: 0; }
 .focus { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+
+/* the labelling screen (/label): the job and the rubric side by side on a wide screen, one column on the phone, the
+   choice bar fixed at the bottom */
+.label-main { max-width: 1200px; margin: 0 auto; padding: 0 16px 230px; }
+.label-h { font-size: 18px; margin: 16px 0 8px; }
+.label-sets { padding-left: 18px; display: grid; gap: 6px; }
+.label-note { color: var(--muted); font-size: 13px; padding: 10px 0 4px; }
+.label-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.label-job { padding: 0 16px 16px; border: 1px solid var(--line); border-radius: var(--radius); }
+.label-side { position: sticky; top: calc(var(--top) + 8px); }
+.label-side .rubric { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.label-side summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.label-bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: grid; gap: 8px; z-index: 6; }
+.label-bar > * { max-width: 1168px; width: 100%; margin: 0 auto; }
+.label-q { font-weight: 600; }
+.label-choices, .label-nav, .label-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+.label-choices .btn { flex: 1; padding: 8px 12px; font-weight: 600; }
+.label-yes.on { background: var(--good-bg); color: var(--good); border-color: var(--good); }
+.label-no.on { background: var(--bad-bg); color: var(--bad); border-color: var(--bad); }
+.label-unsure.on { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+.label-fields .search { flex: 1; min-width: 0; }
+.label-fields select { padding: 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.label-nav .btn-primary { margin-left: auto; }
+@media (max-width: 760px) {
+  .label-grid { grid-template-columns: 1fr; }
+  .label-side { position: static; }
+  .label-keys { display: none; }
+  .label-main { padding-bottom: 260px; }
+  .label-app .top .muted { display: none; }
+}
+.rubric-text { display: grid; gap: 6px; margin-top: 8px; font-size: 13px; }
+.rubric-text h5 { font-size: 13px; margin: 4px 0 0; }
+.rubric-text .li { padding-left: 14px; position: relative; }
+.rubric-text .li::before { content: "•"; position: absolute; left: 2px; color: var(--muted); }
