@@ -14,7 +14,8 @@ export function labelKey(e) {
   if (!e || e.ctrlKey || e.metaKey || e.altKey) return null;
   if (e.key === 'Escape') return { action: 'blur' };
   const tag = String(e.tag || '').toUpperCase(), typing = TYPING.has(tag);
-  if (e.key === 'Enter') return tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' ? null : { action: 'save' };   // a focused button or link keeps its own Enter
+  // a focused button or link keeps its own Enter, except the Yes / No / Unsure choices (role radio): Enter saves there too
+  if (e.key === 'Enter') return e.role !== 'radio' && (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A') ? null : { action: 'save' };
   if (typing) return null;
   if (e.key === 'ArrowRight') return { action: 'next' };
   if (e.key === 'ArrowLeft') return { action: 'prev' };

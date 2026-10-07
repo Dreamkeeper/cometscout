@@ -52,3 +52,8 @@ test('the rubric panel: headings, list items and paragraphs from Markdown, marks
     { kind: 'h', text: 'Worth it?' }, { kind: 'p', text: 'Yes when:' }, { kind: 'li', text: 'remote in Europe' }, { kind: 'li', text: 'logistics' }, { kind: 'p', text: '<b>raw</b>' }]);
   assert.deepEqual(rubricBlocks(null), []);
 });
+
+test('Enter on a focused Yes / No / Unsure button saves; on other buttons it keeps its own meaning', () => {
+  assert.deepEqual(labelKey({ key: 'Enter', tag: 'BUTTON', role: 'radio' }), { action: 'save' });
+  assert.equal(labelKey({ key: 'Enter', tag: 'BUTTON' }), null);
+});

@@ -72,7 +72,7 @@ export function LabelApp({ api, set }) {
   const keys = useRef(null);
   keys.current = e => {
     if (!file) return;
-    const r = labelKey({ key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, tag: e.target?.tagName });
+    const r = labelKey({ key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, tag: e.target?.tagName, role: e.target?.getAttribute?.('role') });
     if (!r) return;
     if (r.action === 'blur') { e.target?.blur?.(); return; }
     e.preventDefault();

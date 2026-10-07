@@ -252,3 +252,20 @@ test('Russian labels exist for the labelling screen', () => {
   assert.ok(keys.length >= 20);
   for (const k of keys) { assert.ok(LABELS.ru[k], k); assert.notEqual(LABELS.ru[k], LABELS.en[k], k); }
 });
+
+test('review fixes: a failed decode is no verdict; replay skips a job with no date and can leave the context files out', async () => {
+  const f = job('rejected', '2026-09-14', 'Quillon', 'Product Manager', 'failed');
+  S.createSet('failed', { include: [f], size: 1 });
+  S.appendLabel('failed', { file: f, surface: 'yes', reason: 'good role' });
+  const sample = S.readSample('failed'), labels = S.readLabels('failed').latest;
+  const e = D.evaluate(sample, labels, D.queueVerdicts(sample));
+  assert.equal(e.confusion.fn, 0, 'a failed decode is not a missed role');
+  assert.equal(e.no_verdict.length, 1);
+  assert.equal(D.evaluate(sample, labels, { [f]: 'failed' }).no_verdict.length, 1, 'file: and replay verdicts too');
+  let calls = 0; const logs = [];
+  const call = async () => { calls++; return { value: { verdict: 'strong-fit', confidence: 'high', rationale: 'r', fit_signals: [], gaps: [], action: 'a' } }; };
+  const r = await D.replayVerdicts({ jobs: [{ file: 'nodate--quillon--pm.md', text: '---\ncompany: Quillon\nrole: PM\n---\nA product role.' }] }, { call, log: l => logs.push(l), noContext: true });
+  assert.equal(calls, 0, 'not decoded');
+  assert.equal(r['nodate--quillon--pm.md'].verdict, null); assert.match(r['nodate--quillon--pm.md'].error, /no date/);
+  assert.ok(!logs.some(l => /context_files/.test(l)), 'no context note with --no-context');
+});

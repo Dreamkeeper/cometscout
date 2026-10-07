@@ -14,7 +14,8 @@ import { readSample, readLabels, setDir, jobText, jobDate } from './sets.mjs';
 import { rate, rateText, mcnemarExact } from './stats.mjs';
 
 export const surfaced = v => APPLY_WORTHY.includes(v);
-const one = v => (v == null ? null : typeof v === 'string' ? { verdict: v } : typeof v === 'object' && typeof v.verdict === 'string' ? v : null);
+// "failed" (the decoder gave up) counts as no verdict, never as "not surfaced"
+const one = v => { const o = v == null ? null : typeof v === 'string' ? { verdict: v } : typeof v === 'object' && typeof v.verdict === 'string' ? v : null; return o && o.verdict !== 'failed' ? o : null; };
 /** A short name for a system spec in file names and reports: queue, replay, file-<base name>. */
 export const systemName = spec => (spec.startsWith('file:') ? `file-${path.basename(spec.slice(5)).replace(/\.json$/i, '').replace(/[^A-Za-z0-9._-]+/g, '-')}` : spec);
 
@@ -25,7 +26,8 @@ export function queueVerdicts(sample) {
     const q = queueEntry(file, ['decoded', 'rejected']);
     if (!q) { out[file] = null; continue; }
     const v = parseResult(read(path.join(DIRS[q.dir], file)));
-    out[file] = v.verdict ? { verdict: v.verdict, gate: v.gate || null, fact_flags: v.fact_flag_ids } : null;
+    // "failed" means the decoder gave up: no verdict, not a "not surfaced" verdict
+    out[file] = v.verdict && v.verdict !== 'failed' ? { verdict: v.verdict, gate: v.gate || null, fact_flags: v.fact_flag_ids } : null;
   }
   return out;
 }
@@ -40,14 +42,19 @@ export function fileVerdicts(p, sample) {
  * replay: every sampled job decoded again now (dry run) with its history cut at its own date, so no later outcome or
  * decode reaches the prompt. The results go to data/evals/<set>/replay-<date>.json only.
  */
-export async function replayVerdicts(sample, { set, call, date = today(), log = () => {} } = {}) {
+export async function replayVerdicts(sample, { set, call, date = today(), log = () => {}, noContext = false } = {}) {
   const { decodeText, buildPrompt, contextBlock } = await import('../decoder/decoder.mjs');
-  const prompt = buildPrompt() + contextBlock(), out = {};
+  // decoder.context_files cannot be cut at a date: say so, or leave them out with --no-context
+  const ctx = noContext ? '' : contextBlock(), prompt = buildPrompt() + ctx, out = {};
+  if (ctx) log('note: decoder.context_files are in the replay prompt and are not cut by date (use --no-context to leave them out)');
   for (const { file, text } of sample.jobs) {
     const t = jobText(text), fm = frontMatter(t);
     const job = { file, fm, text: t, body: t.replace(/^---\n[\s\S]*?\n---\n?/, '').trim() };
+    // without a date the history cannot be cut, and later outcomes would leak in: skipped, not decoded
+    const before = jobDate(file, fm);
+    if (!before) { out[file] = { verdict: null, error: 'no date on the job: the history cannot be cut, so it was not replayed' }; log(`${file}: skipped, no date`); continue; }
     try {
-      const v = await decodeText(job, prompt, { before: jobDate(file, fm) || null, excludeFile: file, ...(call ? { call } : {}) });
+      const v = await decodeText(job, prompt, { before, excludeFile: file, ...(call ? { call } : {}) });
       out[file] = { verdict: v.verdict, gate: v.gate || null, confidence: v.confidence || null, fact_flags: (v.fact_flags || []).map(f => f.id) };
       log(`${file}: ${v.verdict}`);
     } catch (e) { out[file] = { verdict: null, error: e.message }; log(`${file}: FAILED ${e.message}`); }
@@ -137,12 +144,12 @@ export function reportMd(r) {
 }
 
 /** The whole eval: reads the set, gets the verdicts, writes report-<date>-<system>[-vs-<other>].md and .json. */
-export async function decodeEval({ set, system = 'queue', compare = null, call, date = today(), log = () => {} }) {
+export async function decodeEval({ set, system = 'queue', compare = null, call, date = today(), log = () => {}, noContext = false }) {
   const sample = readSample(set); if (!sample) throw new Error(`no set "${set}" (make one with node cli.mjs evals sample --set ${set})`);
   const labels = readLabels(set);
   if (compare && compare === system) throw new Error('--compare names the same system as --system');
-  const A = await systemVerdicts(system, sample, { set, call, date, log });
-  const B = compare ? await systemVerdicts(compare, sample, { set, call, date, log }) : null;
+  const A = await systemVerdicts(system, sample, { set, call, date, log, noContext });
+  const B = compare ? await systemVerdicts(compare, sample, { set, call, date, log, noContext }) : null;
   const r = { set, date, system, other: compare, total: sample.jobs.length, labelled: labels.latest.size, label_lines: labels.lines, bad_lines: labels.bad,
     result: evaluate(sample, labels.latest, A), ...(B ? { other_result: evaluate(sample, labels.latest, B), compare: compareSystems(sample, labels.latest, A, B) } : {}) };
   const base = path.join(setDir(set), `report-${date}-${systemName(system)}${compare ? `-vs-${systemName(compare)}` : ''}`);

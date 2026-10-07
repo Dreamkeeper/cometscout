@@ -10,12 +10,16 @@ import { jobText } from './sets.mjs';
 const isPack = d => fs.existsSync(path.join(d, 'answers.md')) || fs.existsSync(path.join(d, 'pack.json'));
 /** The pairing key of a pack folder: its name without the leading date ("<date>--company--role" -> "company--role"). */
 export const packKey = name => String(name).replace(/^\d{4}-\d{2}-\d{2}--/, '');
-/** Pack folders under `dir` (or `dir` itself when it is one pack): [{ key, name, dir }], newest name last per key. */
+/** Pack folders under `dir` (or `dir` itself when it is one pack): [{ key, name, dir }], one per key: the newest name. */
 export function listPacks(dir) {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`${dir} is not a folder`);
   if (isPack(dir)) return [{ key: packKey(path.basename(dir)), name: path.basename(dir), dir }];
-  return fs.readdirSync(dir).sort().map(n => ({ key: packKey(n), name: n, dir: path.join(dir, n) })).filter(p => fs.statSync(p.dir).isDirectory() && isPack(p.dir));
+  const all = fs.readdirSync(dir).sort().map(n => ({ key: packKey(n), name: n, dir: path.join(dir, n) })).filter(p => fs.statSync(p.dir).isDirectory() && isPack(p.dir));
+  // a pack rebuilt on another date shares the key: keep the newest, so a pair is never judged twice
+  return [...new Map(all.map(p => [p.key, p])).values()];
 }
+/** Text pasted into a judge prompt, fenced so a job ad or a generated text cannot pose as instructions. */
+export const fence = t => `<<<DATA\n${String(t).replaceAll('<<<DATA', '<<DATA').replaceAll('DATA>>>', 'DATA>>')}\nDATA>>>`;
 
 /**
  * What a pack holds: { title, cv: { text, paras }, coverLetter, answers: [{ field, answer }] }. The CV is read from its

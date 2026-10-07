@@ -7,7 +7,7 @@ export const USAGE = [
   'Usage:',
   '  node cli.mjs evals sample --set <name> [--size 70] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--seed N] [--include <queue file>]...',
   '  node cli.mjs evals sets                  # every label set and how far its labelling got',
-  '  node cli.mjs evals decode --set <name> [--system queue|replay|file:<path>] [--compare <system>]',
+  '  node cli.mjs evals decode --set <name> [--system queue|replay|file:<path>] [--compare <system>] [--no-context]',
   '  node cli.mjs evals pack --a <dir> --b <dir> [--judge-model <model>] [--seed N]',
   '  node cli.mjs evals voice --dir <packs> [--judge-model <model>]',
   'Label a set in the workspace: node cli.mjs serve, then open /label?set=<name>.',
@@ -39,7 +39,7 @@ export async function evalsCommand(rest, { print = console.log, call } = {}) {
       const { decodeEval } = await import('./decode.mjs');
       const set = need(args, 'set'), system = opt(args, 'system') || 'queue', compare = opt(args, 'compare');
       if (compare === '') throw new Error('--compare needs a system: queue, replay or file:<path>');
-      const r = await decodeEval({ set, system, compare: compare || null, call, log: l => print(`  ${l}`) });
+      const r = await decodeEval({ set, system, compare: compare || null, call, log: l => print(`  ${l}`), noContext: args.includes('--no-context') });
       const line = (name, e) => `${name}: precision ${e.precision.value == null ? 'n/a' : e.precision.value.toFixed(2)} (${e.precision.num} of ${e.precision.den}), recall ${e.recall.value == null ? 'n/a' : e.recall.value.toFixed(2)} (${e.recall.num} of ${e.recall.den}); ${e.missed.length} missed, ${e.noise.length} noise, ${e.unsure} unsure, ${e.unlabelled} not labelled`;
       print(line(system, r.report.result));
       if (r.report.compare) { const p = r.report.compare.paired; print(line(compare, r.report.other_result)); print(`paired: ${p.a_only} only ${system} right, ${p.b_only} only ${compare} right, McNemar p = ${r.report.compare.mcnemar_p.toFixed(4)}`); }
