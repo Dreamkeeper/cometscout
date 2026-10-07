@@ -361,3 +361,38 @@ test('doctor: the engines, the GigaAM extra (missing, a GPU build, installed, a 
   assert.ok(!/GigaAM/.test(w));
   assert.match(w, /^todo transcription settings: modules\.transcribe\.vad: "pyannote" is not one of silero  -> /m);
 });
+
+test('pinned versions: the python_version markers are evaluated for the Python pip installs for (log line and installed.json)', () => {
+  // what constraints.txt gives each side of its markers, read from the file itself
+  const marked = pkg => Object.fromEntries(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').filter(l => l.startsWith(`${pkg}==`)).map(l => [l.split(';')[1].trim(), l.split(';')[0].split('==')[1].trim()]));
+  for (const pkg of ['av', 'numpy', 'onnxruntime', 'networkx']) {
+    const m = marked(pkg), newer = m['python_version >= "3.11"'], older = m['python_version < "3.11"'];
+    assert.ok(newer && older && newer !== older, `${pkg} has a pin on each side of 3.11`);
+    assert.equal(T.pinnedVersions([3, 14])[pkg], newer, `${pkg} on 3.14`);
+    assert.equal(T.pinnedVersions('3.11')[pkg], newer, `${pkg} on 3.11`);
+    assert.equal(T.pinnedVersions([3, 10])[pkg], older, `${pkg} on 3.10`);
+  }
+  assert.equal(T.pinnedVersions([3, 10])['sherpa-onnx'], T.pinnedVersions([3, 14])['sherpa-onnx'], 'a line without a marker holds for every Python');
+  assert.deepEqual([T.markerHolds('', [3, 9]), T.markerHolds('python_version < "3.11"', [3, 10]), T.markerHolds('python_version >= "3.11"', [3, 10]),
+    T.markerHolds('python_version >= "3.10" and python_version != "3.12"', [3, 12]), T.markerHolds('python_full_version <= "3.13.2"', [3, 13]), T.markerHolds('sys_platform == "win32"', [3, 12])],
+  [true, true, false, false, true, true]);
+  // the installer logs and records what pip installs for the venv's Python
+  const runOn = version => {
+    const settings = { modules: { transcribe: { path: path.join(tmp, `pins-${version}`) } } };
+    const is = T.transcribeSettings(settings, HOME, DATA), logs = [];
+    const run = (cmd, args) => {
+      if (args.some(a => String(a).startsWith('import sys'))) return { status: 0, stdout: `${version}\n` };
+      if (args.includes('venv')) { fs.mkdirSync(path.dirname(T.venvPython(is)), { recursive: true }); fs.writeFileSync(T.venvPython(is), ''); fs.writeFileSync(path.join(is.path, 'venv', 'pyvenv.cfg'), `version = ${version}.2\n`); return { status: 0 }; }
+      return { status: 0 };
+    };
+    assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run, log: l => logs.push(l), env: { PYTHON: 'python3' } }), 0, logs.join('\n'));
+    return { pinned: JSON.parse(fs.readFileSync(path.join(is.path, 'installed.json'), 'utf8')).pinned, line: logs.find(l => l.startsWith('Installing faster-whisper')) };
+  };
+  for (const [version, side] of [['3.10', 'python_version < "3.11"'], ['3.13', 'python_version >= "3.11"']]) {
+    const { pinned, line } = runOn(version);
+    for (const pkg of ['av', 'numpy', 'onnxruntime']) {
+      assert.equal(pinned[pkg], marked(pkg)[side], `installed.json: ${pkg} on Python ${version}`);
+      assert.ok(line.includes(`${pkg} ${marked(pkg)[side]}`), `the log line: ${pkg} on Python ${version}: ${line}`);
+    }
+  }
+});

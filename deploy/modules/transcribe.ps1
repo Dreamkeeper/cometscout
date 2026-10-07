@@ -5,6 +5,8 @@
 #   powershell -ExecutionPolicy Bypass -File deploy\modules\transcribe.ps1
 #   $env:PYTHON = 'C:\Python312\python.exe'; powershell -ExecutionPolicy Bypass -File deploy\modules\transcribe.ps1
 #   powershell -ExecutionPolicy Bypass -File deploy\modules\transcribe.ps1 --with-gigaam   # also GigaAM for Russian: CPU-only PyTorch (Python 3.10 to 3.14)
+#   powershell -ExecutionPolicy Bypass -File deploy\modules\transcribe.ps1 --with-speakers # also speaker separation: sherpa-onnx and two small
+#                                                                   models from k2-fsa's GitHub releases (sha256 checked, no account)
 # The work is done by lib\transcribe.mjs (the same code runs on Linux through transcribe.sh). It installs with the
 # pinned libraries in deploy\modules\transcribe\constraints.txt (pip -c) and needs Python 3.10 to 3.14.
 $ErrorActionPreference = 'Stop'

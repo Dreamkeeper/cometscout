@@ -26,6 +26,7 @@
 //                                    # record a booked interview (time in settings.timezone); prep mode uses it
 //   node cli.mjs transcribe <file> | --queue                 # speech to text on this machine's CPU (optional module, README: Transcription)
 //   node cli.mjs transcribe --bench <file> [--models small,medium] [--threads N]   # time, real-time factor and memory per model
+//   node cli.mjs transcribe --rename <folder> "Speaker 2=Interviewer" | --bench-speakers   # speaker names; the speaker separation bench
 //   node cli.mjs mcp [--scope read|operate|admin]   # the MCP server on stdio for an AI client (README: Use it from an AI client)
 //   node cli.mjs bot                 # the Telegram bot: /schedule, /time, /interview, /update, /help (cli.mjs timer installs it as a service)
 //   node cli.mjs update [--to vX.Y.Z]                        # back up, install side by side, migrate, switch, verify; rolls back by itself on failure
