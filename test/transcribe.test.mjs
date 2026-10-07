@@ -225,7 +225,7 @@ test('a failure: the audio stays with a .failed note, one alert; the next run sk
   assert.equal((await T.transcribeFile(g, { s, fromInbox: true, log: quiet, alert })).error, 'the transcriber exited with 0');
   const missing = await T.transcribeFile(audio('x.mp3', 'x'), { s, fromInbox: false, log: quiet, alert }, process.env.COMETSCOUT_TRANSCRIBE_CMD = path.join(tmp, 'no-such-transcriber'));
   process.env.COMETSCOUT_TRANSCRIBE_CMD = FAKE;
-  assert.equal(missing.ok, false); assert.match(missing.error, /not found|did not start|ENOENT/);
+  assert.equal(missing.ok, false); assert.match(missing.error, /not found|did not start|ENOENT|No such file/);   // with ionice on the PATH (Linux) it reports the missing file
   assert.equal(alerts.length, 2, 'a file outside the queue mode gets no note and no alert');
   // the full path in an error becomes the file's name (JSON.stringify doubles backslashes, as Python's repr does)
   const bad = await T.transcribeFile(audio('Long name.ogg', 'BADPATH'), { s, fromInbox: true, log: quiet, alert });
