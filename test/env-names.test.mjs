@@ -106,3 +106,9 @@ console.log(JSON.stringify({ seen: ['NODE_OPTIONS', 'HTTPS_PROXY', 'LD_PRELOAD',
   assert.match(doc.stdout, /^warn \.env lines not loaded: NODE_OPTIONS \(it changes how Node\.js starts\); https_proxy \(.*\); .*GIT_SSH_COMMAND/m);
   assert.ok(!doc.stdout.includes('synthetic-loader-0001'));
 });
+
+test('refused names also cover library loaders and TLS settings (review hardening)', async () => {
+  const { refusedEnvName } = await import('../lib/env-names.mjs');
+  for (const n of ['GCONV_PATH', 'JAVA_TOOL_OPTIONS', 'openssl_conf', 'SSLKEYLOGFILE']) assert.ok(refusedEnvName(n), n);
+  assert.ok(!refusedEnvName('RTJ_API_TOKEN'));
+});
