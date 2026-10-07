@@ -188,6 +188,7 @@ CometScout can turn a recording of an interview into text on this machine, so th
 
 ```bash
 bash deploy/modules/transcribe.sh                   # needs Python 3.10 to 3.14 and python3-venv: sudo apt-get install -y python3 python3-venv
+bash deploy/modules/transcribe.sh --with-gigaam     # for Russian recordings: adds GigaAM and a CPU-only PyTorch (about 0.2 GB to download)
 node cli.mjs transcribe --bench sample.m4a --models small,large-v3-turbo   # which model is fast enough here
 ```
 

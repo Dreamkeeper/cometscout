@@ -1,19 +1,82 @@
 // A stand-in for deploy/modules/transcribe/transcribe.py (COMETSCOUT_TRANSCRIBE_CMD in test/transcribe.test.mjs, which copies
-// this file to a temp .mjs): the same arguments, canned segments out. The audio file's text steers it: "FAIL" and "BADPATH" exit 1
-// with an error line, "EMPTY" finds no speech, "NOJSON" exits 0 without writing. FAKE_TRANSCRIBE_LOG, when set, gets one
-// JSON line per call: the arguments and the thread caps it saw. Synthetic text only.
+// this file to a temp .mjs): the same arguments, canned output per engine. The audio file's text steers it: "FAIL" and
+// "BADPATH" exit 1 with an error line, "EMPTY" finds no speech, "NOJSON" exits 0 without writing. "RUSSIAN" is a synthetic
+// Russian call: with --engines (no fixed language) the Whisper run detects ru first and routes it like transcribe.py
+// (--language-floor, --language-fallback; GigaAM alone: detection only), --engine gigaam and Whisper give canned words
+// for it; "UNSURE" makes the detection 45% sure, "NOGIGAAM" makes GigaAM fail, "NOWHISPER" makes Whisper fail on it after
+// the detection, "DETECTFAIL" makes the detection fail. FAKE_TRANSCRIBE_LOG, when set, gets one JSON line per call: the
+// arguments and the thread caps it saw. Synthetic text only.
 import fs from 'node:fs';
 
 const args = process.argv.slice(2);
 const opt = n => { const i = args.indexOf(`--${n}`); return i < 0 ? null : args[i + 1]; };
+const flag = n => args.includes(`--${n}`);
 const audio = args[args.length - 1];
-const out = opt('out'), model = opt('model') || 'medium';
+const out = opt('out'), model = opt('model') || 'medium', engine = opt('engine') || 'whisper';
 if (process.env.FAKE_TRANSCRIBE_LOG) fs.appendFileSync(process.env.FAKE_TRANSCRIBE_LOG, `${JSON.stringify({ args, audio, omp: process.env.OMP_NUM_THREADS || null })}\n`);
 const text = fs.readFileSync(audio, 'utf8');
+const fail = line => { process.stderr.write(`loading model\nerror: ${line}\n`); process.exit(1); };
 if (text.includes('BADPATH')) { process.stderr.write(`error: InvalidDataError: Invalid data found when processing input: ${JSON.stringify(audio)}\n`); process.exit(1); }
-if (text.includes('FAIL')) { process.stderr.write('loading model\nerror: RuntimeError: synthetic decoder failure\n'); process.exit(1); }
+if (text.includes('FAIL') && !text.includes('DETECTFAIL')) fail('RuntimeError: synthetic decoder failure');
 if (text.includes('NOJSON')) process.exit(0);
+const russian = text.includes('RUSSIAN');
+const write = j => fs.writeFileSync(out, JSON.stringify(j));
+
+// --engines without --language: detect on the first 30 s of speech, then route (as transcribe.py's choose_route)
+let detected = null, language = opt('language'), words = flag('words');
+if (opt('engines') && engine !== 'gigaam') {
+  if (text.includes('DETECTFAIL')) fail('RuntimeError: synthetic detection failure');
+  const engines = JSON.parse(opt('engines')), floor = Number(opt('language-floor') ?? 0.6), fallback = opt('language-fallback') || 'auto';
+  const lang = russian ? 'ru' : 'en', p = russian ? (text.includes('UNSURE') ? 0.45 : 0.93) : 0.97;
+  const sure = p >= floor, routed = sure ? lang : fallback !== 'auto' ? fallback : null;
+  const route = { language: routed, engine: routed ? engines[routed] || engines.default || 'whisper' : 'whisper', sure };
+  detected = { mode: 'detect', detected: { language: lang, probability: p, speech_seconds: 14.2, floor, fallback }, route, model, load_seconds: 1, detect_seconds: 2 };
+  write({ engine: route.engine, language: routed || lang, language_probability: p, ...detected });
+  if (route.engine === 'gigaam') process.exit(0);
+  language = routed; words = words || route.engine === 'gigaam+whisper';
+}
+const extra = detected ? { ...detected, mode: 'transcribe' } : {};
+
+// [text, start, end, Whisper probability]: one synthetic Russian call heard by each engine
+const GIGAAM = [
+  ['Добрый', 0, 0.4], ['день.', 0.4, 0.8],
+  ['Расскажите', 1, 1.6], ['про', 1.6, 1.8], ['роадмап', 1.8, 2.4], ['для', 2.4, 2.6], ['зигби', 2.6, 3], ['датчеков.', 3, 3.6],
+  ['Мы', 4.5, 4.7], ['запустили', 4.7, 5.2], ['двадцать', 5.2, 5.6], ['пять', 5.6, 5.9], ['устройств', 5.9, 6.5], ['за', 6.5, 6.7], ['второй', 6.7, 7.1],
+  ['квартал,', 7.1, 7.6], ['какие-то', 7.6, 8.2], ['на', 8.2, 8.4], ['базе', 8.4, 8.8], ['Е27.', 8.8, 9.3],
+  ['Я', 10.5, 10.6], ['работал', 10.6, 11], ['в', 11, 11.1], ['брайтгрид', 11.1, 11.8], ['и', 11.8, 11.9], ['в', 11.9, 12], ['Сбере.', 12, 12.5],
+  ['Это', 13.5, 13.8], ['было', 13.8, 14.1], ['семь', 14.1, 14.5], ['лет', 14.5, 14.8], ['назад.', 14.8, 15.3],
+];
+const WHISPER = [
+  ['Добрый', 0, 0.4, 0.99], ['день.', 0.4, 0.8, 0.99],
+  ['Расскажите', 1, 1.6, 0.98], ['про', 1.6, 1.8, 0.99], ['roadmap', 1.8, 2.4, 0.91], ['для', 2.4, 2.6, 0.99], ['Zigbee', 2.6, 3, 0.95], ['датчиков.', 3, 3.6, 0.97],
+  ['Мы', 4.5, 4.7, 0.99], ['запустили', 4.7, 5.2, 0.98], ['25', 5.2, 5.9, 0.96], ['устройств', 5.9, 6.5, 0.97], ['за', 6.5, 6.7, 0.99], ['2-й', 6.7, 7.1, 0.9],
+  ['квартал,', 7.1, 7.6, 0.98], ['какие-то', 7.6, 8.2, 0.97], ['на', 8.2, 8.4, 0.99], ['базе', 8.4, 8.8, 0.98], ['E27.', 8.8, 9.3, 0.93],
+  ['Я', 10.5, 10.6, 0.99], ['работал', 10.6, 11, 0.98], ['в', 11, 11.1, 0.99], ['брайтгрид', 11.1, 11.8, 0.6], ['и', 11.8, 11.9, 0.99], ['в', 11.9, 12, 0.99], ['Sber.', 12, 12.5, 0.92],
+  ['Это', 13.5, 13.8, 0.99], ['было', 13.8, 14.1, 0.99], ['7', 14.1, 14.5, 0.95], ['лет', 14.5, 14.8, 0.99], ['назад.', 14.8, 15.3, 0.99],
+];
+// one segment per sentence, as the engines give them
+const segmentsOf = (list, withWords) => {
+  const segs = []; let cur = [];
+  for (const [t, s, e, p] of list) { cur.push({ text: t, start: s, end: e, ...(p != null ? { probability: p } : {}) }); if (/[.!?]$/.test(t)) { segs.push(cur); cur = []; } }
+  if (cur.length) segs.push(cur);
+  return segs.map(ws => ({ start: ws[0].start, end: ws.at(-1).end, text: ws.map(w => w.text).join(' '), ...(withWords ? { words: ws } : {}) }));
+};
+
+if (engine === 'gigaam') {
+  if (text.includes('NOGIGAAM')) fail('RuntimeError: GigaAM is not installed in this Python (No module named gigaam)');
+  process.stderr.write('loading GigaAM\n');
+  write({ engine: 'gigaam', language: 'ru', language_probability: null, duration: 16, model: opt('gigaam-model') || 'v3_e2e_rnnt', compute_type: 'float32', threads: Number(opt('threads')),
+    vad: opt('vad'), vad_options: JSON.parse(opt('vad-options') || '{}'), chunks: 1, forced_cuts: 0, load_seconds: 2, transcribe_seconds: 4, peak_rss_mb: 1100, segments: segmentsOf(text.includes('EMPTY') ? [] : GIGAAM, true) });
+  process.exit(0);
+}
+
 process.stderr.write(`loading model ${model}\n`);
+if (russian) {
+  if (text.includes('NOWHISPER')) fail('RuntimeError: synthetic Whisper failure');
+  write({ engine: 'whisper', language: language || 'ru', language_probability: 0.93, duration: 16, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),
+    load_seconds: 1.5, transcribe_seconds: 8, peak_rss_mb: 1530, ...extra, segments: segmentsOf(WHISPER, words) });
+  process.exit(0);
+}
 const segments = text.includes('EMPTY') ? [] : [
   { start: 0, end: 4.2, text: ' Hello, thanks for joining the call today.' },
   { start: 4.5, end: 9.8, text: ' Could you walk me through your last product launch?' },
@@ -22,5 +85,5 @@ const segments = text.includes('EMPTY') ? [] : [
 ];
 // small is faster than medium in the bench; the numbers are fixed so the report math can be checked
 const speed = { small: 30, medium: 60, 'large-v3': 120 }[model] ?? 90;
-fs.writeFileSync(out, JSON.stringify({ language: 'en', language_probability: 0.97, duration: 3730, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),
-  load_seconds: 1.5, transcribe_seconds: speed * 3730 / 600, peak_rss_mb: model === 'small' ? 812.4 : 1530, segments }));
+write({ engine: 'whisper', language: 'en', language_probability: 0.97, duration: 3730, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),
+  load_seconds: 1.5, transcribe_seconds: speed * 3730 / 600, peak_rss_mb: model === 'small' ? 812.4 : 1530, ...extra, segments });
