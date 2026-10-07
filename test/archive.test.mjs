@@ -276,3 +276,31 @@ test('an export zipped again by Explorer or PowerShell 5.1 (OEM code page names,
     assert.equal(r.plan.add.length + r.plan.same.length + r.plan.conflict.length, Object.keys(a.manifest.files).length);
   } finally { a.cleanup(); }
 });
+
+test('transcripts travel with export, import and restore; the audio folders stay out', async () => {
+  const MD = '# Transcript: synthetic call\n\n[00:00:00] Hello.\n';
+  put('transcripts/2026-10-01--synthetic-call/transcript.md', MD);
+  put('transcripts/2026-10-01--synthetic-call/segments.json', '{"segments":[]}');
+  put('audio/inbox/waiting.m4a', 'synthetic audio'); put('audio/done/2026-10-01--synthetic-call.m4a', 'synthetic audio'); put('audio/uploads/.part-1', 'x');
+  const out = path.join(tmp, 'with-transcripts.zip');
+  const r = await exportArchive({ out });
+  const names = Object.keys(r.manifest.files);
+  assert.ok(names.includes('data/transcripts/2026-10-01--synthetic-call/transcript.md'), names.join('\n'));
+  assert.ok(names.includes('data/transcripts/2026-10-01--synthetic-call/segments.json'));
+  assert.ok(!names.some(n => n.startsWith('data/audio/')), 'no audio');
+  assert.equal(r.manifest.counts.transcripts, 2);
+  // import into an empty install
+  const other = freshHome('transcripts-home');
+  const imp = cli(['import', '--from', out, '--data-only'], other.env);
+  assert.equal(imp.status, 0, imp.stdout + imp.stderr);
+  assert.equal(fs.readFileSync(path.join(other.home, 'data', 'transcripts', '2026-10-01--synthetic-call', 'transcript.md'), 'utf8'), MD);
+  assert.ok(!fs.existsSync(path.join(other.home, 'data', 'audio')));
+  // a backup, the transcripts deleted, restore: they are back; the audio was never touched
+  const { backup, restore } = await import('../lib/backup.mjs');
+  const dir = path.join(tmp, 'transcript-backups');
+  const b = await backup({ dir, prune: false, copy: false });
+  fs.rmSync(path.join(DATA, 'transcripts'), { recursive: true });
+  await restore({ ref: b.file, dir });
+  assert.equal(fs.readFileSync(path.join(DATA, 'transcripts', '2026-10-01--synthetic-call', 'transcript.md'), 'utf8'), MD);
+  assert.equal(fs.readFileSync(path.join(DATA, 'audio', 'inbox', 'waiting.m4a'), 'utf8'), 'synthetic audio');
+});

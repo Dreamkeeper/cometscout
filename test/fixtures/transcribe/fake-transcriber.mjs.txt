@@ -1,0 +1,26 @@
+// A stand-in for deploy/modules/transcribe/transcribe.py (COMETSCOUT_TRANSCRIBE_CMD in test/transcribe.test.mjs, which copies
+// this file to a temp .mjs): the same arguments, canned segments out. The audio file's text steers it: "FAIL" and "BADPATH" exit 1
+// with an error line, "EMPTY" finds no speech, "NOJSON" exits 0 without writing. FAKE_TRANSCRIBE_LOG, when set, gets one
+// JSON line per call: the arguments and the thread caps it saw. Synthetic text only.
+import fs from 'node:fs';
+
+const args = process.argv.slice(2);
+const opt = n => { const i = args.indexOf(`--${n}`); return i < 0 ? null : args[i + 1]; };
+const audio = args[args.length - 1];
+const out = opt('out'), model = opt('model') || 'medium';
+if (process.env.FAKE_TRANSCRIBE_LOG) fs.appendFileSync(process.env.FAKE_TRANSCRIBE_LOG, `${JSON.stringify({ args, audio, omp: process.env.OMP_NUM_THREADS || null })}\n`);
+const text = fs.readFileSync(audio, 'utf8');
+if (text.includes('BADPATH')) { process.stderr.write(`error: InvalidDataError: Invalid data found when processing input: ${JSON.stringify(audio)}\n`); process.exit(1); }
+if (text.includes('FAIL')) { process.stderr.write('loading model\nerror: RuntimeError: synthetic decoder failure\n'); process.exit(1); }
+if (text.includes('NOJSON')) process.exit(0);
+process.stderr.write(`loading model ${model}\n`);
+const segments = text.includes('EMPTY') ? [] : [
+  { start: 0, end: 4.2, text: ' Hello, thanks for joining the call today.' },
+  { start: 4.5, end: 9.8, text: ' Could you walk me through your last product launch?' },
+  { start: 13.1, end: 20.4, text: ' Sure. We shipped a synthetic billing feature in six weeks.' },
+  { start: 3725.4, end: 3729.0, text: ' Thank you, that is all from me.' },
+];
+// small is faster than medium in the bench; the numbers are fixed so the report math can be checked
+const speed = { small: 30, medium: 60, 'large-v3': 120 }[model] ?? 90;
+fs.writeFileSync(out, JSON.stringify({ language: 'en', language_probability: 0.97, duration: 3730, model, compute_type: opt('compute-type'), threads: Number(opt('threads')),
+  load_seconds: 1.5, transcribe_seconds: speed * 3730 / 600, peak_rss_mb: model === 'small' ? 812.4 : 1530, segments }));

@@ -152,6 +152,10 @@ kbd { font: 12px var(--mono); border: 1px solid var(--line); border-bottom-width
 .day { display: flex; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; cursor: pointer; }
 .day.on { background: var(--sel); border-color: var(--accent); }
 .field { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.tr-queue { display: grid; gap: 6px; }
+.tr-queue ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.tr-queue h4 { font-size: 13px; color: var(--muted); }
+.choices-row input[type="file"] { min-width: 0; flex: 1; }
 .field input { padding: 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--text); }
 
 /* update banner and What is new */
