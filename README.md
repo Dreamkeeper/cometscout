@@ -1,5 +1,7 @@
 # CometScout
 
+[![test](https://github.com/Dreamkeeper/cometscout/actions/workflows/test.yml/badge.svg)](https://github.com/Dreamkeeper/cometscout/actions/workflows/test.yml) [![rehearse](https://github.com/Dreamkeeper/cometscout/actions/workflows/rehearse.yml/badge.svg)](https://github.com/Dreamkeeper/cometscout/actions/workflows/rehearse.yml)
+
 > CometScout was called jobpilot until October 2026. The old names (the `jobpilot` command, `JOBPILOT_*` variables, the `jobpilot` systemd units, `jobpilot-*` backups and exports, the `X-Jobpilot` header) still work for a release or two; `node cli.mjs doctor` says what to rename, and `node cli.mjs timer` replaces the old units.
 
 A self-hosted job search pipeline that runs every evening on your own server and ends with something you can act on: **up to two roles worth applying to, each with a CV tailored from your own checked wording and draft answers for its application form.**

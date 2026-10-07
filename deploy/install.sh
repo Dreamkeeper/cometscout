@@ -25,15 +25,21 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommen
 
 echo "==> Node.js 20+"
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
-  echo "Node 20 or newer is needed. On Debian 13 run: sudo apt-get install -y nodejs"
+  echo "Node 20 or newer is needed. On Debian 13 run: sudo apt-get install -y nodejs npm"
   echo "Elsewhere: https://github.com/nodesource/distributions (then rerun this script)"; exit 1
+fi
+# npm installs the workspace's browser libraries, now and in every update. Node from NodeSource brings it; the
+# distribution's own nodejs package (Debian 13) does not, so it is installed here from the same place.
+if ! command -v npm >/dev/null && dpkg-query -W -f='${Status}' nodejs 2>/dev/null | grep -q 'ok installed' && apt-cache show npm >/dev/null 2>&1; then
+  echo "==> npm (the distribution's Node.js comes without it)"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends npm >/dev/null
 fi
 
 echo "==> Code: app/releases/v<version>, with app/current pointing at it"
 # This folder stays the CometScout home (settings, profile, .env, data, backups). The code runs from a copy in
 # app/releases with its own browser libraries (preact, htm; npm ci --omit=dev), so node cli.mjs update can install the
 # next version next to it and switch app/current back if anything fails. Running this script again changes nothing.
-command -v npm >/dev/null || echo "npm not found; the workspace (node cli.mjs serve) needs it once: sudo apt-get install -y npm, then run this script again"
+command -v npm >/dev/null || echo "npm not found; the workspace (node cli.mjs serve) and updates need it: install npm, then run this script again"
 node cli.mjs update --adopt --no-units
 
 echo "==> Claude Code or Codex CLI"
