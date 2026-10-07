@@ -48,12 +48,12 @@ test('settings: defaults, the inbox inside the data folder, paths resolved', () 
   const d = T.transcribeSettings({}, '/srv/home', '/srv/home/data');
   assert.equal(d.enabled, false);
   assert.equal(d.path, path.resolve('/srv/home', '..', 'cometscout-transcribe'));
-  assert.deepEqual([d.model, d.compute_type, d.threads, d.nice, d.language, d.keep_audio_days, d.max_upload_mb], ['medium', 'int8', 2, 10, null, 30, 500]);
+  assert.deepEqual([d.model, d.compute_type, d.threads, d.nice, d.language, d.keep_audio_days, d.max_upload_mb], ['large-v3-turbo', 'int8', 2, 10, null, 30, 500]);
   assert.equal(d.inbox, path.join('/srv/home/data', 'audio', 'inbox'));
   assert.equal(T.transcribeSettings({}, '/srv/home', '/elsewhere/data').inbox, path.join('/elsewhere/data', 'audio', 'inbox'), 'follows COMETSCOUT_DATA');
   assert.equal(T.transcribeSettings({ modules: { transcribe: { inbox: 'recordings' } } }, '/srv/home', '/x').inbox, path.resolve('/srv/home', 'recordings'));
   const odd = T.transcribeSettings({ modules: { transcribe: { threads: 'many', nice: 99, language: 'RU', keep_audio_days: -1, model: '' } } }, '/srv/home', '/x');
-  assert.deepEqual([odd.threads, odd.nice, odd.language, odd.keep_audio_days, odd.model], [2, 10, 'ru', 30, 'medium'], 'a typo never removes a limit');
+  assert.deepEqual([odd.threads, odd.nice, odd.language, odd.keep_audio_days, odd.model], [2, 10, 'ru', 30, 'large-v3-turbo'], 'a typo never removes a limit');
   assert.equal(T.transcribeSettings({ modules: { transcribe: { language: 'english' } } }, '/r', '/x').language, null);
 });
 
@@ -61,7 +61,7 @@ test('the command: the fake from COMETSCOUT_TRANSCRIBE_CMD, else the venv Python
   const [cmd, args] = T.transcriberCommand({ ...s, language: 'ru' }, { audio: 'a.mp3', out: 'o.json' });
   assert.equal(cmd, process.execPath);
   assert.deepEqual(args.slice(0, 1), [FAKE]);
-  assert.deepEqual(args.slice(1), ['--out', 'o.json', '--model', 'medium', '--compute-type', 'int8', '--threads', '2', '--models-dir', path.join(MOD, 'models'), '--language', 'ru', 'a.mp3']);
+  assert.deepEqual(args.slice(1), ['--out', 'o.json', '--model', 'large-v3-turbo', '--compute-type', 'int8', '--threads', '2', '--models-dir', path.join(MOD, 'models'), '--language', 'ru', 'a.mp3']);
   const [py, pargs] = T.transcriberCommand(s, { audio: 'a.mp3', out: 'o.json', env: {} });
   assert.equal(py, T.venvPython(s)); assert.equal(pargs[0], T.SCRIPT);
   assert.ok(T.SCRIPT.endsWith(path.join('deploy', 'modules', 'transcribe', 'transcribe.py')));
@@ -121,8 +121,9 @@ test('one file from the inbox: transcript.md, .srt and segments.json; the audio 
   assert.match(md, /^# Transcript: Call with Acme\.m4a$/m);
   assert.match(md, /^- Language: en \(detected, 97%\)$/m);
   assert.match(md, /^- Length: 01:02:10 \(1 h 2 min\)$/m);
-  assert.match(md, /^- Model: medium \(int8, CPU, 2 threads\)$/m);
-  assert.match(md, /^- Transcribed: in .+, real-time factor 0\.1, on \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/m);
+  assert.match(md, /^- Model: large-v3-turbo \(int8, CPU, 2 threads\)$/m);
+  // the factor comes from the measured wall time, so a busy machine makes it larger: the format is what is tested
+  assert.match(md, /^- Transcribed: in .+, real-time factor \d+(\.\d+)?, on \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/m);
   assert.match(md, /^- Speakers: not separated$/m);
   assert.match(md, /^\[00:00:00\] Hello, thanks for joining the call today\. Could you walk me through your last product launch\?$/m);
   assert.match(md, /^\[00:00:13\] Sure\. We shipped a synthetic billing feature in six weeks\.$/m);
@@ -131,7 +132,7 @@ test('one file from the inbox: transcript.md, .srt and segments.json; the audio 
   assert.match(srt, /^1\n00:00:00,000 --> 00:00:04,200\nHello, thanks for joining the call today\.\n/);
   assert.match(srt, /\n4\n01:02:05,400 --> 01:02:09,000\nThank you, that is all from me\.\n$/);
   const j = JSON.parse(fs.readFileSync(path.join(out, 'segments.json'), 'utf8'));
-  assert.deepEqual([j.source, j.duration, j.language, j.model, j.speakers, j.segments.length, j.segments[0].text], ['Call with Acme.m4a', 3730, 'en', 'medium', 'not separated', 4, 'Hello, thanks for joining the call today.']);
+  assert.deepEqual([j.source, j.duration, j.language, j.model, j.speakers, j.segments.length, j.segments[0].text], ['Call with Acme.m4a', 3730, 'en', 'large-v3-turbo', 'not separated', 4, 'Hello, thanks for joining the call today.']);
   assert.ok(!fs.existsSync(f), 'gone from the inbox');
   assert.deepEqual(dirsIn(s.done), [`${dir}.m4a`]);
   const coachCopy = path.join(COACH, 'materials', 'transcripts', `${dir}.md`);
@@ -685,7 +686,7 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
   const inst = JSON.parse(fs.readFileSync(path.join(is.path, 'installed.json'), 'utf8'));
   assert.deepEqual([inst.faster_whisper, inst.pinned], ['1.2.1', T.pinnedVersions()]);
   assert.ok(logs.some(l => /with pinned libraries \(ctranslate2 \d/.test(l)));
-  assert.ok(logs.some(l => /No model is downloaded yet: the first job downloads medium/.test(l)));
+  assert.ok(logs.some(l => /No model is downloaded yet: the first job downloads large-v3-turbo/.test(l)));
   assert.ok(logs.some(l => /node cli\.mjs transcribe --bench/.test(l)));
   assert.ok(logs.some(l => /set modules\.transcribe\.enabled to true/.test(l)));
   assert.ok(!fs.existsSync(path.join(is.path, 'models')), 'no model download at install time');

@@ -188,7 +188,7 @@ CometScout can turn a recording of an interview into text on this machine, so th
 
 ```bash
 bash deploy/modules/transcribe.sh                   # needs Python 3.10 to 3.14 and python3-venv: sudo apt-get install -y python3 python3-venv
-node cli.mjs transcribe --bench sample.m4a --models small,medium   # which model is fast enough here
+node cli.mjs transcribe --bench sample.m4a --models small,large-v3-turbo   # which model is fast enough here
 ```
 
 Then set `modules.transcribe.enabled` to `true` in `settings.json` (and `model` to what the bench suggested) and run `node cli.mjs timer`. Put recordings into `data/audio/inbox` (scp or Syncthing), upload them in the workspace, or send them to the bot (up to 20 MB). Transcripts appear in `data/transcripts/`. Details: the [Transcription](README.md#transcription-optional) section of the README.

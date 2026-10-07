@@ -580,7 +580,7 @@ Turns your interview recordings into text on your own server, so the interview c
 
 ```bash
 bash deploy/modules/transcribe.sh                  # Python 3.10 to 3.14 venv with the pinned faster-whisper (Windows: deploy\modules\transcribe.ps1)
-node cli.mjs transcribe --bench sample.m4a --models small,medium   # pick the model for this machine
+node cli.mjs transcribe --bench sample.m4a --models small,large-v3-turbo   # pick the model for this machine
 node cli.mjs transcribe call.m4a                   # one file now
 node cli.mjs transcribe --queue                    # everything in the inbox, oldest first
 ```
@@ -593,8 +593,16 @@ node cli.mjs transcribe --queue                    # everything in the inbox, ol
 - **Load:** one job at a time on the whole machine (its own lock, separate from the evening run's), under `nice` and `ionice`, with `threads` CPU threads, so the rest of CometScout stays responsive.
 - **Failure:** the audio stays in the inbox with a `<name>.failed` note, and you get one alert. Delete the note to try again. A file stamped in the future by a wrong clock counts as ready, not as still being copied. With the module enabled but not installed, the queue alerts once, leaves the audio waiting and exits normally; once the module is installed, the next run transcribes it.
 - **Installed versions:** the installer pins faster-whisper and its compiled libraries (CTranslate2, PyAV, tokenizers, ONNX Runtime and a few more) in `deploy/modules/transcribe/constraints.txt`, one set with wheels for Python 3.10 to 3.14 on Linux (x86_64, aarch64) and Windows. Running it again switches an existing environment to these versions.
-- **Speed:** run `--bench` on a short recording of your own; it prints, per model, the load time, the transcription time, the real-time factor (processing time divided by the audio's length), what an hour of audio takes and the peak memory. As a rough guide: on a laptop CPU (AMD Ryzen 7 7840U) with the default 2 threads, `small` ran at a real-time factor of 0.32 and `medium` at 0.93 (an hour of audio in about 20 and 55 minutes); with 4 threads, 0.22 and 0.68. A 4-vCPU VPS is usually slower per thread, so expect roughly 0.4 to 0.7 for `small` and 1 to 2 for `medium` with 2 threads: `medium` can take longer than the recording itself. If nothing else runs on the server at that hour, raise `threads` to 3 or 4, or pick `small`. The VPS figures are an estimate; `--bench` gives yours. Peak memory was about 0.7 GB for `small` and 1.8 GB for `medium`.
-- **Settings:** `"modules": { "transcribe": { "enabled": false, "path": null, "model": "medium", "compute_type": "int8", "threads": 2, "nice": 10, "language": null, "inbox": "data/audio/inbox", "keep_audio_days": 30, "max_upload_mb": 500, "telegram_attach": true } }`. `path: null` is a folder named `cometscout-transcribe` next to the home; `language: null` detects the language, `"ru"` or `"en"` fixes it; an inbox path starting with `data/` is inside the data folder. `doctor` shows the environment, the faster-whisper version, whether the model is downloaded (and its size), free disk, and `ffmpeg` (optional: faster-whisper decodes audio with its own bundled FFmpeg libraries).
+- **Speed and accuracy:** run `--bench` on a short recording of your own; it prints, per model, the load time, the transcription time, the real-time factor (processing time divided by the audio's length), what an hour of audio takes and the peak memory. As a guide, on a laptop CPU (AMD Ryzen 7 7840U), int8, 3 minutes of read speech per language with known text (LibriSpeech for English, a Russian LibriVox reading of verse, which is harder than conversation):
+
+  | Model | Threads | English: word error rate, real-time factor | Russian: word error rate, real-time factor | Peak memory |
+  |---|---|---|---|---|
+  | small | 2 / 4 | 2.1%, 0.30 / 0.22 | 20.1%, 0.43 / 0.32 | 0.7 GB |
+  | medium | 2 / 4 | 1.7%, 0.92 / 0.70 | 12.2%, 1.36 / 0.94 | 1.8 GB |
+  | **large-v3-turbo** (default) | 2 / 4 | 3.5%, 0.73 / 0.48 | 7.6%, 0.68 / (not measured) | 1.9 GB |
+
+  `large-v3-turbo` is the default: the fewest errors in Russian at half the time of `medium`, and under real time with 2 threads in both languages. `small` is fine for clear English and too weak for Russian. A 4-vCPU VPS is usually slower per thread than this laptop: run `--bench` there before relying on the numbers, and raise `threads` to 3 or 4 if nothing else runs at that hour.
+- **Settings:** `"modules": { "transcribe": { "enabled": false, "path": null, "model": "large-v3-turbo", "compute_type": "int8", "threads": 2, "nice": 10, "language": null, "inbox": "data/audio/inbox", "keep_audio_days": 30, "max_upload_mb": 500, "telegram_attach": true } }`. `path: null` is a folder named `cometscout-transcribe` next to the home; `language: null` detects the language, `"ru"` or `"en"` fixes it; an inbox path starting with `data/` is inside the data folder. `doctor` shows the environment, the faster-whisper version, whether the model is downloaded (and its size), free disk, and `ffmpeg` (optional: faster-whisper decodes audio with its own bundled FFmpeg libraries).
 
 ### Language of the messages
 

@@ -202,7 +202,7 @@ CometScout умеет превращать запись собеседовани
 
 ```bash
 bash deploy/modules/transcribe.sh                   # нужны Python 3.10-3.14 и python3-venv: sudo apt-get install -y python3 python3-venv
-node cli.mjs transcribe --bench sample.m4a --models small,medium   # какая модель успевает на этой машине
+node cli.mjs transcribe --bench sample.m4a --models small,large-v3-turbo   # какая модель успевает на этой машине
 ```
 
 Затем в `settings.json` поставьте `modules.transcribe.enabled` в `true` (и `model`, которую подсказал замер) и выполните `node cli.mjs timer`. Записи кладите в `data/audio/inbox` (scp или Syncthing), загружайте кнопкой «Расшифровать» в рабочем окне или присылайте боту (до 20 МБ). Расшифровки появятся в `data/transcripts/`, а при включённом тренере ещё и в его `materials/transcripts/`. Если включён Telegram, бот пришлёт сообщение «Расшифровка готова» с файлом `transcript.md` (выключить файл: `modules.transcribe.telegram_attach` в `false`; файл больше 50 МБ бот не отправит, придёт только сообщение). Расшифровки попадают в выгрузку и резервные копии, аудио нет. Подробности: раздел [Transcription](README.md#transcription-optional) в README.
