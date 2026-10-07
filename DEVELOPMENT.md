@@ -32,6 +32,7 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 | `lib/doctor.mjs` | `doctorItems()`: the doctor check as items { level, text, fix }; `cli.mjs doctor` prints them (`--json` as JSON) |
 | `lib/run-log.mjs` | `data/state/runs.jsonl`: one line per evening run (sources and their exits, counts, failures) for the MCP server's status and run_log |
 | `lib/mcp.mjs`, `lib/mcp-tools.mjs` | The MCP server (`cli.mjs mcp`): JSON-RPC over stdio written by hand (MCP 2026-07-28, plus initialize for older clients), scopes, and the tools, resources and prompts. Writes go through the writers above, check the run lock and append to `data/state/mcp-log.jsonl`; stdout is protocol only |
+| `lib/env-names.mjs` | Environment variable names: the names `.env` may never set (start-up, proxy, certificate and `COMETSCOUT_*` names; `lib/secrets.mjs` refuses to write them and `lib/config.mjs` to load them), the fixed list of secrets CometScout reads (the only names a secrets link offers), and `secretEnvName`, the checked name behind every `*_env` setting (never another feature's secret). Read a `*_env` setting through it, never directly |
 | `lib/secrets-form.mjs`, `web/secrets.js` | Which secrets each feature needs (never the values), and the one-time links behind the workspace's `/secrets` page, which writes `.env` through `lib/secrets.mjs` |
 | `lib/bot.mjs` | The Telegram bot (`cli.mjs bot`): `COMMANDS` and `BUTTONS` tables, a transport injected in tests, the long-poll loop |
 | `lib/hooks.mjs` | `runHook(event, payload)` |

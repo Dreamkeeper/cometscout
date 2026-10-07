@@ -136,16 +136,23 @@ async function optional(name, fn) {
   // a step after the digest: a failure is logged, the run's exit code stays
   try { await fn(); } catch (e) { console.log(`cometscout: ${name} failed: ${e.message}`); }
 }
+// data/state/runs.jsonl also gets a line for a run that stops before its steps, with the reason in result
+async function stoppedEarly(exit, result, started, off = null) {
+  await optional('run log', () => recordRun({ date: today(), started, finished: new Date().toISOString(), seconds: 0, exit, off_day: off,
+    sources: [], decoder_exit: null, pack_exit: null, refused: [], counts: null, result }));
+  return exit;
+}
 async function evening() {
+  const started = new Date().toISOString();
   // The timer is installed before onboarding; never spend the subscription decoding real jobs for the example person.
-  if (PROFILE.isExample && !rest.includes('--example')) { console.log('cometscout: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return 0; }
+  if (PROFILE.isExample && !rest.includes('--example')) { console.log('cometscout: no profile/ yet, so the evening run is skipped. Finish the onboarding (or run with --example to try it on the example profile).'); return stoppedEarly(0, 'skipped: no profile/ yet (the example profile is never run by the timer)', started); }
   process.env.COMETSCOUT_RUN_DATE = today();          // one date for every step, even if the run crosses midnight
   // An off day (not in schedule.days) still collects and decodes, but the steps send nothing and show no picks
   // (decoder/decoder.mjs finishRun, sources/outcomes.mjs); failure and backup alerts still go out.
   process.env.COMETSCOUT_EVENING = '1'; const off = offDay(today());
   if (off) console.log(`cometscout: ${today()} is an off day (schedule.days); sources and decode run, nothing is sent`);
-  const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
-  const t0 = Date.now(), started = new Date().toISOString(), before = queueSnapshot(); runHook('before_run', { date: today() });
+  const broken = appsBroken(); if (broken) { console.log(broken); return stoppedEarly(2, `stopped: ${broken.replace(/^cometscout: /, '')}`, started, off); }
+  const t0 = Date.now(), before = queueSnapshot(); runHook('before_run', { date: today() });
   await optional('sightings trim', () => trimSightings());   // here only, before any source writes: no two writers race
   const ran = [], failed = runSources(ran); const decoder = node('decoder/decoder.mjs');
   if (SETTINGS.sources_report?.enabled) await optional('sources-report', () => sourcesReport({ send: off ? null : sendText, print: () => {} }));
@@ -162,7 +169,7 @@ async function evening() {
   const exit = failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
   // data/state/runs.jsonl: what the MCP server's status and run_log tools report; never fails the run
   await optional('run log', () => recordRun({ date: today(), started, finished: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000), exit, off_day: off,
-    sources: ran, decoder_exit: decoder, pack_exit: pack, refused, counts: runCounts(before, today()) }));
+    sources: ran, decoder_exit: decoder, pack_exit: pack, refused, counts: runCounts(before, today()), result: closing.length ? `finished; ${closing.join('; ')}` : 'finished' }));
   await nightlyBackup({ alert: text => notify(text, { send: sendText, on: telegramOn }) });   // backup.nightly; never fails the run
   // the update check (settings.update); a newer version is announced once, a Tonight update starts after this run; never fails the run
   if (!PROFILE.isExample) await updateAfterRun({ quiet: off });

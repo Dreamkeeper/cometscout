@@ -10,6 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { OLD_ENV, NEW_ENV } from '../lib/legacy-names.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'cli.mjs');
@@ -45,7 +47,7 @@ const DIGEST = `Sam: 2 decoded ${addDays(-1)}\n\nWorth applying (1)\n`;
 fs.writeFileSync(path.join(DATA, 'digests', `${addDays(-1)}.md`), DIGEST);
 
 // no real secret from the machine running the tests reaches the server
-const ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !(/^(RTJ_|TELEGRAM_|GMAIL_|HIRIFY_)|TOKEN|SECRET|COOKIE|PASSW|API_?KEY/i.test(k) && !/^(ANTHROPIC|CLAUDE|OPENAI|CODEX)_/.test(k)) && !/^(COMETSCOUT|JOBPILOT)_/.test(k)));
+const ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !(/^(RTJ_|TELEGRAM_|GMAIL_|HIRIFY_)|TOKEN|SECRET|COOKIE|PASSW|API_?KEY/i.test(k) && !/^(ANTHROPIC|CLAUDE|OPENAI|CODEX)_/.test(k)) && ![NEW_ENV, OLD_ENV].some(p => k.toUpperCase().startsWith(p))));
 Object.assign(ENV, { COMETSCOUT_HOME: tmp, COMETSCOUT_DATA: DATA, COMETSCOUT_SETTINGS: path.join(tmp, 'settings.json') });
 Object.assign(process.env, { COMETSCOUT_HOME: tmp, COMETSCOUT_DATA: DATA, COMETSCOUT_SETTINGS: path.join(tmp, 'settings.json') });
 const { validate, TOOLS } = await import('../lib/mcp-tools.mjs');
@@ -264,6 +266,7 @@ test('secrets_form: a one-time link the workspace serves once; the value never r
   const link = structured('secrets_form', await s.call('secrets_form', { keys: ['TELEGRAM_BOT_TOKEN'], port }));
   assert.equal(link.workspace_running, true);
   assert.match(link.url, new RegExp(`^http://127\\.0\\.0\\.1:${port}/secrets\\?t=[A-Za-z0-9_-]{20,}$`));
+  assert.equal(link.loopback_url, link.url, 'no workspace.url by hand: the link is the loopback one');
   assert.ok(link.steps.some(x => x.includes(`ssh -L ${port}:127.0.0.1:${port}`)));
   const token = new URL(link.url).searchParams.get('t');
   const page = await fetch(link.url);
@@ -331,4 +334,124 @@ test('malformed input gets JSON-RPC errors and the server keeps going; stdout ca
   // every line any server wrote in this file is one JSON-RPC 2.0 message
   assert.ok(allLines.length > 50);
   for (const l of allLines) { const m = JSON.parse(l); assert.equal(m.jsonrpc, '2.0', l.slice(0, 200)); assert.ok('result' in m || 'error' in m, l.slice(0, 200)); }
+});
+
+// ---------- review fixes: env names, workspace.url, reserved keys, long lines, the run log ----------
+/** A home of its own (settings changed by `edit`, its own .env and data), so these tests share nothing with the ones above. */
+function home(name, edit = () => {}, envText = `RTJ_API_TOKEN=${SECRET}\n`, { profile = true } = {}) {
+  const h = path.join(tmp, name), d = path.join(h, 'data');
+  for (const x of ['inbox', 'decoded', 'rejected', 'state', 'digests', 'packs']) fs.mkdirSync(path.join(d, x), { recursive: true });
+  const st = structuredClone(settings); edit(st);
+  fs.writeFileSync(path.join(h, 'settings.json'), JSON.stringify(st, null, 2) + '\n');
+  fs.writeFileSync(path.join(h, '.env'), envText);
+  if (profile) fs.cpSync(path.join(ROOT, 'profile.example'), path.join(h, 'profile'), { recursive: true });
+  return { dir: h, data: d, env: { ...ENV, COMETSCOUT_HOME: h, COMETSCOUT_DATA: d, COMETSCOUT_SETTINGS: path.join(h, 'settings.json') } };
+}
+
+test('settings_set never changes a *_env setting or workspace.url, and the secrets link offers a fixed list of names', async () => {
+  const h = home('env-lock');
+  const file = path.join(h.dir, 'settings.json'), before = fs.readFileSync(file, 'utf8');
+  const s = startMcp(['--scope', 'admin'], h.env);
+  const refused = async (args, re) => { const r = await s.call('settings_set', { dry_run: false, ...args }); assert.equal(r.isError, true, JSON.stringify(args)); assert.match(r.content[0].text, re); };
+  // the attack: chat_id_env=NODE_OPTIONS, then a secrets link for it would write NODE_OPTIONS into .env
+  await refused({ path: 'delivery.telegram.chat_id_env', value: 'NODE_OPTIONS' }, /delivery\.telegram\.chat_id_env is locked \(it names an environment variable/);
+  await refused({ path: 'delivery.telegram.token_env', value: 'TELEGRAM_CHAT_ID' }, /token_env is locked/);
+  // and token_env=GMAIL_CLIENT_SECRET would send the Gmail secret to the RealtimeJobs API
+  await refused({ path: 'sources.rtj.token_env', value: 'GMAIL_CLIENT_SECRET' }, /sources\.rtj\.token_env is locked/);
+  await refused({ path: 'sources.hirify.cookie_env', value: 'PATH' }, /cookie_env is locked/);
+  await refused({ path: 'delivery.telegram', value: { enabled: true, token_env: 'TELEGRAM_BOT_TOKEN', chat_id_env: 'NODE_OPTIONS' } }, /chat_id_env is locked/);
+  await refused({ path: 'workspace.url', value: 'https://evil.example' }, /workspace\.url is locked \(the secrets link is built from it/);
+  await refused({ path: 'workspace', value: { url: 'https://evil.example' } }, /workspace\.url is locked/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'nothing was written');
+  const sch = structured('settings_schema', await s.call('settings_schema'));
+  const envKeys = sch.settings.filter(x => /_env$/.test(x.key));
+  assert.ok(envKeys.length >= 4);
+  for (const x of [...envKeys, sch.settings.find(x => x.key === 'workspace.url')]) assert.equal(x.settable, false, x.key);
+  for (const keys of [['NODE_OPTIONS'], ['PATH'], ['HTTPS_PROXY'], [`${NEW_ENV}SETTINGS`], [`${OLD_ENV}HOME`], ['GMAIL_REFRESH_TOKEN']]) {
+    const r = await s.call('secrets_form', { keys, port: 1 });
+    assert.equal(r.isError, true, keys[0]);
+    assert.match(r.content[0].text, /cannot be set here; the secrets are: RTJ_API_TOKEN, HIRIFY_COOKIE, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET$/);
+  }
+  await s.close();
+  assert.ok(!fs.existsSync(path.join(h.data, 'state', 'secrets-links.json')), 'no link was issued');
+});
+
+test('a *_env setting edited by hand to NODE_OPTIONS or another feature\'s secret: no form for it, and the feature reads no secret', async () => {
+  const h = home('env-hand', st => { st.delivery.telegram = { enabled: true, token_env: 'TELEGRAM_BOT_TOKEN', chat_id_env: 'NODE_OPTIONS' }; st.sources.rtj.token_env = 'GMAIL_CLIENT_SECRET'; },
+    `GMAIL_CLIENT_SECRET=synthetic-gmail-secret-0001\nTELEGRAM_BOT_TOKEN=${TG_VALUE}\n`);
+  const s = startMcp(['--scope', 'admin'], h.env);
+  const sec = structured('secrets_status', await s.call('secrets_status'));
+  const rtj = sec.features.find(f => f.feature === 'rtj'), tg = sec.features.find(f => f.feature === 'telegram');
+  assert.deepEqual(rtj.keys, [{ name: 'GMAIL_CLIENT_SECRET', set: false }], 'the Gmail secret never counts as the RealtimeJobs token');
+  assert.match(rtj.problems.join(), /sources\.rtj\.token_env: GMAIL_CLIENT_SECRET is the secret of another feature/);
+  assert.equal(tg.form, false); assert.match(tg.problems.join(), /chat_id_env: NODE_OPTIONS cannot hold a secret: it changes how Node\.js starts/);
+  const r = await s.call('secrets_form', { keys: ['NODE_OPTIONS'], port: 1 });
+  assert.equal(r.isError, true); assert.match(r.content[0].text, /cannot be set here/);
+  assert.equal(structured('status', await s.call('status')).telegram.secrets_set, false);
+  const doc = structured('doctor', await s.call('doctor'));
+  assert.ok(doc.items.some(i => i.level === 'todo' && /RealtimeJobs token/.test(i.text)), 'doctor: the token counts as missing');
+  assert.ok(doc.items.some(i => i.level === 'warn' && /sources\.rtj\.token_env: GMAIL_CLIENT_SECRET is the secret of another feature/.test(i.text)));
+  await s.close();
+  // the source itself stops before any request: the Gmail secret is never sent to the RealtimeJobs API
+  const src = spawnSync(process.execPath, [path.join(ROOT, 'sources', 'rtj.mjs'), '--dry-run'], { encoding: 'utf8', env: h.env, timeout: 60000 });
+  assert.equal(src.status, 2, src.stdout + src.stderr);
+  assert.match(src.stdout + src.stderr, /sources\.rtj\.token_env: GMAIL_CLIENT_SECRET is the secret of another feature/);
+});
+
+test('secrets_form builds the link on 127.0.0.1 and the port; a workspace.url written by hand is shown with the loopback form', async () => {
+  const h = home('ws-url', st => { st.workspace = { url: 'https://ws.example/' }; });
+  const s = startMcp(['--scope', 'admin'], h.env);
+  const link = structured('secrets_form', await s.call('secrets_form', { keys: ['RTJ_API_TOKEN'], port: 1 }));
+  assert.match(link.url, /^https:\/\/ws\.example\/secrets\?t=[A-Za-z0-9_-]{20,}$/);
+  assert.equal(link.loopback_url, link.url.replace('https://ws.example', 'http://127.0.0.1:1'));
+  assert.ok(link.steps.some(x => x.includes('workspace.url from settings.json (https://ws.example)') && x.includes('http://127.0.0.1:1')), link.steps.join('\n'));
+  await s.close();
+});
+
+test('settings_set refuses __proto__, constructor and prototype anywhere, wildcard containers included', async () => {
+  const s = startMcp(['--scope', 'admin']);
+  const before = fs.readFileSync(path.join(tmp, 'settings.json'), 'utf8');
+  const refused = async (args, re = /reserved name \(__proto__, constructor or prototype\)/) => { const r = await s.call('settings_set', args); assert.equal(r.isError, true, JSON.stringify(args)); assert.match(r.content[0].text, re); };
+  await refused({ path: 'sources_report.prices.__proto__.price_month', value: 1 });
+  await refused({ path: 'sources_report.prices.constructor', value: { price_month: 1 } });
+  await refused({ path: 'sources_report.prices.prototype.currency', value: 'USD' });
+  await refused({ path: 'picks.constructor', value: 1 });
+  await refused({ path: 'sources_report.prices', value: JSON.parse('{"rtj": {"price_month": 1}, "__proto__": {"price_month": 2}}') }, /sources_report\.prices\.__proto__ uses a reserved name/);
+  await refused({ path: 'sources_report', value: { prices: { x: { constructor: 1 } } } }, /sources_report\.prices\.x\.constructor uses a reserved name/);
+  await refused({ path: 'modules.transcribe.engines', value: JSON.parse('{"__proto__": "whisper"}') });
+  assert.equal(fs.readFileSync(path.join(tmp, 'settings.json'), 'utf8'), before);
+  await s.close();
+});
+
+test('an over-long line gets exactly one parse error, and the next line is answered', async () => {
+  const s = startMcp(['--scope', 'read']);
+  const errors = () => allLines.filter(l => l.includes('Parse error: a message over')).length, was = errors();
+  const MB = 'x'.repeat(1024 * 1024);
+  for (let i = 0; i < 10; i++) await new Promise(r => s.child.stdin.write(MB, r));   // 10 MB with no newline, in pieces
+  s.send('');   // ends the long line
+  assert.deepEqual((await s.request('ping')).result, {}, 'the stream recovered');
+  assert.equal(errors() - was, 1, 'one parse error for the whole line');
+  assert.equal(await s.close(), 0);
+});
+
+test('the run log records a run that stops early: no profile yet (skipped) and a broken applications.json (stopped)', async () => {
+  const runIn = h => spawnSync(process.execPath, [CLI, 'run'], { encoding: 'utf8', env: h.env, timeout: 120000 });
+  const noPing = st => { st.health.ping_url = ''; };   // no request to the ping URL from a test
+  const skip = home('run-example', noPing, '', { profile: false });
+  assert.equal(runIn(skip).status, 0);
+  const s1 = startMcp(['--scope', 'read'], skip.env);
+  const r1 = structured('run_log', await s1.call('run_log'));
+  assert.equal(r1.runs.length, 1); assert.equal(r1.runs[0].exit, 0);
+  assert.match(r1.runs[0].result, /^skipped: no profile\/ yet/); assert.deepEqual(r1.runs[0].failures, []);
+  await s1.close();
+  const broken = home('run-broken', noPing);
+  fs.writeFileSync(path.join(broken.data, 'state', 'applications.json'), '{ "not json"');
+  const r = runIn(broken);
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  const s2 = startMcp(['--scope', 'read'], broken.env);
+  const r2 = structured('run_log', await s2.call('run_log')).runs[0];
+  assert.equal(r2.exit, 2); assert.match(r2.result, /^stopped: .*applications\.json is not valid JSON/);
+  assert.match(r2.failures.join(), /the run stopped: .*applications\.json is not valid JSON/);
+  assert.match(structured('status', await s2.call('status')).last_run.result, /^stopped/);
+  await s2.close();
 });
