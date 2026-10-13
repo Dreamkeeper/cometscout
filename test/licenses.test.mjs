@@ -69,3 +69,16 @@ test('the command exits 1 on a lockfile with a copyleft package and 0 on the rea
     assert.equal(good.status, 0, good.stdout + good.stderr);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
+
+test('the command fails when it reads no packages: an old lockfile format or an empty constraints file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-lic-'));
+  try {
+    const v1 = path.join(dir, 'v1.json'); fs.writeFileSync(v1, JSON.stringify({ lockfileVersion: 1, dependencies: { a: { version: '1.0.0' } } }));
+    let r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'licenses.mjs'), '--lock', v1], { encoding: 'utf8' });
+    assert.notEqual(r.status, 0); assert.match(r.stderr, /no packages read/);
+    const ok = path.join(dir, 'ok.json'); fs.writeFileSync(ok, JSON.stringify({ lockfileVersion: 3, packages: { '': {}, 'node_modules/a': { version: '1.0.0', license: 'MIT' } } }));
+    const empty = path.join(dir, 'c.txt'); fs.writeFileSync(empty, '# no pins here\n');
+    r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'licenses.mjs'), '--lock', ok, '--constraints', empty], { encoding: 'utf8' });
+    assert.notEqual(r.status, 0); assert.match(r.stderr, /no name==version pins/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

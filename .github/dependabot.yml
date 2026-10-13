@@ -33,6 +33,11 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    ignore:
+      # torch and torchaudio come from the PyTorch CPU index (+cpu builds); a Dependabot bump would drop +cpu and pull
+      # the CUDA build from PyPI. Raise them by hand with the bench (see constraints.txt).
+      - dependency-name: torch
+      - dependency-name: torchaudio
     groups:
       transcribe-minor-and-patch:
         update-types: [minor, patch]

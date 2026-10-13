@@ -113,8 +113,11 @@ async function main(args) {
   const opt = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
   const lock = JSON.parse(fs.readFileSync(opt('--lock') || path.join(ROOT, 'package-lock.json'), 'utf8'));
   const rows = npmRows(lock);
+  // a check that reads nothing must not pass: an old lockfile format (no packages map) or a changed constraints format
+  if (!rows.length) throw new Error('no packages read from the lockfile (a package-lock.json with lockfileVersion 2 or newer is needed)');
   if (args.includes('--python') || opt('--constraints')) {
     const pins = constraintPins(fs.readFileSync(opt('--constraints') || path.join(ROOT, 'deploy/modules/transcribe/constraints.txt'), 'utf8'));
+    if (!pins.length) throw new Error('no name==version pins read from the constraints file');
     if (!opt('--constraints')) {
       const fw = fs.readFileSync(path.join(ROOT, 'lib/transcribe.mjs'), 'utf8').match(/FASTER_WHISPER_VERSION = '([^']+)'/);
       if (!fw) throw new Error('FASTER_WHISPER_VERSION not found in lib/transcribe.mjs');
