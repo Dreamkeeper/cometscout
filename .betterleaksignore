@@ -1,0 +1,14 @@
+# Known findings of the secret scan (.github/workflows/secrets.yml) that are not secrets. One fingerprint per line:
+# <commit>:<file>:<rule>:<line>, so each entry covers only that one occurrence in that one commit; a new finding,
+# even on the same line in a later commit, still fails the scan. Every entry names the file and the reason.
+# Never quote a flagged value in this file: the comment itself would be a new finding.
+
+# test/settings-schema.test.mjs, commit c167061: the synthetic URL with a user and password in the redaction test
+# (it checks that such URLs are redacted). Not a credential; the test now builds the URL at run time, but this
+# commit stays in the history.
+c16706119a19770e79ad8a5cb197129cb357dafd:test/settings-schema.test.mjs:generic-credential-uri:98
+
+# .betterleaksignore, commit 9d88f13: the first version of this file quoted the same synthetic URL in a comment.
+# That commit is not on main (the PR was squash-merged) but it stays on the PR branch task/25b-secrets, and the scan
+# reads every branch it fetches. Remove this entry only after that branch is deleted.
+9d88f1316f40487e520ba6dc30656bd3b3681227:.betterleaksignore:generic-credential-uri:5

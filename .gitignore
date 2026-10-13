@@ -8,3 +8,8 @@ node_modules/
 *.log
 # the release folders of an install (cli.mjs update)
 app/
+# key and certificate files, encrypted secrets exports (export-secrets writes *.enc) and anything named *-secrets*
+*.pem
+*.key
+*.enc
+*-secrets*
