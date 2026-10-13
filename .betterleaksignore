@@ -1,0 +1,8 @@
+# Known findings of the secret scan (.github/workflows/secrets.yml) that are not secrets. One fingerprint per line:
+# <commit>:<file>:<rule>:<line>, so each entry covers only that one occurrence in that one commit; a new finding,
+# even on the same line in a later commit, still fails the scan. Every entry names the file and the reason.
+
+# test/settings-schema.test.mjs, commit c167061: the synthetic URL https://user:pw@host/ in the redaction test
+# (it checks that URLs with credentials are redacted). Not a credential; the test now builds the URL at run time,
+# but this commit stays in the history.
+c16706119a19770e79ad8a5cb197129cb357dafd:test/settings-schema.test.mjs:generic-credential-uri:98
