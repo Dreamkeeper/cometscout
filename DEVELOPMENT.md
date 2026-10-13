@@ -93,5 +93,5 @@ A release that changes stored data ships a migration: `migrations/NNN-name.mjs` 
 
 - `npm test` passes, and new behaviour has tests.
 - `node cli.mjs doctor` still runs on the example profile.
-- `git grep -n -i -E "<your real name>|<your email>"` finds nothing.
+- `git grep -n -i -E "<your real name>|<your email>"` finds nothing. Never commit anything secret-shaped, not even for a test: CI (`secrets.yml`, Betterleaks) scans the whole git history on every pull request, and a value in the history counts as leaked. Synthetic test values stay readable words (`synthetic-token-0001`), never a provider prefix or a random string.
 - The commit message says what changed and why, in plain words.
