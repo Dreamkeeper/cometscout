@@ -19,15 +19,9 @@ If sudo is not there yet, log in as root and run (replace `NAME` with your user)
 apt-get update && apt-get install -y sudo && usermod -aG sudo NAME
 ```
 
-Then log in again as your user and install git and Node.js 20 or newer.
+Then log in again as your user and install git and Node.js 22 or newer (Node 20 is end of life since April 2026).
 
-**Debian 13:** Node 20 is in the standard repositories.
-
-```bash
-sudo apt-get update && sudo apt-get install -y git curl nodejs npm
-```
-
-**Debian 12:** it ships Node 18, which is too old. Install a current version from NodeSource.
+**Debian 12 and 13, Ubuntu:** their own Node is too old (Debian 13 ships 20, Debian 12 ships 18). Install Node 22 from NodeSource.
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git curl
@@ -35,7 +29,7 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-Check: `node -v` should show v20 or higher.
+Check: `node -v` should show v22 or higher.
 
 ## 2. Claude Code or Codex
 
@@ -187,7 +181,7 @@ If you already run [career-ops](https://github.com/career-ops-hq/career-ops), Co
 CometScout can turn a recording of an interview into text on this machine, so the interview coach can analyze it. The audio stays on the server; the model (about 1.5 GB for the default `medium`) is downloaded once by the first job.
 
 ```bash
-bash deploy/modules/transcribe.sh                   # needs Python 3.10 to 3.14 and python3-venv: sudo apt-get install -y python3 python3-venv
+bash deploy/modules/transcribe.sh                   # needs Python 3.11 to 3.14 and python3-venv: sudo apt-get install -y python3 python3-venv
 bash deploy/modules/transcribe.sh --with-gigaam     # for Russian recordings: adds GigaAM and a CPU-only PyTorch (about 0.2 GB to download)
 node cli.mjs transcribe --bench sample.m4a --models small,large-v3-turbo   # which model is fast enough here
 ```

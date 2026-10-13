@@ -278,7 +278,7 @@ test('the installer extra: sherpa-onnx pinned, the models downloaded with their 
   fs.mkdirSync(path.dirname(T.venvPython(is)), { recursive: true }); fs.writeFileSync(T.venvPython(is), '');
   fs.writeFileSync(path.join(is.path, 'venv', 'pyvenv.cfg'), 'version = 3.15.0\n');
   assert.equal(await T.installSpeakers(is, { run, log: l => logs.push(l), fetchImpl, models }), 1);
-  assert.match(logs.at(-1), /needs Python 3\.10 to 3\.14/);
+  assert.match(logs.at(-1), /needs Python 3\.11 to 3\.14/);
   fs.writeFileSync(path.join(is.path, 'venv', 'pyvenv.cfg'), 'version = 3.12.3\n');
   assert.equal(await T.installSpeakers(is, { run, log: l => logs.push(l), fetchImpl, models }), 0, logs.join('\n'));
   assert.deepEqual(runs.filter(x => x.startsWith('-m pip')), ['-m pip install --disable-pip-version-check --no-input -c <c> sherpa-onnx']);

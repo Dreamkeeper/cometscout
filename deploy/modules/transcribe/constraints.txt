@@ -1,43 +1,42 @@
 # Pinned libraries for the transcription module (pip install -c this file, from lib/transcribe.mjs install, which both
 # transcribe.sh and transcribe.ps1 run). faster-whisper itself is pinned in lib/transcribe.mjs (FASTER_WHISPER_VERSION).
-# Python 3.11 to 3.14 (and 3.10, for Ubuntu 22.04, through the python_version markers below) on Linux x86_64 and aarch64 (manylinux, glibc 2.28 or newer) and Windows x64: every
-# version below has a wheel for each of them, so pip never builds from source (one exception in the extra, below).
+# Python 3.11 to 3.14 (3.10 is end of life since 2026-10-01) on Linux x86_64 and aarch64 (manylinux, glibc 2.28 or newer) and
+# Windows x64: every version below has a wheel for each of them, so pip never builds from source (one exception in the extra, below).
 # The benchmark in the README ran faster-whisper 1.2.1 with ctranslate2 4.8.2 and av 19.0.1 on Python 3.14. av 19 has no
 # wheels for Python 3.11, so av is 18.1.0, the newest release with wheels for 3.11 to 3.14; numpy likewise (2.5 needs 3.12).
 # Changing a version here changes what a new install gets and what the installer switches an existing one to: run the
 # bench again (node cli.mjs transcribe --bench) before raising one.
 ctranslate2==4.8.2
-av==18.1.0; python_version >= "3.11"
-av==17.1.0; python_version < "3.11"
+av==18.1.0
 tokenizers==0.23.2
-onnxruntime==1.30.0; python_version >= "3.11"
-onnxruntime==1.23.2; python_version < "3.11"
+onnxruntime==1.30.0
 huggingface-hub==1.33.0
-numpy==2.4.6; python_version >= "3.11"
-numpy==2.2.6; python_version < "3.11"
+numpy==2.4.6
 # The GigaAM extra (transcribe.sh --with-gigaam, for Russian): PyTorch built for the CPU only, from the PyTorch CPU index
 # (https://download.pytorch.org/whl/cpu, never the CUDA wheels), about 115 MB to download on Windows and 150 to 190 MB on
-# Linux. torch 2.11 and torchaudio 2.11 have CPU wheels for Python 3.10 to 3.14 on Linux x86_64, aarch64 and Windows x64
+# Linux. torch 2.11 and torchaudio 2.11 have CPU wheels for Python 3.11 to 3.14 (and 3.10) on Linux x86_64, aarch64 and Windows x64
 # (none for 3.15 yet): that is the extra's Python range (GIGAAM_PYTHON in lib/transcribe.mjs). GigaAM itself is pinned to
 # a commit in lib/transcribe.mjs (GIGAAM_COMMIT, version 0.2.0 is not on PyPI) and installed without its own pins, which
 # would downgrade onnxruntime; the libraries it imports are pinned here. antlr4-python3-runtime has no wheel (pure Python,
 # pip builds it in a second).
 torch==2.11.0+cpu
 torchaudio==2.11.0+cpu
-# torch's own libraries, which pip takes from the same PyTorch index (each version below is on it and on PyPI, checked
-# 2026-10-07): torch 2.11 asks for setuptools below 82 and sympy 1.14 for mpmath below 1.4; networkx 3.5 and newer need
-# Python 3.11 (3.6, as 3.6.1 refuses Python 3.14.1). MarkupSafe is the only compiled one (wheels for 3.10 to 3.14 on all
-# three platforms). filelock, fsspec and typing-extensions are also huggingface-hub's, so the base install gets these pins.
+# torch's own libraries, which pip takes from the same PyTorch index (each version below except setuptools is on it and on
+# PyPI, checked 2026-10-07): torch 2.11 asks for setuptools below 82 and sympy 1.14 for mpmath below 1.4; networkx is 3.6,
+# as 3.6.1 refuses Python 3.14.1. MarkupSafe is the only compiled one (wheels for 3.11 to 3.14 on all three platforms).
+# filelock, fsspec and typing-extensions are also huggingface-hub's, so the base install gets these pins.
+# setuptools is 81.0.0 (2026-02-06), the newest below 82; it fixes GHSA-5rjg-fvgr-3xxf (path traversal, fixed in 78.1.1).
+# The PyTorch CPU index has nothing newer than 78.1.0, so the base install takes 81.0.0 from PyPI (next to faster-whisper)
+# and the PyTorch step finds it installed (checked 2026-10-13 with uv pip compile, Python 3.11 to 3.14, three platforms).
 sympy==1.14.0
 mpmath==1.3.0
-networkx==3.6; python_version >= "3.11"
-networkx==3.4.2; python_version < "3.11"
+networkx==3.6
 jinja2==3.1.6
 MarkupSafe==3.0.3
 filelock==3.32.3
 fsspec==2026.7.0
 typing-extensions==4.15.0
-setuptools==78.1.0
+setuptools==81.0.0
 hydra-core==1.3.7
 omegaconf==2.3.1
 antlr4-python3-runtime==4.9.3

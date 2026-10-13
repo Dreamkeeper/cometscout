@@ -1,4 +1,4 @@
-# npm test on Linux and Windows, Node 20 and 22. Official actions only, pinned by tag; no secrets; read-only token.
+# npm test on Linux and Windows, Node 22 and 24 (the supported LTS lines; Node 20 is end of life since 2026-04-30). Official actions only, pinned by tag; no secrets; read-only token.
 name: test
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [20, 22]
+        node: [22, 24]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

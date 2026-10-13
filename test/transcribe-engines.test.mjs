@@ -296,11 +296,11 @@ test('the installer with --with-gigaam: CPU-only PyTorch from its index, GigaAM 
   };
   const env = { PYTHON: 'python3' }, log = l => logs.push(l);
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: '3.15' }), log, env, withGigaam: true }), 1);
-  assert.match(logs.at(-1), /The GigaAM extra needs Python 3\.10 to 3\.14 \(PyTorch has CPU wheels only for those\); python3 is 3\.15/);
+  assert.match(logs.at(-1), /The GigaAM extra needs Python 3\.11 to 3\.14 \(PyTorch has CPU wheels only for those\); python3 is 3\.15/);
   runs.length = 0; logs.length = 0;
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun(), log, env, withGigaam: true }), 0);
   assert.deepEqual(runs.filter(r => r.startsWith('-m pip')), [
-    `-m pip install --disable-pip-version-check --no-input -c <c> faster-whisper==${T.FASTER_WHISPER_VERSION}`,
+    `-m pip install --disable-pip-version-check --no-input -c <c> faster-whisper==${T.FASTER_WHISPER_VERSION} setuptools`,
     '-m pip install --disable-pip-version-check --no-input -c <c> --index-url https://download.pytorch.org/whl/cpu torch torchaudio',
     `-m pip install --disable-pip-version-check --no-input -c <c> --no-deps gigaam @ https://github.com/salute-developers/GigaAM/archive/${T.GIGAAM_COMMIT}.zip`,
     '-m pip install --disable-pip-version-check --no-input -c <c> hydra-core omegaconf sentencepiece soundfile tqdm',
@@ -308,12 +308,14 @@ test('the installer with --with-gigaam: CPU-only PyTorch from its index, GigaAM 
   const pins = T.pinnedVersions();
   assert.match(pins.torch, /^\d+\.\d+\.\d+\+cpu$/); assert.match(pins.torchaudio, /^\d+\.\d+\.\d+\+cpu$/, 'CPU builds only');
   for (const p of ['hydra-core', 'omegaconf', 'sentencepiece', 'soundfile', 'antlr4-python3-runtime']) assert.ok(pins[p], `${p} pinned`);
-  // torch's own dependencies come from the PyTorch index too: pinned, with markers where the Python range differs
+  // torch's own dependencies come from the PyTorch index too (setuptools from PyPI, with the base install): pinned
   for (const p of ['sympy', 'mpmath', 'networkx', 'jinja2', 'markupsafe', 'filelock', 'fsspec', 'typing-extensions', 'setuptools']) assert.ok(pins[p], `${p} pinned`);
-  const lines = fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').filter(l => /^networkx==/.test(l));
-  assert.deepEqual(lines.map(l => l.split(';')[1]?.trim()), ['python_version >= "3.11"', 'python_version < "3.11"'], 'networkx 3.5 and newer need Python 3.11');
+  assert.equal(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').filter(l => /^networkx==/.test(l)).length, 1, 'one networkx pin: Python 3.10, which needed an older one, is no longer supported');
   assert.ok(Number(pins.mpmath.split('.')[1]) < 4, 'sympy 1.14 takes mpmath below 1.4');
   assert.ok(Number(pins.setuptools.split('.')[0]) < 82, 'torch 2.11 takes setuptools below 82');
+  // GHSA-5rjg-fvgr-3xxf (path traversal in setuptools) is fixed from 78.1.1
+  const [sMaj, sMin, sPatch] = pins.setuptools.split('.').map(Number);
+  assert.ok(sMaj > 78 || (sMaj === 78 && (sMin > 1 || (sMin === 1 && sPatch >= 1))), `setuptools ${pins.setuptools} has the path traversal fix`);
   assert.ok(!logs.some(l => /^Installing faster-whisper .*sympy/.test(l)), 'torch\'s libraries are the extra\'s');
   assert.match(T.GIGAAM_COMMIT, /^[0-9a-f]{40}$/);
   assert.ok(logs.some(l => /PyTorch 2\.\d+\.\d+\+cpu .*built for the CPU only, from https:\/\/download\.pytorch\.org\/whl\/cpu \(no CUDA; about 115 MB to download on Windows/.test(l)));
@@ -355,44 +357,47 @@ test('doctor: the engines, the GigaAM extra (missing, a GPU build, installed, a 
   fs.mkdirSync(path.join(ds.path, 'models', 'gigaam'), { recursive: true }); fs.writeFileSync(path.join(ds.path, 'models', 'gigaam', 'v3_e2e_rnnt.ckpt'), Buffer.alloc(3000));
   assert.match(lines(), /^ok GigaAM model v3_e2e_rnnt: downloaded \(0\.0 GB\)$/m);
   fs.writeFileSync(path.join(ds.path, 'venv', 'pyvenv.cfg'), 'version_info = 3.15.0\n');
-  assert.match(lines(), /^todo GigaAM extra: needs Python 3\.10 to 3\.14 \(PyTorch has CPU wheels for those\), the module's Python is 3\.15/m);
+  assert.match(lines(), /^todo GigaAM extra: needs Python 3\.11 to 3\.14 \(PyTorch has CPU wheels for those\), the module's Python is 3\.15/m);
+  assert.doesNotMatch(lines(), /this CometScout needs 3\.11 or newer/);
+  // a venv made on Python 3.10 before it was dropped: a TODO with what to do
+  fs.writeFileSync(path.join(ds.path, 'venv', 'pyvenv.cfg'), 'version = 3.10.12\n');
+  assert.match(lines(), /^todo transcription: the module's Python is 3\.10, this CometScout needs 3\.11 or newer \(Python 3\.10 is end of life\) {2}-> remove .*venv, then PYTHON=<a Python 3\.11 or newer> /m);
+  fs.writeFileSync(path.join(ds.path, 'venv', 'pyvenv.cfg'), 'version_info = 3.15.0\n');
   // nothing about GigaAM when no language uses it; a wrong setting is a TODO
   const w = lines({ ...base, settings: { modules: { transcribe: { ...settings.modules.transcribe, engines: { ru: 'whisper' }, vad: 'pyannote' } } } });
   assert.ok(!/GigaAM/.test(w));
   assert.match(w, /^todo transcription settings: modules\.transcribe\.vad: "pyannote" is not one of silero  -> /m);
 });
 
-test('pinned versions: the python_version markers are evaluated for the Python pip installs for (log line and installed.json)', () => {
-  // what constraints.txt gives each side of its markers, read from the file itself
-  const marked = pkg => Object.fromEntries(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').filter(l => l.startsWith(`${pkg}==`)).map(l => [l.split(';')[1].trim(), l.split(';')[0].split('==')[1].trim()]));
-  for (const pkg of ['av', 'numpy', 'onnxruntime', 'networkx']) {
-    const m = marked(pkg), newer = m['python_version >= "3.11"'], older = m['python_version < "3.11"'];
-    assert.ok(newer && older && newer !== older, `${pkg} has a pin on each side of 3.11`);
-    assert.equal(T.pinnedVersions([3, 14])[pkg], newer, `${pkg} on 3.14`);
-    assert.equal(T.pinnedVersions('3.11')[pkg], newer, `${pkg} on 3.11`);
-    assert.equal(T.pinnedVersions([3, 10])[pkg], older, `${pkg} on 3.10`);
-  }
-  assert.equal(T.pinnedVersions([3, 10])['sherpa-onnx'], T.pinnedVersions([3, 14])['sherpa-onnx'], 'a line without a marker holds for every Python');
+test('pinned versions: one pin per package for every supported Python; markers, if any, are evaluated for the venv\'s Python', () => {
+  const text = fs.readFileSync(T.CONSTRAINTS, 'utf8');
+  assert.ok(!/python_version/.test(text), 'no markers: Python 3.11 to 3.14 share one set of pins');
+  assert.deepEqual(T.pinnedVersions([3, 11]), T.pinnedVersions([3, 14]));
   assert.deepEqual([T.markerHolds('', [3, 9]), T.markerHolds('python_version < "3.11"', [3, 10]), T.markerHolds('python_version >= "3.11"', [3, 10]),
     T.markerHolds('python_version >= "3.10" and python_version != "3.12"', [3, 12]), T.markerHolds('python_full_version <= "3.13.2"', [3, 13]), T.markerHolds('sys_platform == "win32"', [3, 12])],
   [true, true, false, false, true, true]);
-  // the installer logs and records what pip installs for the venv's Python
-  const runOn = version => {
-    const settings = { modules: { transcribe: { path: path.join(tmp, `pins-${version}`) } } };
+  // the installer logs and records what pip installs for the venv's Python; an older venv is refused with what to do
+  const runOn = (version, venvVersion = version) => {
+    const settings = { modules: { transcribe: { path: path.join(tmp, `pins-${version}-${venvVersion}`) } } };
     const is = T.transcribeSettings(settings, HOME, DATA), logs = [];
+    if (venvVersion !== version) { fs.mkdirSync(path.dirname(T.venvPython(is)), { recursive: true }); fs.writeFileSync(T.venvPython(is), ''); fs.writeFileSync(path.join(is.path, 'venv', 'pyvenv.cfg'), `version = ${venvVersion}.2\n`); }
     const run = (cmd, args) => {
       if (args.some(a => String(a).startsWith('import sys'))) return { status: 0, stdout: `${version}\n` };
       if (args.includes('venv')) { fs.mkdirSync(path.dirname(T.venvPython(is)), { recursive: true }); fs.writeFileSync(T.venvPython(is), ''); fs.writeFileSync(path.join(is.path, 'venv', 'pyvenv.cfg'), `version = ${version}.2\n`); return { status: 0 }; }
       return { status: 0 };
     };
-    assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run, log: l => logs.push(l), env: { PYTHON: 'python3' } }), 0, logs.join('\n'));
-    return { pinned: JSON.parse(fs.readFileSync(path.join(is.path, 'installed.json'), 'utf8')).pinned, line: logs.find(l => l.startsWith('Installing faster-whisper')) };
+    const code = T.installTranscribe({ settings, root: HOME, data: DATA, run, log: l => logs.push(l), env: { PYTHON: 'python3' } });
+    return { code, logs, is };
   };
-  for (const [version, side] of [['3.10', 'python_version < "3.11"'], ['3.13', 'python_version >= "3.11"']]) {
-    const { pinned, line } = runOn(version);
-    for (const pkg of ['av', 'numpy', 'onnxruntime']) {
-      assert.equal(pinned[pkg], marked(pkg)[side], `installed.json: ${pkg} on Python ${version}`);
-      assert.ok(line.includes(`${pkg} ${marked(pkg)[side]}`), `the log line: ${pkg} on Python ${version}: ${line}`);
-    }
+  const ok = runOn('3.13');
+  assert.equal(ok.code, 0, ok.logs.join('\n'));
+  const pinned = JSON.parse(fs.readFileSync(path.join(ok.is.path, 'installed.json'), 'utf8')).pinned;
+  const line = ok.logs.find(l => l.startsWith('Installing faster-whisper'));
+  for (const pkg of ['av', 'numpy', 'onnxruntime', 'setuptools']) {
+    assert.equal(pinned[pkg], T.pinnedVersions([3, 13])[pkg], `installed.json: ${pkg}`);
+    assert.ok(line.includes(`${pkg} ${pinned[pkg]}`), `the log line names ${pkg}: ${line}`);
   }
+  const old = runOn('3.12', '3.10');
+  assert.equal(old.code, 1);
+  assert.match(old.logs.at(-1), /has Python 3\.10; the transcription module needs 3\.11 or newer\. Remove that folder and run the installer again/);
 });
