@@ -1,4 +1,5 @@
-# npm test on Linux and Windows, Node 20 and 22. Official actions only, pinned by tag; no secrets; read-only token.
+# npm test on Linux and Windows, Node 20 and 22. Official actions only, pinned by full commit SHA (the version in the
+# comment); runner images by exact label; no package install scripts; no secrets; read-only token.
 name: test
 on:
   push:
@@ -15,16 +16,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-2025]   # exact labels from the actions/runner-images README, never *-latest
         node: [20, 22]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
-      - run: npm ci --no-audit --no-fund
+      - run: npm ci --ignore-scripts --no-audit --no-fund   # the audit has its own job; no package script runs
       - run: npm test
