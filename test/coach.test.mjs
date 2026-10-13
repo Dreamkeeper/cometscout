@@ -288,10 +288,24 @@ if (args[0] === 'clone') {
   const dir = args[args.length - 1];
   fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.git', 'origin'), args[args.length - 2]);
+  fs.writeFileSync(path.join(dir, '.git', 'head'), 'c'.repeat(40));
   fs.writeFileSync(path.join(dir, 'SKILL.md'), 'skill v1\\n');
   fs.writeFileSync(path.join(dir, 'README.md'), 'readme\\n');
+} else if (args[0] === 'init') {
+  fs.mkdirSync(path.join(args[args.length - 1], '.git'), { recursive: true });
+} else if (args.includes('remote') && args.includes('add')) {
+  fs.writeFileSync(path.join(at(), '.git', 'origin'), args[args.length - 1]);
 } else if (args.includes('get-url')) {
   try { console.log(fs.readFileSync(path.join(at(), '.git', 'origin'), 'utf8')); } catch { console.error("error: No such remote 'origin'"); process.exit(2); }
+} else if (args.includes('fetch')) {
+  if (!fs.existsSync(path.join(at(), '.git', 'origin'))) { console.error("fatal: 'origin' does not appear to be a git repository"); process.exit(128); }
+} else if (args.includes('checkout')) {
+  const skill = path.join(at(), 'SKILL.md');
+  fs.writeFileSync(skill, process.env.FAKE_GIT_SKILL || (fs.existsSync(skill) ? 'skill v2\\n' : 'skill v1\\n'));
+  if (!fs.existsSync(path.join(at(), 'README.md'))) fs.writeFileSync(path.join(at(), 'README.md'), 'readme\\n');
+  fs.writeFileSync(path.join(at(), '.git', 'head'), args[args.length - 1]);
+} else if (args.includes('rev-parse')) {
+  try { console.log(fs.readFileSync(path.join(at(), '.git', 'head'), 'utf8')); } catch { console.error('fatal: ambiguous argument HEAD'); process.exit(128); }
 } else if (args.includes('pull')) {
   fs.writeFileSync(path.join(at(), 'SKILL.md'), process.env.FAKE_GIT_SKILL || 'skill v2\\n');
 } else if (args.includes('log')) console.log('abc1234 2026-09-30');
@@ -313,13 +327,26 @@ const snapshot = dir => {
 };
 const install = (target, extra = {}) => { const lines = []; const code = coach.installCoach({ settings: { modules: { coach: { path: target, ...extra } } }, log: l => lines.push(l) }); return { code, out: lines.join('\n') }; };
 
-test('installer: the first install clones the upstream with depth 1 and activates the skill', () => withGit({}, () => {
+const PIN = coach.COACH_COMMIT;
+const pinnedSteps = target => [['init', '-q', '--', target], ['-C', target, 'remote', 'add', 'origin', coach.COACH_REPO], ['-C', target, 'fetch', '--depth', '1', '--no-tags', 'origin', PIN], ['-C', target, '-c', 'advice.detachedHead=false', 'checkout', '--detach', PIN]];
+// What an install from before the pin looks like to the fake git: a clone of the branch head at another commit.
+const unpin = target => fs.writeFileSync(path.join(target, '.git', 'head'), 'a'.repeat(40));
+
+test('installer: the coach commit is pinned in code, a full commit SHA', () => {
+  assert.match(PIN, /^[0-9a-f]{40}$/);
+  assert.equal(coach.pinnedRepo(coach.COACH_REPO), true);
+  assert.equal(coach.pinnedRepo('https://GitHub.com/noamseg/interview-coach-skill/'), true);
+  assert.equal(coach.pinnedRepo('https://git.example/coach.git'), false);
+});
+
+test('installer: the first install fetches the pinned commit only and activates the skill', () => withGit({}, () => {
   const target = path.join(tmp, 'install-1', 'interview-coach');
   const r = install(target);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(calls()[0], ['clone', '--depth', '1', '--', coach.COACH_REPO, target]);
-  assert.ok(!calls().some(c => c.includes('pull')));
+  assert.deepEqual(calls().slice(0, 4), pinnedSteps(target));
+  assert.ok(!calls().some(c => c[0] === 'clone' || c.includes('pull')), 'never the branch head');
   assert.equal(fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf8'), 'skill v1\n');
+  assert.match(r.out, new RegExp(`Installing the interview coach into .* at commit ${PIN.slice(0, 7)}`));
   assert.match(r.out, /Interview coach: .*interview-coach \(abc1234, 2026-09-30\)/);
   assert.ok(r.out.includes(coach.startLine(target)), 'prints how to start it');
   assert.match(r.out, /Then say: kickoff/);
@@ -327,25 +354,27 @@ test('installer: the first install clones the upstream with depth 1 and activate
   assert.match(r.out, /modules\.coach\.enabled/);
   // git never waits for a username or password
   assert.ok(records().length > 0 && records().every(x => x.prompt === '0' && x.gcm === 'never'), JSON.stringify(records()));
-  // an empty folder counts as not installed; modules.coach.repo is honoured
+  // an empty folder counts as not installed; another modules.coach.repo (a fork) is cloned at its branch head
   const empty = path.join(tmp, 'install-empty'); fs.mkdirSync(empty);
   assert.equal(install(empty, { repo: 'https://git.example/coach.git' }).code, 0);
   assert.deepEqual(calls().filter(c => c[0] === 'clone').at(-1), ['clone', '--depth', '1', '--', 'https://git.example/coach.git', empty]);
 }));
 
-test('installer: an update pulls fast-forward only and never deletes or changes the coach\'s own files', () => withGit({}, () => {
+test('installer: an install from before the pin moves to the pinned commit and keeps the coach\'s own files; at the pin nothing runs', () => withGit({}, () => {
   const target = path.join(tmp, 'install-2');
   install(target);
+  unpin(target);
   fs.writeFileSync(path.join(target, 'coaching_state.md'), '# synthetic coaching state\n');
   fs.mkdirSync(path.join(target, 'materials', 'acme'), { recursive: true });
   fs.writeFileSync(path.join(target, 'materials', 'acme', 'transcript.md'), 'synthetic transcript\n');
   fs.writeFileSync(path.join(target, 'cometscout-handoff.md'), 'synthetic hand-off\n');
   const before = snapshot(target);
   fs.rmSync(GIT_LOG, { force: true });
-  const r = install(target);
+  let r = install(target);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(calls().slice(0, 2), [['-C', target, 'remote', 'get-url', 'origin'], ['-C', target, 'pull', '--ff-only']]);
-  assert.ok(!calls().some(c => c[0] === 'clone'));
+  assert.deepEqual(calls().slice(0, 4), [['-C', target, 'remote', 'get-url', 'origin'], ['-C', target, 'rev-parse', 'HEAD'], ...pinnedSteps(target).slice(2)]);
+  assert.ok(!calls().some(c => c[0] === 'clone' || c.includes('pull')));
+  assert.match(r.out, new RegExp(`Updating the interview coach in .* to commit ${PIN.slice(0, 7)}`));
   assert.ok(records().every(x => x.prompt === '0' && x.gcm === 'never'));
   const after = snapshot(target);
   for (const f of Object.keys(before)) assert.ok(f in after, `${f} still there`);
@@ -354,10 +383,17 @@ test('installer: an update pulls fast-forward only and never deletes or changes 
   assert.equal(after['SKILL.md'], 'skill v2\n');
   assert.equal(after['CLAUDE.md'], 'skill v1\n');
   assert.match(r.out, /CLAUDE\.md differs from SKILL\.md and was left as it is/);
+  // run again: already at the pinned commit, so no fetch and no checkout
+  fs.rmSync(GIT_LOG, { force: true });
+  r = install(target);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /is at the pinned commit .* already/);
+  assert.ok(!calls().some(c => c.includes('fetch') || c.includes('checkout') || c.includes('pull')), JSON.stringify(calls()));
 }));
 
 test('installer: a CLAUDE.md the user edited is left as it is; a missing one is created again', () => withGit({ FAKE_GIT_SKILL: 'skill v3\n' }, () => {
   const target = path.join(tmp, 'install-2');
+  unpin(target);
   fs.writeFileSync(path.join(target, 'CLAUDE.md'), 'my own edits\n');
   let r = install(target);
   assert.equal(r.code, 0);
@@ -371,37 +407,60 @@ test('installer: a CLAUDE.md the user edited is left as it is; a missing one is 
   fs.writeFileSync(path.join(target, 'CLAUDE.md'), keep);
 }));
 
-test('installer: a checkout of another repository is never pulled', () => withGit({}, () => {
+test('installer: a checkout of another repository is never updated; a fork named in modules.coach.repo is pulled', () => withGit({}, () => {
   const target = path.join(tmp, 'install-2');
   const before = snapshot(target);
   let r = install(target, { repo: 'https://git.example/someone-else/coach.git' });
   assert.equal(r.code, 1);
   assert.match(r.out, /is a checkout of https:\/\/github\.com\/noamseg\/interview-coach-skill\.git, not of modules\.coach\.repo \(https:\/\/git\.example\/someone-else\/coach\.git\)/);
-  assert.deepEqual(pulls(), []);
+  assert.ok(!calls().some(c => c.includes('pull') || c.includes('fetch') || c.includes('checkout')));
   assert.deepEqual(snapshot(target), before);
-  // the same address in another spelling (case, no .git, a trailing slash) is the same repository
+  // the same address in another spelling (case, no .git, a trailing slash) is the same repository, so it is pinned too
   fs.rmSync(GIT_LOG, { force: true });
+  unpin(target);
   r = install(target, { repo: 'https://GitHub.com/noamseg/interview-coach-skill/' });
   assert.equal(r.code, 0, r.out);
-  assert.equal(pulls().length, 1);
+  assert.deepEqual(pulls(), []);
+  assert.ok(calls().some(c => c.join(' ') === `-C ${target} -c advice.detachedHead=false checkout --detach ${PIN}`));
+  // a fork: its own branch head, pulled fast-forward only, as before the pin
+  const fork = path.join(tmp, 'install-fork');
+  assert.equal(install(fork, { repo: 'https://git.example/coach.git' }).code, 0);
+  fs.rmSync(GIT_LOG, { force: true });
+  r = install(fork, { repo: 'https://git.example/coach.git' });
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(calls().slice(0, 2), [['-C', fork, 'remote', 'get-url', 'origin'], ['-C', fork, 'pull', '--ff-only']]);
+  assert.ok(!calls().some(c => c.includes('fetch') || c.includes('rev-parse')));
   // a checkout with no origin at all is not updated either
   const lone = path.join(tmp, 'no-origin'); fs.mkdirSync(path.join(lone, '.git'), { recursive: true });
   fs.rmSync(GIT_LOG, { force: true });
   r = install(lone);
-  assert.equal(r.code, 1); assert.match(r.out, /is a checkout of no origin/); assert.deepEqual(pulls(), []);
+  assert.equal(r.code, 1); assert.match(r.out, /is a checkout of no origin/); assert.deepEqual(calls().filter(c => c.includes('fetch') || c.includes('pull')), []);
 }));
 
-test('installer: a failed pull and a folder that is not a checkout leave everything in place', () => withGit({ FAKE_GIT_FAIL: 'pull' }, () => {
-  const target = path.join(tmp, 'install-2');
-  const before = snapshot(target);
-  let r = install(target);
+for (const step of ['fetch', 'checkout']) {
+  test(`installer: a failed ${step} of the pinned commit leaves everything in place`, () => withGit({ FAKE_GIT_FAIL: step }, () => {
+    const target = path.join(tmp, 'install-2');
+    unpin(target);
+    const before = snapshot(target);
+    const r = install(target);
+    assert.equal(r.code, 1);
+    assert.match(r.out, step === 'fetch' ? /git fetch of the pinned commit [0-9a-f]{7} failed: fatal: synthetic failure/ : /switching to the pinned commit [0-9a-f]{7} failed: fatal: synthetic failure/);
+    // the advice never destroys edits: git status to see what differs, a copy kept elsewhere; never git checkout
+    assert.ok(r.out.includes(`git -C "${target}" status`), r.out);
+    assert.match(r.out, /keep a copy of your edits somewhere else/);
+    assert.doesNotMatch(r.out.split(target).join('<dir>'), /checkout --|reset|clean|stash/);   // the folder's own path may hold any word
+    assert.deepEqual(snapshot(target), before);
+  }));
+}
+
+test('installer: a failed pull of a fork and a folder that is not a checkout leave everything in place', () => withGit({ FAKE_GIT_FAIL: 'pull' }, () => {
+  const fork = path.join(tmp, 'install-fork');
+  const before = snapshot(fork);
+  let r = install(fork, { repo: 'https://git.example/coach.git' });
   assert.equal(r.code, 1);
   assert.match(r.out, /git pull --ff-only failed: fatal: synthetic failure/);
-  // the advice never destroys edits: git status to see what differs, a copy kept elsewhere; never git checkout
-  assert.ok(r.out.includes(`git -C "${target}" status`), r.out);
-  assert.match(r.out, /keep a copy of your edits somewhere else/);
-  assert.doesNotMatch(r.out.split(target).join('<dir>'), /checkout --|reset|clean|stash/);   // the folder's own path may hold any word
-  assert.deepEqual(snapshot(target), before);
+  assert.ok(r.out.includes(`git -C "${fork}" status`), r.out);
+  assert.deepEqual(snapshot(fork), before);
   const other = path.join(tmp, 'not-a-checkout'); fs.mkdirSync(other);
   fs.writeFileSync(path.join(other, 'notes.md'), 'someone else\'s notes\n');
   fs.rmSync(GIT_LOG, { force: true });
@@ -413,11 +472,25 @@ test('installer: a failed pull and a folder that is not a checkout leave everyth
   assert.equal(install(path.join(tmp, 'x'), { repo: '--upload-pack=evil' }).code, 1);
 }));
 
-test('installer: a failed clone says so', () => withGit({ FAKE_GIT_FAIL: 'clone' }, () => {
-  const r = install(path.join(tmp, 'install-fail'));
-  assert.equal(r.code, 1);
-  assert.match(r.out, /git clone failed: fatal: synthetic failure/);
-}));
+test('installer: a failed first fetch says so, and the next run finishes the install', () => {
+  const target = path.join(tmp, 'install-fail');
+  withGit({ FAKE_GIT_FAIL: 'fetch' }, () => {
+    const r = install(target);
+    assert.equal(r.code, 1);
+    assert.match(r.out, /git fetch of the pinned commit [0-9a-f]{7} failed: fatal: synthetic failure/);
+  });
+  withGit({}, () => {
+    const r = install(target);
+    assert.equal(r.code, 0, r.out);
+    assert.ok(calls().some(c => c.join(' ') === `-C ${target} -c advice.detachedHead=false checkout --detach ${PIN}`));
+    assert.equal(fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf8'), 'skill v1\n');
+  });
+  withGit({ FAKE_GIT_FAIL: 'clone' }, () => {
+    const r = install(path.join(tmp, 'install-fail-fork'), { repo: 'https://git.example/coach.git' });
+    assert.equal(r.code, 1);
+    assert.match(r.out, /git clone failed: fatal: synthetic failure/);
+  });
+});
 
 test('coach settings: the default folder is next to the home; relative paths are relative to the home', () => {
   assert.equal(coach.coachSettings({}, HOME).path, path.resolve(HOME, '..', 'interview-coach'));
@@ -441,12 +514,14 @@ test('deploy/modules/coach.sh runs the installer with GIT honoured', { skip: pro
   fs.writeFileSync(env.COMETSCOUT_SETTINGS, JSON.stringify({ modules: { coach: { path: target } } }));
   let r = spawnSync('bash', [path.join(ROOT, 'deploy', 'modules', 'coach.sh')], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(calls()[0], ['clone', '--depth', '1', '--', coach.COACH_REPO, target]);
+  assert.deepEqual(calls()[0], ['init', '-q', '--', target]);
+  assert.ok(calls().some(c => c.join(' ') === `-C ${target} -c advice.detachedHead=false checkout --detach ${coach.COACH_COMMIT}`));
   assert.ok(records().every(x => x.prompt === '0' && x.gcm === 'never'));
   fs.writeFileSync(path.join(target, 'coaching_state.md'), 'keep me\n');
   r = spawnSync('bash', [path.join(ROOT, 'deploy', 'modules', 'coach.sh')], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.ok(calls().some(c => c.join(' ') === `-C ${target} pull --ff-only`));
+  assert.ok(calls().some(c => c.join(' ') === `-C ${target} rev-parse HEAD`));
+  assert.ok(!calls().some(c => c.includes('pull')));
   assert.equal(fs.readFileSync(path.join(target, 'coaching_state.md'), 'utf8'), 'keep me\n');
   assert.match(r.stdout, /Then say: kickoff/);
 }));
@@ -459,11 +534,13 @@ test('deploy/modules/coach.ps1 runs the installer with GIT honoured', { skip: !P
   const run = () => spawnSync(PS, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ROOT, 'deploy', 'modules', 'coach.ps1')], { encoding: 'utf8', env });
   let r = run();
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(calls()[0], ['clone', '--depth', '1', '--', coach.COACH_REPO, target]);
+  assert.deepEqual(calls()[0], ['init', '-q', '--', target]);
+  assert.ok(calls().some(c => c.join(' ') === `-C ${target} -c advice.detachedHead=false checkout --detach ${coach.COACH_COMMIT}`));
   fs.writeFileSync(path.join(target, 'coaching_state.md'), 'keep me\n');
   r = run();
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.ok(calls().some(c => c.join(' ') === `-C ${target} pull --ff-only`));
+  assert.ok(calls().some(c => c.join(' ') === `-C ${target} rev-parse HEAD`));
+  assert.ok(!calls().some(c => c.includes('pull')));
   assert.equal(fs.readFileSync(path.join(target, 'coaching_state.md'), 'utf8'), 'keep me\n');
 }));
 
@@ -478,9 +555,16 @@ test('doctor: off, not installed, installed, not a checkout, not activated, clau
   assert.deepEqual(l[0], { level: 'todo', text: `interview coach: not installed at ${missing}`, fix: coach.INSTALL_COMMAND });
   assert.equal(l[1].level, 'todo'); assert.match(l[1].text, /claude on the PATH .*not found/);
   const target = path.join(tmp, 'install-2');
+  fs.writeFileSync(path.join(target, '.git', 'head'), coach.COACH_COMMIT);   // at the pinned commit
   l = lines({ enabled: true, path: target });
   assert.deepEqual(l[0], { level: 'ok', text: `interview coach: ${target} (abc1234, 2026-09-30)` });
   assert.equal(l.length, 2); assert.equal(l[1].level, 'ok');
+  // a checkout of the default repository at another commit than the pinned one: a TODO to run the installer
+  fs.writeFileSync(path.join(target, '.git', 'head'), 'a'.repeat(40));
+  l = lines({ enabled: true, path: target });
+  assert.deepEqual(l[1], { level: 'todo', text: `interview coach: at commit aaaaaaa, this CometScout installs ${coach.COACH_COMMIT.slice(0, 7)}`, fix: coach.INSTALL_COMMAND });
+  assert.equal(lines({ enabled: true, path: target, repo: 'https://git.example/coach.git' }).length, 2, 'a fork is not compared with the pin');
+  fs.writeFileSync(path.join(target, '.git', 'head'), coach.COACH_COMMIT);
   l = lines({ enabled: true, path: path.join(tmp, 'not-a-checkout') });
   assert.equal(l[0].level, 'todo'); assert.match(l[0].text, /is not a git checkout/);
   const bare = path.join(tmp, 'doctor-no-claude-md'); fs.mkdirSync(path.join(bare, '.git'), { recursive: true });
