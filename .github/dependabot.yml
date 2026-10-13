@@ -1,0 +1,38 @@
+# Dependabot version updates: weekly, minor and patch updates grouped into one pull request per ecosystem, at most five
+# open pull requests each, and no version younger than 7 days (cooldown; security updates are not delayed). A major
+# update comes as its own pull request. Every pull request runs the full CI; nothing merges by itself.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]
+  # The transcription module's pins (Dependabot reads any .txt file as pip requirements). Raising a version changes
+  # what new installs get: run node cli.mjs transcribe --bench on the pull request's branch before merging it
+  # (deploy/modules/transcribe/constraints.txt says why each pin is what it is).
+  - package-ecosystem: pip
+    directory: /deploy/modules/transcribe
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      transcribe-minor-and-patch:
+        update-types: [minor, patch]
