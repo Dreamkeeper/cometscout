@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { adopt, currentVersion, releaseDir, localEdits } from '../lib/layout.mjs';
+import { adopt, currentVersion, releaseDir, localEdits, npmInstall } from '../lib/layout.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-adopt-'));
 after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* Windows may hold a file a moment longer */ } });
@@ -39,4 +39,16 @@ test('a first adopt without npm says how to finish; adopt again with npm install
   const c = adopt({ root: home, code: home, files, install: again.install, units });
   assert.deepEqual(c.lines, ['This install already runs from app/current (v0.5.0); nothing to adopt.']);
   assert.deepEqual(again.calls, [], 'npm is not run when the modules are there');
+});
+
+test('the workspace modules are installed with npm ci --omit=dev --ignore-scripts, so no package script runs', () => {
+  const calls = [];
+  const run = (cmd, args, opts) => { calls.push({ cmd, args, cwd: opts.cwd }); return { status: 0 }; };
+  assert.equal(npmInstall(path.join(tmp, 'rel'), { run, stdio: 'ignore' }), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, 'npm');
+  assert.equal(calls[0].args[0], 'ci');
+  for (const flag of ['--omit=dev', '--ignore-scripts']) assert.ok(calls[0].args.includes(flag), `npm ci is run with ${flag}`);
+  assert.equal(calls[0].cwd, path.join(tmp, 'rel'));
+  assert.equal(npmInstall(tmp, { run: () => ({ status: 1 }), stdio: 'ignore' }), false, 'a failed npm ci is reported');
 });
