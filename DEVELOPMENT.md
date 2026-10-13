@@ -59,7 +59,7 @@ This file is for people (and coding agents) working on CometScout itself. `AGENT
 | `lib/transcribe.mjs`, `deploy/modules/transcribe*` | The transcription module: installer (`transcribe.sh`, `transcribe.ps1` both run `node lib/transcribe.mjs install`: a venv with a pinned faster-whisper and the pinned libraries in `transcribe/constraints.txt`), `transcribe/transcribe.py` (one file in, JSON segments out, `--engine whisper|gigaam`, `--engines` to detect the language on speech and transcribe in one process), `cli.mjs transcribe`, engines per language, the queue and its lock, outputs, doctor lines, the path unit, `--with-gigaam` (CPU-only PyTorch and GigaAM pinned to a commit). Tests use a fake transcriber through `COMETSCOUT_TRANSCRIBE_CMD`; Python is only ever inside the module's venv |
 | `lib/transcribe-merge.mjs`, `lib/transcribe-glossary.mjs` | Pure Node: the targeted merge of GigaAM's and Whisper's words (alignment, the Latin and number rules, review items, subtitle segments) and the glossary from the user's own data (building, hotwords, the sound match on GigaAM's words) |
 | `lib/transcribe-speakers.mjs`, `lib/transcribe-speakers-bench.mjs` | Speaker separation (`modules.transcribe.speakers`, the `--with-speakers` extra): the pinned sherpa-onnx models (URLs, sha256, verified downloads), words to speakers (overlap, the midpoint rule), segments broken at speaker changes, "Me" from the voice sample, labels and `speakers.json` names, overlap marks; the bench (`--bench-speakers`): synthetic two-speaker calls from public read speech, DER, "Me" accuracy. `transcribe.py --diarize` and `--convert` are the Python side; tests use the fake diarizer in `test/fixtures/transcribe/` |
-| `tools/` | `gmail-auth.mjs`; `workspace-demo.mjs` (demo data for the workspace) and `text-pdf.mjs` (small text PDFs for it and the tests) |
+| `tools/` | `gmail-auth.mjs`; `licenses.mjs` (the dependency licence allowlist check, CI `deps.yml`); `workspace-demo.mjs` (demo data for the workspace) and `text-pdf.mjs` (small text PDFs for it and the tests) |
 | `tools/rehearse/` | The install rehearsal: `rehearse.sh` (the new-user path on a fresh Debian or Ubuntu machine with systemd, step by step, PASS or FAIL), `cleanup.sh`, and `lib.mjs` (its helpers: the fake next version and its source zip, settings, the canned model answer, synthetic jobs, expected doctor TODOs, the report) |
 | `.github/workflows/` | CI: `test.yml` (`npm test` on Linux and Windows, Node 20 and 22) and `rehearse.yml` (the rehearsal on Ubuntu 24.04, weekly and when the install, update or backup code changes) |
 | `test/` | `node --test` unit tests; `test/fixtures/` synthetic inputs |
@@ -91,7 +91,7 @@ A release that changes stored data ships a migration: `migrations/NNN-name.mjs` 
 
 ## Before you open a pull request
 
-- `npm test` passes, and new behaviour has tests.
+- `npm test` passes, and new behaviour has tests. A new dependency (npm or a pin in `deploy/modules/transcribe/constraints.txt`) must pass `npm audit --audit-level=high` and `node tools/licenses.mjs --python` (CI runs both in `deps.yml`; the allowlist and its reasons are in `tools/licenses.mjs`).
 - `node cli.mjs doctor` still runs on the example profile.
 - `git grep -n -i -E "<your real name>|<your email>"` finds nothing.
 - The commit message says what changed and why, in plain words.
