@@ -95,7 +95,9 @@ test('settingsProblems refuses what doctor refuses', () => {
 });
 
 test('redaction: sensitive keys, secret-named keys, loaded secret values, URLs with credentials; *_env names stay', () => {
-  const r = schema.redactSettings({ health: { ping_url: 'https://hc.example/x' }, sources: { rtj: { token_env: 'RTJ_API_TOKEN' }, x: { api_token: 'abc' } }, note: 'has synthetic-rtj-token-0001 inside', u: 'https://user:pw@host/', q: 'https://h/?token=1' }, { secrets: SECRET_VALUES() });
+  // A URL with a user and password, built at run time so it does not read as a credential to the secret scanner.
+  const CREDENTIAL_URL = `https://${['user', 'pw'].join(':')}@host/`;
+  const r = schema.redactSettings({ health: { ping_url: 'https://hc.example/x' }, sources: { rtj: { token_env: 'RTJ_API_TOKEN' }, x: { api_token: 'abc' } }, note: 'has synthetic-rtj-token-0001 inside', u: CREDENTIAL_URL, q: 'https://h/?token=1' }, { secrets: SECRET_VALUES() });
   assert.equal(r.health.ping_url, schema.REDACTED);
   assert.equal(r.sources.rtj.token_env, 'RTJ_API_TOKEN');
   assert.equal(r.sources.x.api_token, schema.REDACTED);

@@ -33,7 +33,7 @@ Gmail outcomes ─► applications ──────────┘  (rejection
 On a Debian or Ubuntu VPS, as your normal user:
 
 ```bash
-git clone https://github.com/Dreamkeeper/cometscout.git && cd cometscout
+git clone --branch v0.1.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git && cd cometscout
 bash deploy/install.sh
 ```
 
@@ -612,12 +612,12 @@ A plain rollback switches the code back and reinstalls the units; your data stay
 For interviews, CometScout sets up [Interview Coach](https://github.com/noamseg/interview-coach-skill), an open-source Claude Code skill by Noam Segal (MIT license): company research and prep, practice and mock interviews with scoring, transcript analysis, and offer negotiation. It is a separate project: it is installed from its own repository and never copied into this one. The onboarding offers it as an optional step.
 
 ```bash
-bash deploy/modules/coach.sh              # install, or update with git pull --ff-only (Windows: deploy\modules\coach.ps1)
+bash deploy/modules/coach.sh              # install, or move to the commit this CometScout pins (Windows: deploy\modules\coach.ps1)
 node cli.mjs coach-handoff                # write materials/cometscout-handoff.md in the coach's folder (--out <file> for another place)
 cd ../interview-coach && claude           # then say: kickoff, and give it materials/cometscout-handoff.md
 ```
 
-- **Where it goes:** a folder next to the CometScout home (`../interview-coach`), or `modules.coach.path`. The installer clones it the first time and only pulls after that, and only when the folder's `origin` is `modules.coach.repo`; what the coach writes there (`coaching_state.md`, `materials/`) is never deleted. git runs without prompts, so a private or mistyped address fails at once. The installer creates `CLAUDE.md` as a copy of the coach's `SKILL.md`, as the coach's README asks, and never overwrites an existing one (it says when `SKILL.md` has changed).
+- **Where it goes:** a folder next to the CometScout home (`../interview-coach`), or `modules.coach.path`. The installer puts it at one upstream commit that CometScout pins (`COACH_COMMIT` in `lib/coach.mjs`, raised by a CometScout release after a look at what changed upstream), never at the branch head, because the coach's files are instructions your AI agent follows. It fetches only that commit, and moves an existing checkout to it only when the folder's `origin` is `modules.coach.repo`; a checkout already at the pinned commit is left alone, and one at any other commit, newer or older, is moved to the pin. Another `modules.coach.repo` (your own fork, or the same repository under its SSH address) follows its branch head (`git pull --ff-only`); what the coach writes there (`coaching_state.md`, `materials/`) is never deleted. git runs without prompts, so a private or mistyped address fails at once. The installer creates `CLAUDE.md` as a copy of the coach's `SKILL.md`, as the coach's README asks, and never overwrites an existing one (it says when `SKILL.md` has changed).
 - **Settings:** `"modules": { "coach": { "enabled": false, "path": null, "repo": "https://github.com/noamseg/interview-coach-skill.git" } }`. With `enabled`, `doctor` shows the installed commit and whether `claude` is on the PATH.
 - **The hand-off holds** your `profile/profile.md` as written (scope guards labelled "never claim"), the CV library as a plain resume (taglines, summaries, every role and bullet, skills, education, awards; no contact line), `profile/voice.md`, and where you stand: the jobs you hold (status `accepted`, with the day you accepted), what is coming up (interviews and test tasks with a date ahead, and anything dated today or later, soonest first, then applications at screen, interview or offer, with the round when one is recorded; a job you hold shows only an interview date ahead, noted as a possible probation review), then your applications with status and last event. Scope guards also include the reasons from `profile/fact-rules.json`, each said once.
 - **When it is written:** `node cli.mjs coach-handoff` writes it now, into the coach's `materials/` folder, which the coach's git ignores. With `modules.coach.enabled`, the evening run writes a fresh one too (no network; a coach that is not installed is one log line and never fails the run).

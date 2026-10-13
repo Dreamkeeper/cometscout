@@ -6,7 +6,7 @@ For the maintainer. A release is a git tag `vX.Y.Z` and a GitHub release with no
 
 ## Steps
 
-1. **Version.** Set `version` in `package.json` (semver; `npm version --no-git-tag-version 0.2.0` also updates `package-lock.json`).
+1. **Version.** Set `version` in `package.json` (semver; `npm version --no-git-tag-version 0.2.0` also updates `package-lock.json`), and the tag in the clone command of `README.md`, `README-rus.md` and `INSTALL.md` (`git clone --branch v0.2.0 --depth 1 ...`; `test/install-pins.test.mjs` fails until they match). While you are there: the Claude Code and Codex versions those files and `deploy/install.sh` name (`CLAUDE_CODE_VERSION` in `lib/coach.mjs`), each at least 7 days old, and the interview coach commit (`COACH_COMMIT` in `lib/coach.mjs`), after reading what changed upstream.
 2. **Notes.** Add the entry to the top of `release.json`, newest first:
    - `version` (no "v"), `date` (the day you tag), `min_node`, `schema_version` (the data schema of this code, `SCHEMA_VERSION` in `lib/archive.mjs`), `migrations` (the ids of new files in `migrations/`), `behaviour_changes` (true when something works differently without the user doing anything).
    - `notes`: `highlights` (one to three lines a user cares about; the Telegram notice shows the first two), `new`, `changed`, `action_needed` (`{ text, setting }`: setting is its path in `settings.json`, such as `schedule.time`; the workspace opens the settings dialog there), `changed_defaults` (`{ setting, default, text }`: the user's own value is kept, and they can accept the new one). `notes_ru` is optional, key by key, English fills the rest.

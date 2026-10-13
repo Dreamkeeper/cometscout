@@ -45,8 +45,8 @@ node cli.mjs update --adopt --no-units
 echo "==> Claude Code or Codex CLI"
 if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
   echo "Install one of them, then sign in once interactively:"
-  echo "  Claude Code: npm install -g @anthropic-ai/claude-code && claude"
-  echo "  Codex:       npm install -g @openai/codex && codex login"
+  echo "  Claude Code: curl -fsSL https://claude.ai/install.sh | bash -s 2.1.287 && claude"
+  echo "  Codex:       npm install -g @openai/codex@0.160.1 && codex login"
 fi
 
 echo "==> Config files"
