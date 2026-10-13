@@ -9,4 +9,6 @@
 c16706119a19770e79ad8a5cb197129cb357dafd:test/settings-schema.test.mjs:generic-credential-uri:98
 
 # .betterleaksignore, commit 9d88f13: the first version of this file quoted the same synthetic URL in a comment.
+# That commit is not on main (the PR was squash-merged) but it stays on the PR branch task/25b-secrets, and the scan
+# reads every branch it fetches. Remove this entry only after that branch is deleted.
 9d88f1316f40487e520ba6dc30656bd3b3681227:.betterleaksignore:generic-credential-uri:5
