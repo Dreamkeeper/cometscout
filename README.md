@@ -690,7 +690,7 @@ node cli.mjs transcribe --rename 2026-10-07--final-round "Speaker 2=Interviewer"
 node cli.mjs transcribe --bench-speakers            # how well it separates speakers on this machine (English and Russian)
 ```
 
-- **The extra:** [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 1.13.8 (Apache-2.0, about 15 MB, with its own ONNX runtime; wheels for Python 3.11 to 3.14 (and 3.10) on Linux x86_64, aarch64 and Windows x64) and two models from k2-fsa's GitHub releases, each with a pinned URL and sha256 (a file with another hash is deleted and refused). No Hugging Face account and no terms to accept. Then set `modules.transcribe.speakers.enabled` to `true`.
+- **The extra:** [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 1.13.8 (Apache-2.0, about 15 MB, with its own ONNX runtime; wheels for Python 3.11 to 3.14 on Linux x86_64, aarch64 and Windows x64) and two models from k2-fsa's GitHub releases, each with a pinned URL and sha256 (a file with another hash is deleted and refused). No Hugging Face account and no terms to accept. Then set `modules.transcribe.speakers.enabled` to `true`.
   | Model | What it does | Size | Licence |
   |---|---|---|---|
   | `sherpa-onnx-pyannote-segmentation-3-0` | finds who speaks when | 7 MB | MIT (pyannote segmentation-3.0, converted by k2-fsa) |

@@ -1,6 +1,7 @@
 # The install rehearsal (tools/rehearse/rehearse.sh): deploy/install.sh on a fresh Ubuntu 24.04 runner, the units,
 # one evening run through systemd with synthetic jobs and a canned model, the workspace, backup and restore, export
 # and import, an update from a local source zip and a rollback, the old unit names, cleanup. No secrets; read-only token.
+# Actions pinned by full commit SHA (the version in the comment).
 name: rehearse
 on:
   pull_request:
@@ -29,11 +30,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0   # the rehearsal clones this checkout and installs its commit
           persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
       - name: User systemd session and lingering
@@ -42,7 +43,7 @@ jobs:
           uid="$(id -u)"
           echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
-          for i in $(seq 30); do
+          for _ in $(seq 30); do
             XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user show-environment >/dev/null 2>&1 && break
             sleep 1
           done
@@ -51,7 +52,7 @@ jobs:
         run: bash tools/rehearse/rehearse.sh --log "$RUNNER_TEMP/rehearsal.log"
       - name: Rehearsal log
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rehearsal-log
           path: ${{ runner.temp }}/rehearsal.log
