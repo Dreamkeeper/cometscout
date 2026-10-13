@@ -44,19 +44,19 @@ sudo apt-get install -y nodejs
 **Claude Code:**
 
 ```bash
-curl -fsSL https://claude.ai/install.sh | bash
+curl -fsSL https://claude.ai/install.sh | bash -s 2.1.287
 source ~/.profile
 claude
 ```
 
-Установщик кладёт `claude` в `~/.local/bin`. Debian добавляет эту папку в PATH при входе в систему, поэтому сразу после установки нужна строка `source ~/.profile` (или просто перезайдите по SSH).
+Это установщик самой Anthropic с точной версией (2.1.287, из канала stable; [установка конкретной версии](https://code.claude.com/docs/en/setup#install-a-specific-version)), поэтому на любой машине ставится одна и та же известная версия, а дальше Claude Code обновляется сам. Установщик кладёт `claude` в `~/.local/bin`. Debian добавляет эту папку в PATH при входе в систему, поэтому сразу после установки нужна строка `source ~/.profile` (или просто перезайдите по SSH).
 
 При первом запуске Claude Code покажет ссылку. Откройте её в браузере на своём компьютере, войдите и вставьте в терминал код, который покажет сайт. После входа выйдите командой `/exit`.
 
 **Codex:**
 
 ```bash
-sudo npm install -g @openai/codex
+sudo npm install -g @openai/codex@0.160.1
 codex login
 ```
 
@@ -66,7 +66,7 @@ codex login
 
 ```bash
 cd ~
-git clone https://github.com/Dreamkeeper/cometscout.git
+git clone --branch v0.1.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git
 cd cometscout
 bash deploy/install.sh
 ```
