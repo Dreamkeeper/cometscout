@@ -1,18 +1,14 @@
-# Lints the workflow files (and, once it exists, .github/dependabot.yml) with actionlint and zizmor: on pull requests
-# and pushes to main that touch .github/, and weekly, because zizmor's online audits (known vulnerable actions,
-# impostor commits, a version comment that does not match its SHA) change without a commit here. Blocking: any finding
-# fails the job. Before the real run, each tool is run on a deliberate violation written to a temporary folder outside
-# the checkout, and the job fails if the tool does NOT complain (the self-test). Both tools are pinned: actionlint by
-# its release archive's sha256, zizmor by its image digest. No secrets; read-only token.
+# Lints the workflow files (and, once it exists, .github/dependabot.yml) with actionlint and zizmor: on every pull
+# request and push to main (no path filter, so it can be a required check), and weekly, because zizmor's online
+# audits (known vulnerable actions, impostor commits, a version comment that does not match its SHA) change without a
+# commit here. Blocking: any finding fails the job. Before the real run, each tool is run on a deliberate violation
+# written to a temporary folder outside the checkout, and the job fails if the tool does NOT complain (the self-test).
+# Both tools are pinned: actionlint by its release archive's sha256, zizmor by its image digest. No secrets; read-only token.
 name: workflow-lint
 on:
   pull_request:
-    paths:
-      - .github/**
   push:
     branches: [main]
-    paths:
-      - .github/**
   schedule:
     - cron: '41 5 * * 1'   # Mondays 05:41 UTC
   workflow_dispatch:
