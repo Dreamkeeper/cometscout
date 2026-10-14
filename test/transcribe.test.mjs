@@ -672,9 +672,9 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
   const env = { PYTHON: 'python3.12' };
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: null }), log, env }), 1);
   assert.match(logs.at(-1), /^Python 3 is needed for the transcription module/);
-  for (const v of ['3.8', '3.9']) {
+  for (const v of ['3.8', '3.9', '3.10']) {
     assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ version: v }), log, env }), 1);
-    assert.match(logs.at(-1), /needs Python 3.10 or newer \(its pinned libraries have no wheels for older ones\)/);
+    assert.match(logs.at(-1), /needs Python 3\.11 or newer \(its pinned libraries have no wheels for older ones\)/);
   }
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun({ venvOk: false }), log, env }), 1);
   assert.ok(!fs.existsSync(path.join(is.path, 'venv')), 'a half-made venv is removed');
@@ -683,7 +683,7 @@ test('the installer: checks Python, makes the venv, installs the pinned faster-w
   assert.match(logs.at(-1), /pip could not install faster-whisper 1\.2\.1 with the pinned libraries \(.*constraints\.txt\) for Python 3\.12\. If no wheel exists for this Python yet, set PYTHON/);
   runs.length = 0; logs.length = 0;
   assert.equal(T.installTranscribe({ settings, root: HOME, data: DATA, run: fakeRun(), log, env }), 0);
-  assert.deepEqual(runs.slice(1), [`${path.basename(T.venvPython(is))} -m pip install --disable-pip-version-check --no-input -c ${T.CONSTRAINTS} faster-whisper==${T.FASTER_WHISPER_VERSION}`], 'the venv exists now, so only pip runs, with the constraints');
+  assert.deepEqual(runs.slice(1), [`${path.basename(T.venvPython(is))} -m pip install --disable-pip-version-check --no-input -c ${T.CONSTRAINTS} faster-whisper==${T.FASTER_WHISPER_VERSION} setuptools`], 'the venv exists now, so only pip runs, with the constraints');
   const inst = JSON.parse(fs.readFileSync(path.join(is.path, 'installed.json'), 'utf8'));
   assert.deepEqual([inst.faster_whisper, inst.pinned], ['1.2.1', T.pinnedVersions()]);
   assert.ok(logs.some(l => /with pinned libraries \(ctranslate2 \d/.test(l)));
@@ -698,9 +698,9 @@ test('the installer pins the compiled dependencies in one constraints file that 
   const pins = T.pinnedVersions();
   for (const p of ['ctranslate2', 'av', 'tokenizers', 'onnxruntime']) assert.match(pins[p] || '', /^\d+(\.\d+)+$/, `${p} pinned`);
   assert.ok(fs.readFileSync(T.CONSTRAINTS, 'utf8').split('\n').every(l => !l.trim() || l.startsWith('#') || /^[a-z0-9._-]+==[\d.]+(\+cpu)?(; python_version [<>]=? "3\.\d+")?$/i.test(l)), 'name==version lines (+cpu for PyTorch), with an optional python_version marker');
-  // Python 3.10 (Ubuntu 22.04) gets its own pins where the newest ones need 3.11
-  assert.match(fs.readFileSync(T.CONSTRAINTS, 'utf8'), /onnxruntime==[\d.]+; python_version < "3\.11"/);
-  assert.deepEqual(T.MIN_PYTHON, [3, 10]);
+  // Python 3.10 is end of life (2026-10-01): no pins for it are left, and the installer refuses it
+  assert.doesNotMatch(fs.readFileSync(T.CONSTRAINTS, 'utf8'), /python_version < "3\.11"/);
+  assert.deepEqual(T.MIN_PYTHON, [3, 11]);
   // both installers hand over to lib/transcribe.mjs install, which passes -c CONSTRAINTS to pip
   for (const f of ['transcribe.sh', 'transcribe.ps1']) {
     const text = fs.readFileSync(path.join(ROOT, 'deploy', 'modules', f), 'utf8');

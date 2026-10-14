@@ -41,7 +41,7 @@ export async function buildSourceZip({ codeDir, version, out, files = releaseFil
   if (!files.includes('cli.mjs') || !files.includes('package.json')) throw new Error(`${codeDir} does not look like CometScout code`);
   const pkg = JSON.parse(fs.readFileSync(path.join(codeDir, 'package.json'), 'utf8'));
   const releases = files.includes('release.json') ? JSON.parse(fs.readFileSync(path.join(codeDir, 'release.json'), 'utf8')) : [];
-  const entry = { version: v, date, min_node: 20, schema_version: releases[0]?.schema_version ?? 1, migrations: [], behaviour_changes: false,
+  const entry = { version: v, date, min_node: 22, schema_version: releases[0]?.schema_version ?? 1, migrations: [], behaviour_changes: false,
     notes: { highlights: [`Rehearsal build ${v}, made from v${pkg.version} by tools/rehearse.`], new: ['Nothing: the code of the previous version with a new number.'] } };
   const changed = { 'package.json': JSON.stringify({ ...pkg, version: v }, null, 2) + '\n', 'release.json': JSON.stringify([entry, ...releases.filter(r => r?.version !== v)], null, 2) + '\n' };
   fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });

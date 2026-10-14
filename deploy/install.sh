@@ -23,10 +23,10 @@ echo "==> Packages (Python, LibreOffice for PDF export, fonts)"
 sudo apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3 libreoffice-writer-nogui fonts-liberation fonts-roboto curl ca-certificates >/dev/null
 
-echo "==> Node.js 20+"
-if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
-  echo "Node 20 or newer is needed. On Debian 13 run: sudo apt-get install -y nodejs npm"
-  echo "Elsewhere: https://github.com/nodesource/distributions (then rerun this script)"; exit 1
+echo "==> Node.js 22+"
+if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]; then
+  echo "Node 22 or newer is needed (Node 20 is end of life). Debian 12 and 13 and Ubuntu ship older ones: install it from"
+  echo "NodeSource as INSTALL.md shows (https://github.com/nodesource/distributions), then rerun this script"; exit 1
 fi
 # npm installs the workspace's browser libraries, now and in every update. Node from NodeSource brings it; the
 # distribution's own nodejs package (Debian 13) does not, so it is installed here from the same place.

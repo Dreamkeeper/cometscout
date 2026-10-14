@@ -11,7 +11,7 @@
     "jobpilot": "cli.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "run": "node cli.mjs run",

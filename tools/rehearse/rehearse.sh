@@ -86,7 +86,7 @@ step() {
 preflight() {
   [ "$(id -u)" != 0 ] || fail "run it as a normal user with sudo, not as root"
   command -v git >/dev/null || fail "git is not installed"
-  command -v node >/dev/null && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 20 ] || fail "Node 20 or newer is needed (the installer checks it too)"
+  command -v node >/dev/null && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ] || fail "Node 22 or newer is needed (the installer checks it too)"
   command -v curl >/dev/null || fail "curl is not installed"
   sudo -n true 2>/dev/null || fail "sudo must work without a password for this user"
   systemctl --user show-environment >/dev/null 2>&1 || fail "no user systemd session (sudo loginctl enable-linger $ME, then log in again, or set XDG_RUNTIME_DIR)"
