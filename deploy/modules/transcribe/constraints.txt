@@ -7,7 +7,7 @@
 # Changing a version here changes what a new install gets and what the installer switches an existing one to: run the
 # bench again (node cli.mjs transcribe --bench) before raising one.
 ctranslate2==4.8.2
-av==18.1.0
+av==19.0.1
 tokenizers==0.23.2
 onnxruntime==1.30.0
 huggingface-hub==1.33.0
