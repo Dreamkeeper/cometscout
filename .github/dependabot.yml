@@ -10,6 +10,11 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    ignore:
+      # preact 11 moved its files (dist/preact.module.js is gone) and the workspace loads them by path without a build
+      # step: move to 11 on purpose, with the workspace checked in a browser, not through Dependabot
+      - dependency-name: preact
+        update-types: [version-update:semver-major]
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
@@ -23,24 +28,22 @@ updates:
     groups:
       actions-minor-and-patch:
         update-types: [minor, patch]
-  # The transcription module's pins (Dependabot reads any .txt file as pip requirements). Raising a version changes
-  # what new installs get: run node cli.mjs transcribe --bench on the pull request's branch before merging it
-  # (deploy/modules/transcribe/constraints.txt says why each pin is what it is).
+  # The transcription module's pins: security updates only. constraints.txt is resolved by hand so that every package
+  # has a wheel on Python 3.11 to 3.14 for Linux x86_64, aarch64 and Windows x64, and fits torch, sympy and omegaconf
+  # (av 19 and numpy 2.5 drop Python 3.11, mpmath 1.4 breaks sympy 1.14, omegaconf 2.3 needs antlr4 4.9); CI never
+  # installs these packages, so a green check on a Dependabot bump proves nothing. open-pull-requests-limit 0 turns
+  # version updates off; security updates still come (Settings, Advanced Security). Raise pins by hand with the bench
+  # (node cli.mjs transcribe --bench) and a resolution check, as constraints.txt says.
   - package-ecosystem: pip
     directory: /deploy/modules/transcribe
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
-    cooldown:
-      default-days: 7
+    open-pull-requests-limit: 0
     ignore:
       # torch and torchaudio come from the PyTorch CPU index (+cpu builds); a Dependabot bump would drop +cpu and pull
-      # the CUDA build from PyPI. Raise them by hand with the bench (see constraints.txt).
+      # the CUDA build from PyPI.
       - dependency-name: torch
       - dependency-name: torchaudio
-      # torch 2.11 requires setuptools below 82 (constraints.txt): never propose 82 or newer while torch is on 2.11
+      # torch 2.11 requires setuptools below 82
       - dependency-name: setuptools
         versions: [">=82"]
-    groups:
-      transcribe-minor-and-patch:
-        update-types: [minor, patch]

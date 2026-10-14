@@ -71,7 +71,7 @@ test('a v2 zip carries data, profile and settings with a full manifest; never se
   const raw = fs.readFileSync(out);
   assert.ok(!Object.keys(files).some(n => /(^|\/)\.env/.test(n) || n.includes('hirify-cookies') || n.includes('run.lock') || n.endsWith('.tmp')));
   for (const blob of [raw, ...Object.values(files)]) for (const s of [PLANTED, COOKIE, '.env']) assert.ok(!blob.includes(s), `found ${s}`);
-  assert.match(defaultExportName(), new RegExp(`^cometscout-export-\\d{4}-\\d{2}-\\d{2}-v${PKG.version.replace(/\./g, '\\.')}\\.zip$`));
+  assert.match(defaultExportName(), new RegExp(`^cometscout-export-\\d{4}-\\d{2}-\\d{2}-v${PKG.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.zip$`));
 });
 
 test('--data-only leaves profile and settings out', async () => {

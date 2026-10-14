@@ -63,7 +63,7 @@ const LIB_FILE = path.join(PROFILE.dir, 'cv-library.json'), LINT_FILE = path.joi
 for (const p of LINT.problems) log(`lint rule skipped: ${p} (profile/lint-rules.json)`);
 
 // ---------- application form readers ----------
-const strip = h => String(h || '').replace(/<br\s*\/?>|<\/(p|li|div|h\d)>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+const strip = h => String(h || '').replace(/<br\s*\/?>|<\/(p|li|div|h\d)>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&#39;|&rsquo;/g, '’').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 async function readForm(url) {
   try {
     let m = String(url).match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([0-9a-f-]{36})/i);
