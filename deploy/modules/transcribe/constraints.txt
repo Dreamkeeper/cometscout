@@ -10,7 +10,7 @@ ctranslate2==4.8.2
 av==18.1.0
 tokenizers==0.23.2
 onnxruntime==1.30.0
-huggingface-hub==1.33.0
+huggingface-hub==2.1.1
 numpy==2.4.6
 # The GigaAM extra (transcribe.sh --with-gigaam, for Russian): PyTorch built for the CPU only, from the PyTorch CPU index
 # (https://download.pytorch.org/whl/cpu, never the CUDA wheels), about 115 MB to download on Windows and 150 to 190 MB on
