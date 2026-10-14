@@ -13,9 +13,6 @@ const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const VERSION = JSON.parse(read('package.json')).version;
 const FILES = ['README.md', 'README-rus.md', 'INSTALL.md', 'deploy/install.sh', 'lib/coach.mjs'];
 const SEMVER = /^\d+\.\d+\.\d+$/;
-// The one piped installer without an exact version: NodeSource's setup script, which names a Node major line and adds
-// NodeSource's signed apt repository (apt then installs nodejs from it, like the distribution's own packages).
-const NODESOURCE = /^curl -fsSL https:\/\/deb\.nodesource\.com\/setup_\d+\.x \| sudo -E bash -$/;
 
 test('CometScout is cloned at the release tag of package.json, never at the branch head', () => {
   let clones = 0;
@@ -35,7 +32,6 @@ test('no curl | shell without an exact version; Claude Code at CLAUDE_CODE_VERSI
     for (const raw of read(f).split('\n')) {
       const line = raw.trim().replace(/^echo "\s*(Claude Code:\s*)?/, '').replace(/"$/, '');
       if (!/curl\b.*\|\s*(sudo\s+(-E\s+)?)?(ba)?sh\b/.test(line)) continue;
-      if (NODESOURCE.test(line)) continue;
       const m = line.match(/\|\s*bash -s ([^\s`]+)/);
       if (m && m[1] === '${CLAUDE_CODE_VERSION}') m[1] = CLAUDE_CODE_VERSION;   // lib/coach.mjs builds the line from the constant
       assert.ok(m && SEMVER.test(m[1]), `${f}: a piped installer needs an exact version: ${raw.trim()}`);
@@ -58,4 +54,12 @@ test('npm install -g always names an exact version, the same one in every file',
   }
   for (const [name, versions] of Object.entries(seen)) assert.equal(versions.size, 1, `${name}: one version everywhere, found ${[...versions].join(', ')}`);
   assert.ok(seen['@openai/codex'], 'the Codex install is shown');
+});
+
+test('Node comes from NodeSource\'s signed apt repository, never from a script piped into a root shell', () => {
+  for (const f of ['INSTALL.md', 'README-rus.md']) {
+    const text = read(f);
+    assert.doesNotMatch(text, /deb\.nodesource\.com\/setup_/, `${f}: no NodeSource setup script`);
+    assert.match(text, /signed-by=\/usr\/share\/keyrings\/nodesource\.gpg\] https:\/\/deb\.nodesource\.com\/node_\d+\.x nodistro main/, `${f}: the signed repository line`);
+  }
 });

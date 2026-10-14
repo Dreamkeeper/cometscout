@@ -14,7 +14,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-update-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `cometscout-update-`));
 const H = path.join(tmp, 'home');
 process.env.COMETSCOUT_HOME = H;
 delete process.env.COMETSCOUT_DATA; delete process.env.COMETSCOUT_SETTINGS; delete process.env.COMETSCOUT_LLM_FAKE;
@@ -43,6 +43,11 @@ const { takeLock } = await import('../lib/lock.mjs');
 const git = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: REPO, encoding: 'utf8' });
 const CODE_FILES = (git.status === 0 && git.stdout ? git.stdout.split('\0').filter(Boolean) : L.codeFiles(REPO)).filter(f => fs.existsSync(path.join(REPO, f)) && fs.statSync(path.join(REPO, f)).isFile());
 const BASE = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).version;
+// the fake releases are numbered from this code's own version, so a version bump never breaks the test: v(0, 0) is
+// BASE, v(0, 1) a patch above it, v(1, 0) the next minor
+const [B_MAJ, B_MIN, B_PAT] = BASE.split('.').map(Number);
+const v = (minor, patch) => `${B_MAJ}.${B_MIN + minor}.${minor ? patch : B_PAT + patch}`;
+const reV = x => x.replace(/./g, '\.');
 const RELEASES = {};
 /** A source zip like GitHub's: this code under "cometscout-<version>/", with the version, a release.json entry and migrations added. */
 async function makeRelease(version, migrations = {}) {
@@ -91,22 +96,21 @@ function holder() { const c = spawn(process.execPath, ['-e', 'setTimeout(() => {
 const LOCK = path.join(H, 'data', 'state', 'run.lock');
 after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* Windows may hold a file a moment longer */ } });
 
-await makeRelease('0.1.1', { '002-boom': "ctx.writeJson(ctx.state('boom.json'), { half: 'done' });\nthrow new Error('synthetic migration failure');" });
-await makeRelease('0.1.2', { '002-add-flag': "ctx.writeJson(ctx.state('flag.json'), { flag: true });" });
-await makeRelease('0.2.0', { '002-add-flag': "const fs = await import('node:fs'); fs.appendFileSync(ctx.state('flag-log.txt'), 'ran\\n');\nctx.writeJson(ctx.state('flag.json'), { flag: true });" });
+await makeRelease(v(0, 1), { '002-boom': "ctx.writeJson(ctx.state('boom.json'), { half: 'done' });\nthrow new Error('synthetic migration failure');" });
+await makeRelease(v(0, 2), { '002-add-flag': "ctx.writeJson(ctx.state('flag.json'), { flag: true });" });
+await makeRelease(v(1, 0), { '002-add-flag': "const fs = await import('node:fs'); fs.appendFileSync(ctx.state('flag-log.txt'), 'ran\\n');\nctx.writeJson(ctx.state('flag.json'), { flag: true });" });
 
 test('updates refuse a git-clone layout; adopt moves the code into app/releases and the release finds its home by itself', () => {
-  assert.equal(BASE, '0.1.0');
   return (async () => {
-    const r0 = await U.runUpdate(deps({ to: '0.2.0' }));
+    const r0 = await U.runUpdate(deps({ to: v(1, 0) }));
     assert.equal(r0.code, 1); assert.match(r0.lines[0], /update --adopt once/);
     const a = L.adopt({ root: H, code: REPO, files: CODE_FILES, install, units });
     assert.equal(a.code, 0, a.lines.join('\n'));
-    assert.equal(L.currentVersion(H), '0.1.0');
-    assert.deepEqual(L.localEdits(L.releaseDir(H, '0.1.0')), []);
+    assert.equal(L.currentVersion(H), v(0, 0));
+    assert.deepEqual(L.localEdits(L.releaseDir(H, v(0, 0))), []);
     assert.equal(L.adopt({ root: H, code: REPO, files: CODE_FILES, install, units }).code, 0, 'again: nothing to do');
     assert.equal(unitRuns.length, 1);
-    // no COMETSCOUT_HOME: app/releases/v0.1.0 knows the home is two folders above app/
+    // no COMETSCOUT_HOME: app/releases/v<version> knows the home is two folders above app/
     const env = { ...process.env }; delete env.COMETSCOUT_HOME;
     const r = spawnSync(process.execPath, [path.join(L.currentLink(H), 'cli.mjs'), 'list'], { encoding: 'utf8', cwd: tmp, env });
     assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /applied\s+Acme: Product Manager/);
@@ -116,7 +120,7 @@ test('updates refuse a git-clone layout; adopt moves the code into app/releases 
 test('lock refusals: update, rollback and migrate wait for a run; a step under the update\'s lock runs', async () => {
   const h = holder(); fs.writeFileSync(LOCK, String(h.pid));
   try {
-    const u = await U.runUpdate(deps({ to: '0.2.0' }));
+    const u = await U.runUpdate(deps({ to: v(1, 0) }));
     assert.equal(u.code, 1); assert.match(u.lines.join('\n'), /Not updating: another CometScout run is in progress/);
     const r = await U.runRollback({ say: () => {}, units });
     assert.equal(r.code, 1); assert.match(r.lines.join('\n'), /Not rolling back: another CometScout run/);
@@ -132,67 +136,67 @@ test('lock refusals: update, rollback and migrate wait for a run; a step under t
 
 test('preflight: a missing tag, a download that does not match, and code edited in place stop the update before anything is written', async () => {
   const before = hashHome(), backups = listBackups().length;
-  assert.match((await U.runUpdate(deps({ to: '0.3.0' }))).lines.join('\n'), /no release v0\.3\.0 on GitHub/);
-  assert.match((await U.runUpdate(deps({ to: '0.2.0', download: async () => Buffer.from('not the zip') }))).lines.join('\n'), /does not match the sha256/);
-  const f = path.join(L.releaseDir(H, '0.1.0'), 'lib', 'text.mjs'); const orig = fs.readFileSync(f);
+  assert.match((await U.runUpdate(deps({ to: v(2, 0) }))).lines.join('\n'), new RegExp(`no release v${reV(v(2, 0))} on GitHub`));
+  assert.match((await U.runUpdate(deps({ to: v(1, 0), download: async () => Buffer.from('not the zip') }))).lines.join('\n'), /does not match the sha256/);
+  const f = path.join(L.releaseDir(H, v(0, 0)), 'lib', 'text.mjs'); const orig = fs.readFileSync(f);
   fs.appendFileSync(f, '// a local edit\n');
-  try { assert.match((await U.runUpdate(deps({ to: '0.2.0' }))).lines.join('\n'), /edited in place \(lib\/text\.mjs changed\)/); } finally { fs.writeFileSync(f, orig); }
-  assert.match((await U.runUpdate(deps({ to: '0.1.0' }))).lines.join('\n'), /not newer than v0\.1\.0/);
+  try { assert.match((await U.runUpdate(deps({ to: v(1, 0) }))).lines.join('\n'), /edited in place \(lib\/text\.mjs changed\)/); } finally { fs.writeFileSync(f, orig); }
+  assert.match((await U.runUpdate(deps({ to: v(0, 0) }))).lines.join('\n'), new RegExp(`not newer than v${reV(v(0, 0))}`));
   assert.deepEqual(hashHome(), before); assert.equal(listBackups().length, backups);
 });
 
 test('a migration that throws rolls back to the exact previous state; the failed release stays for a look', async () => {
   const before = hashHome();
-  const r = await U.runUpdate(deps({ to: '0.1.1' }));
+  const r = await U.runUpdate(deps({ to: v(0, 1) }));
   assert.equal(r.code, 1); assert.equal(r.step, 'migrate');
   assert.deepEqual(hashHome(), before);
   assert.equal(fs.existsSync(path.join(H, 'data', 'state', 'boom.json')), false);
-  assert.equal(L.currentVersion(H), '0.1.0');
-  assert.ok(fs.existsSync(path.join(L.releaseDir(H, '0.1.1'), 'cli.mjs')));
-  assert.ok(listBackups().some(b => b.label === 'pre-update-v0.1.0-to-v0.1.1'));
-  assert.match(sent.at(-1), /^The update to v0\.1\.1 failed at migrate and was rolled back to v0\.1\.0\./);
+  assert.equal(L.currentVersion(H), v(0, 0));
+  assert.ok(fs.existsSync(path.join(L.releaseDir(H, v(0, 1)), 'cli.mjs')));
+  assert.ok(listBackups().some(b => b.label === `pre-update-v${v(0, 0)}-to-v${v(0, 1)}`));
+  assert.match(sent.at(-1), new RegExp(String.raw`^The update to v${reV(v(0, 1))} failed at migrate and was rolled back to v${reV(v(0, 0))}\.`));
   assert.deepEqual(U.readState().history.at(-1).result, 'rolled back');
 });
 
 test('a failed check after the switch switches back, restores the data exactly and regenerates the units again', async () => {
   const before = hashHome(), runs = unitRuns.length;
-  const r = await U.runUpdate(deps({ to: '0.1.2', verify: () => ({ ok: false, step: 'serve --check', detail: 'synthetic: the workspace did not answer' }) }));
+  const r = await U.runUpdate(deps({ to: v(0, 2), verify: () => ({ ok: false, step: 'serve --check', detail: 'synthetic: the workspace did not answer' }) }));
   assert.equal(r.code, 1); assert.equal(r.step, 'verify (serve --check)');
   assert.deepEqual(hashHome(), before);
   assert.equal(fs.existsSync(path.join(H, 'data', 'state', 'flag.json')), false, 'what the migration wrote is gone');
-  assert.deepEqual(unitRuns.slice(runs), ['0.1.2', '0.1.0'], 'units for the new code, then for the old again');
+  assert.deepEqual(unitRuns.slice(runs), [v(0, 2), v(0, 0)], 'units for the new code, then for the old again');
   assert.match(r.lines.join('\n'), /synthetic: the workspace did not answer/);
 });
 
 let preUpdate;
 test('an update: backup, side-by-side install, migration once, switch, the new code\'s own checks, What is new', async () => {
   preUpdate = hashHome();
-  const r = await U.runUpdate(deps({ to: '0.2.0' }));
+  const r = await U.runUpdate(deps({ to: v(1, 0) }));
   assert.equal(r.code, 0, r.lines.join('\n'));
-  assert.equal(L.currentVersion(H), '0.2.0');
-  assert.ok(listBackups().some(b => b.label === 'pre-update-v0.1.0-to-v0.2.0'));
+  assert.equal(L.currentVersion(H), v(1, 0));
+  assert.ok(listBackups().some(b => b.label === `pre-update-v${v(0, 0)}-to-v${v(1, 0)}`));
   assert.equal(fs.readFileSync(path.join(H, 'data', 'state', 'flag-log.txt'), 'utf8'), 'ran\n');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(H, 'data', 'state', 'schema.json'), 'utf8')).applied, ['002-add-flag']);
   const again = cli(['migrate']);
   assert.equal(again.status, 0); assert.match(again.stdout, /No pending migrations/);
   assert.equal(fs.readFileSync(path.join(H, 'data', 'state', 'flag-log.txt'), 'utf8'), 'ran\n', 'applied once');
-  assert.deepEqual(L.localEdits(L.releaseDir(H, '0.2.0')), []);
-  assert.deepEqual(L.installedReleases(H), ['0.2.0', '0.1.2', '0.1.0'], '0.1.0 (where it came from) is kept, 0.1.1 is pruned');
+  assert.deepEqual(L.localEdits(L.releaseDir(H, v(1, 0))), []);
+  assert.deepEqual(L.installedReleases(H), [v(1, 0), v(0, 2), v(0, 0)], 'the version it came from is kept, the failed patch release is pruned');
   const st = U.readState();
-  assert.equal(st.whats_new_pending, '0.2.0'); assert.equal(st.whats_new_from, '0.1.0');
-  const w = U.whatsNew({ current: '0.2.0', list: JSON.parse(fs.readFileSync(path.join(L.releaseDir(H, '0.2.0'), 'release.json'), 'utf8')) });
-  assert.equal(w.show, true); assert.deepEqual(w.releases.map(x => x.version), ['0.2.0']);
-  assert.match(sent.at(-1), /^CometScout is updated to v0\.2\.0 \(from v0\.1\.0\)\.\nSynthetic release 0\.2\.0\.\nWhat is new: /);
+  assert.equal(st.whats_new_pending, v(1, 0)); assert.equal(st.whats_new_from, v(0, 0));
+  const w = U.whatsNew({ current: v(1, 0), list: JSON.parse(fs.readFileSync(path.join(L.releaseDir(H, v(1, 0)), 'release.json'), 'utf8')) });
+  assert.equal(w.show, true); assert.deepEqual(w.releases.map(x => x.version), [v(1, 0)]);
+  assert.match(sent.at(-1), new RegExp(String.raw`^CometScout is updated to v${reV(v(1, 0))} \(from v${reV(v(0, 0))}\)\.\nSynthetic release ${reV(v(1, 0))}\.\nWhat is new: `));
   assert.equal(cli(['serve', '--check']).status, 0, 'the new release serves the workspace');
 });
 
 test('rollback: by default the code goes back to where the update came from, not to a failed attempt', async () => {
   const r = await U.runRollback({ units, say: () => {} });
   assert.equal(r.code, 0, r.lines.join('\n'));
-  assert.equal(L.currentVersion(H), '0.1.0');
+  assert.equal(L.currentVersion(H), v(0, 0));
   assert.equal(fs.readFileSync(path.join(H, 'data', 'state', 'flag-log.txt'), 'utf8'), 'ran\n', 'data stays: expand, then contract');
   assert.equal((await U.runRollback({ to: 'v9.9.9', units, say: () => {} })).code, 1);
-  L.pointCurrent(H, '0.2.0');
+  L.pointCurrent(H, v(1, 0));
 });
 
 test('rollback --restore-data lists what would be lost, asks for --yes, backs up, restores the pre-update state and offers the re-import', async () => {
@@ -207,27 +211,27 @@ test('rollback --restore-data lists what would be lost, asks for --yes, backs up
   assert.match(text, /data\/state: 3 new, 1 changed/);
   assert.match(text, /application events:\n {4}Acme: 1/);
   assert.match(text, /Run again with --yes/);
-  assert.equal(L.currentVersion(H), '0.2.0', 'nothing changed without --yes');
+  assert.equal(L.currentVersion(H), v(1, 0), 'nothing changed without --yes');
   const r = await U.runRollback({ restoreData: true, yes: true, units, say: () => {} });
   assert.equal(r.code, 0, r.lines.join('\n'));
   assert.deepEqual(hashHome(), preUpdate, 'the state from before the update, and the code it ran');
-  const fresh = listBackups().find(b => b.label === 'pre-rollback-v0.2.0');
+  const fresh = listBackups().find(b => b.label === `pre-rollback-v${v(1, 0)}`);
   assert.ok(fresh);
   assert.ok(readZip(fresh.file).entries.some(e => e.name === 'data/decoded/2026-11-02--beta--analyst.md'), 'the newer items are in the fresh backup');
-  assert.match(r.lines.at(-1), /^To bring back the newer items listed above: node cli\.mjs import --from .*pre-rollback-v0\.2\.0\.zip --on-conflict keep --data-only$/);
+  assert.match(r.lines.at(-1), new RegExp(String.raw`^To bring back the newer items listed above: node cli\.mjs import --from .*pre-rollback-v${reV(v(1, 0))}\.zip --on-conflict keep --data-only$`));
 });
 
 test('Tonight: the choice is kept, the next run starts the update, which waits for the run to let go of the lock', async () => {
-  assert.equal(U.updateAction('tonight', '0.2.0', { current: '0.1.0' }).changed, true);
+  assert.equal(U.updateAction('tonight', v(1, 0), { current: v(0, 0) }).changed, true);
   const launched = [];
-  await U.afterRun({ fetch: fakeFetch, current: '0.1.0', send: async () => {}, launch: a => { launched.push(a); return { ok: true, how: 'test' }; } });
-  assert.deepEqual(launched, [['update', '--to', 'v0.2.0', '--wait-lock']]);
+  await U.afterRun({ fetch: fakeFetch, current: v(0, 0), send: async () => {}, launch: a => { launched.push(a); return { ok: true, how: 'test' }; } });
+  assert.deepEqual(launched, [['update', '--to', `v${v(1, 0)}`, '--wait-lock']]);
   const h = holder(); fs.writeFileSync(LOCK, String(h.pid));
   let waited = 0;
-  const r = await U.runUpdate(deps({ to: '0.2.0', waitLock: true, verify: () => ({ ok: true }), wait: async () => { waited++; await h.stop(); } }));
+  const r = await U.runUpdate(deps({ to: v(1, 0), waitLock: true, verify: () => ({ ok: true }), wait: async () => { waited++; await h.stop(); } }));
   assert.equal(r.code, 0, r.lines.join('\n'));
   assert.equal(waited, 1);
-  assert.equal(L.currentVersion(H), '0.2.0');
+  assert.equal(L.currentVersion(H), v(1, 0));
   assert.equal(U.readState().pending, null, 'Tonight is done');
 });
 
@@ -254,25 +258,25 @@ test('decode --file decodes one job again only as a dry run, and writes nothing'
 });
 
 test('update --from-zip (the rehearsal hook): a local source zip checked against the given sha256, GitHub never asked; refusals change nothing', async () => {
-  await makeRelease('0.2.1');
-  const zip = path.join(tmp, 'cometscout-0.2.1.zip'), good = RELEASES['0.2.1'].sha;
+  await makeRelease(v(1, 1));
+  const zip = path.join(tmp, `cometscout-${v(1, 1)}.zip`), good = RELEASES[v(1, 1)].sha;
   const calls = fetchCalls.length, dls = downloads.length;
   const noNet = { fetch: async u => { throw new Error(`no network in this test: ${u}`); }, download: async u => { throw new Error(`no download in this test: ${u}`); } };
   const before = hashHome(), backups = listBackups().length;
-  const refused = async (fromZip, re) => { const r = await U.runUpdate(deps({ to: '0.2.1', fromZip, ...noNet })); assert.equal(r.code, 1); assert.equal(r.step, 'preflight'); assert.match(r.lines.join('\n'), re); };
+  const refused = async (fromZip, re) => { const r = await U.runUpdate(deps({ to: v(1, 1), fromZip, ...noNet })); assert.equal(r.code, 1); assert.equal(r.step, 'preflight'); assert.match(r.lines.join('\n'), re); };
   await refused({ file: zip, sha256: '0'.repeat(64) }, /does not match the sha256 given with --sha256/);
   await refused({ file: zip, sha256: 'abc' }, /--from-zip needs --sha256/);
   await refused({ file: path.join(tmp, 'missing.zip'), sha256: good }, /missing\.zip does not exist/);
-  assert.deepEqual(hashHome(), before); assert.equal(listBackups().length, backups); assert.equal(L.currentVersion(H), '0.2.0');
-  const r = await U.runUpdate(deps({ to: '0.2.1', fromZip: { file: zip, sha256: good.toUpperCase() }, verify: () => ({ ok: true }), ...noNet }));
+  assert.deepEqual(hashHome(), before); assert.equal(listBackups().length, backups); assert.equal(L.currentVersion(H), v(1, 0));
+  const r = await U.runUpdate(deps({ to: v(1, 1), fromZip: { file: zip, sha256: good.toUpperCase() }, verify: () => ({ ok: true }), ...noNet }));
   assert.equal(r.code, 0, r.lines.join('\n'));
-  assert.match(r.lines[0], /^Test hook: installing v0\.2\.1 from the local source zip .*cometscout-0\.2\.1\.zip, not from GitHub\.$/);
-  assert.equal(L.currentVersion(H), '0.2.1');
-  assert.ok(listBackups().some(b => b.label === 'pre-update-v0.2.0-to-v0.2.1'));
+  assert.match(r.lines[0], new RegExp(String.raw`^Test hook: installing v${reV(v(1, 1))} from the local source zip .*cometscout-${reV(v(1, 1))}\.zip, not from GitHub\.$`));
+  assert.equal(L.currentVersion(H), v(1, 1));
+  assert.ok(listBackups().some(b => b.label === `pre-update-v${v(1, 0)}-to-v${v(1, 1)}`));
   assert.equal(fetchCalls.length, calls); assert.equal(downloads.length, dls);
   // the command line takes the hook only with --to and --sha256
-  for (const args of [['update', '--from-zip', zip], ['update', '--to', 'v0.2.2', '--from-zip', zip], ['update', '--to', 'v0.2.2', '--sha256', good], ['update', '--to', 'v0.2.2', '--from-zip', '--sha256', good]]) {
+  for (const args of [['update', '--from-zip', zip], ['update', '--to', `v${v(1, 2)}`, '--from-zip', zip], ['update', '--to', `v${v(1, 2)}`, '--sha256', good], ['update', '--to', `v${v(1, 2)}`, '--from-zip', '--sha256', good]]) {
     const c = cli(args); assert.equal(c.status, 1, args.join(' ')); assert.match(c.stdout, /--from-zip is a test hook: node cli\.mjs update --to vX\.Y\.Z --from-zip <source zip> --sha256 <its sha256>/);
   }
-  assert.equal(L.currentVersion(H), '0.2.1');
+  assert.equal(L.currentVersion(H), v(1, 1));
 });

@@ -21,12 +21,13 @@ apt-get update && apt-get install -y sudo && usermod -aG sudo NAME
 
 Then log in again as your user and install git and Node.js 22 or newer (Node 20 is end of life since April 2026).
 
-**Debian 12 and 13, Ubuntu:** their own Node is too old (Debian 13 ships 20, Debian 12 ships 18). Install Node 22 from NodeSource.
+**Debian 12 and 13, Ubuntu:** their own Node is too old (Debian 13 ships 20, Debian 12 ships 18). Install Node 22 from NodeSource's signed apt repository: only its signing key is downloaded, no script runs as root, and apt checks every package against that key.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git curl
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
+sudo apt-get update && sudo apt-get install -y git curl gpg ca-certificates
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/nodesource.gpg
+echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+sudo apt-get update && sudo apt-get install -y nodejs
 ```
 
 Check: `node -v` should show v22 or higher.
@@ -60,7 +61,7 @@ If the machine has no browser, follow the prompts of `codex login` for signing i
 
 ```bash
 cd ~
-git clone --branch v0.1.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git
+git clone --branch v0.2.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git
 cd cometscout
 bash deploy/install.sh
 ```

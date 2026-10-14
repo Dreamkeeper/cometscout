@@ -21,12 +21,13 @@ apt-get update && apt-get install -y sudo && usermod -aG sudo ИМЯ
 
 Затем перезайдите под своим пользователем и поставьте git и Node.js 22 или новее (у Node 20 поддержка закончилась в апреле 2026).
 
-**Debian 12 и 13, Ubuntu:** их собственный Node слишком старый (в Debian 13 версия 20, в Debian 12 версия 18). Node 22 ставится из NodeSource.
+**Debian 12 и 13, Ubuntu:** их собственный Node слишком старый (в Debian 13 версия 20, в Debian 12 версия 18). Node 22 ставится из подписанного apt-репозитория NodeSource: скачивается только ключ подписи, никакой скрипт не запускается от root, а apt проверяет каждый пакет этим ключом.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git curl
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
+sudo apt-get update && sudo apt-get install -y git curl gpg ca-certificates
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/nodesource.gpg
+echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+sudo apt-get update && sudo apt-get install -y nodejs
 ```
 
 Проверка: команда `node -v` должна показать v22 или выше.
@@ -60,7 +61,7 @@ codex login
 
 ```bash
 cd ~
-git clone --branch v0.1.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git
+git clone --branch v0.2.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git
 cd cometscout
 bash deploy/install.sh
 ```
