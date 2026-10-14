@@ -123,6 +123,14 @@ test('imported records: in-progress statuses and events dated today or later are
   assert.match(coach.buildHandoff({ profileDir: EXAMPLE, apps: {} }).text, /Nothing with a date ahead or in progress is recorded\./);
 });
 
+test('an application table cell keeps a pipe or a trailing backslash inside its cell', () => {
+  const apps = { 'imp:1': { company: 'Pipe|Works', role: 'PM \\', status: 'applied', updated: '2026-10-01', events: [{ date: '2026-10-01', type: 'applied' }] } };
+  const row = coach.buildHandoff({ profileDir: EXAMPLE, apps }).text.split('\n').find(l => l.startsWith('| Pipe'));
+  assert.equal(row, '| Pipe\\|Works | PM \\\\ | applied | applied | 2026-10-01 |');
+  // a Markdown table splits a row at every pipe not preceded by a backslash: still five cells
+  assert.equal(row.split(/(?<!\\)\|/).length - 2, 5);
+});
+
 test('a job the user holds (accepted) is listed under "Jobs I hold", never in progress; its interview date ahead is a possible probation review', () => {
   const apps = {
     'manual:saltmarsh analytics|senior pm': { company: 'Saltmarsh Analytics', role: 'Senior PM', status: 'accepted', updated: '2026-09-15',

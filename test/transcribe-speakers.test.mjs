@@ -282,7 +282,7 @@ test('the installer extra: sherpa-onnx pinned, the models downloaded with their 
   fs.writeFileSync(path.join(is.path, 'venv', 'pyvenv.cfg'), 'version = 3.12.3\n');
   assert.equal(await T.installSpeakers(is, { run, log: l => logs.push(l), fetchImpl, models }), 0, logs.join('\n'));
   assert.deepEqual(runs.filter(x => x.startsWith('-m pip')), ['-m pip install --disable-pip-version-check --no-input -c <c> sherpa-onnx']);
-  assert.match(fs.readFileSync(T.CONSTRAINTS, 'utf8'), new RegExp(`^sherpa-onnx==${SP.SHERPA_ONNX_VERSION.replace(/\./g, '\\.')}$`, 'm'));
+  assert.match(fs.readFileSync(T.CONSTRAINTS, 'utf8'), new RegExp(`^sherpa-onnx==${SP.SHERPA_ONNX_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   assert.deepEqual(fetches, ['https://releases.example/seg.tar.bz2', 'https://releases.example/emb.onnx']);
   assert.ok(!fs.existsSync(path.join(SP.speakerModelsDir(is.path), SP.SEGMENTATION.file)), 'the archive is removed once unpacked');
   assert.deepEqual(fs.readFileSync(SP.embeddingPath(is.path, 'titanet-small')), emb);
@@ -324,7 +324,7 @@ test('doctor: off, the extra, the models and their sha256, the voice sample and 
   // a WAV of 8 s, then of 25 s
   fs.writeFileSync(ds.speakers.me_sample, B.writeWav(new Float32Array(8 * 16000)));
   let l = lines();
-  assert.match(l, new RegExp(`^ok speakers extra: sherpa-onnx ${SP.SHERPA_ONNX_VERSION.replace(/\./g, '\\.')}$`, 'm'));
+  assert.match(l, new RegExp(`^ok speakers extra: sherpa-onnx ${SP.SHERPA_ONNX_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   assert.match(l, /^todo speaker segmentation model \(pyannote-segmentation-3-0\): .* has sha256 [0-9a-f]{12}\.\.\., not the pinned 220ad67ca923\.\.\. {2}-> delete it/m);
   assert.match(l, /^todo voice sample: .*doc-voice\.wav \(8 s, under 20 s\)/m);
   fs.writeFileSync(ds.speakers.me_sample, B.writeWav(new Float32Array(25 * 16000)));

@@ -20,7 +20,7 @@ test('CometScout is cloned at the release tag of package.json, never at the bran
     for (const line of read(f).split('\n')) {
       if (!/git clone\s+.*github\.com\/Dreamkeeper\/cometscout/.test(line)) continue;
       clones++;
-      assert.match(line, new RegExp(`git clone --branch v${VERSION.replace(/\./g, '\\.')} --depth 1 https://github\\.com/Dreamkeeper/cometscout\\.git`), `${f}: ${line.trim()}`);
+      assert.match(line, new RegExp(`git clone --branch v${VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} --depth 1 https://github\\.com/Dreamkeeper/cometscout\\.git`), `${f}: ${line.trim()}`);
     }
   }
   assert.ok(clones >= 3, 'README.md, README-rus.md and INSTALL.md each show the clone');
