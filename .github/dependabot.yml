@@ -38,6 +38,9 @@ updates:
       # the CUDA build from PyPI. Raise them by hand with the bench (see constraints.txt).
       - dependency-name: torch
       - dependency-name: torchaudio
+      # torch 2.11 requires setuptools below 82 (constraints.txt): never propose 82 or newer while torch is on 2.11
+      - dependency-name: setuptools
+        versions: [">=82"]
     groups:
       transcribe-minor-and-patch:
         update-types: [minor, patch]
