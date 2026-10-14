@@ -47,7 +47,7 @@ const BASE = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')
 // BASE, v(0, 1) a patch above it, v(1, 0) the next minor
 const [B_MAJ, B_MIN, B_PAT] = BASE.split('.').map(Number);
 const v = (minor, patch) => `${B_MAJ}.${B_MIN + minor}.${minor ? patch : B_PAT + patch}`;
-const reV = x => x.replace(/./g, '\.');
+const reV = x => x.replace(/\./g, '\\.');   // a version as a regular expression: its dots are literal dots
 const RELEASES = {};
 /** A source zip like GitHub's: this code under "cometscout-<version>/", with the version, a release.json entry and migrations added. */
 async function makeRelease(version, migrations = {}) {
