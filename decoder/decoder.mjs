@@ -197,9 +197,11 @@ export function shapeRank(loc, bonus = SETTINGS.picks?.shape_bonus) {
 // answers 200 for any id, so Ashby is asked through its public GraphQL (null posting = closed); LinkedIn and
 // other boards are checked for "no longer accepting" style text; hh.ru and Hirify mark archived vacancies on the page.
 // Network errors, 403 and 429 count as alive (never drop on doubt).
-const DEAD_TEXT = /No longer accepting applications|This job is no longer available|job (?:posting )?(?:has been )?closed|This vacancy is archived|Вакансия в архиве|Эта вакансия в архиве/i;
-// hh.ru: only markers of the vacancy itself. The page's embedded state also lists other vacancies, which may be archived.
-const HH_PAGE = /(^|[/.])hh\.ru\/vacancy\//i, HH_DEAD = /data-qa="vacancy-title-archived-text"|В архиве с|Вакансия в архиве|vacancy-archived/;
+const DEAD_TEXT = /No longer accepting applications|This job is no longer available|job (?:posting )?(?:has been )?closed|This vacancy is archived|Эта вакансия в архиве/i;
+// hh.ru: only the archived-title marker of the vacancy itself. Every hh.ru page carries the phrase "Вакансия в архиве" in
+// its interface strings (live pages once, archived ones twice), and the page's embedded state also lists other
+// vacancies, which may be archived; so text matches are useless there. Checked on live and archived pages, 2026-10-12.
+const HH_PAGE = /(^|[/.])hh\.ru\/vacancy\//i, HH_DEAD = /data-qa="vacancy-title-archived-text"/;
 const HIRIFY_PAGE = /(^|[/.])hirify\.me\/jobs\//i, HIRIFY_DEAD = /Эта вакансия в архиве|This vacancy is archived/i;
 export async function linkAlive(url, { fetch = globalThis.fetch } = {}) {
   if (!/^https?:/.test(url || '') || envVar('NO_LINK_CHECK')) return true;   // NO_LINK_CHECK: the update's verify step
@@ -217,7 +219,8 @@ export async function linkAlive(url, { fetch = globalThis.fetch } = {}) {
     if (r.status === 404 || r.status === 410 || /[?&]error=true/.test(r.url || '')) return false;
     if (r.ok) {
       const page = await r.text();
-      if (DEAD_TEXT.test(page) || (HH_PAGE.test(url) && HH_DEAD.test(page)) || (HIRIFY_PAGE.test(url) && HIRIFY_DEAD.test(page))) return false;
+      if (HH_PAGE.test(url)) return !HH_DEAD.test(page);   // hh.ru pages are judged by their own marker only
+      if (DEAD_TEXT.test(page) || (HIRIFY_PAGE.test(url) && HIRIFY_DEAD.test(page))) return false;
     }
     return true;
   } catch { return true; }

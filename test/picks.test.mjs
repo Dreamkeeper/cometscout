@@ -127,9 +127,12 @@ test('linkAlive: hh.ru and Hirify archive markers; 403, 429 and network errors s
   const alive = (url, p) => d.linkAlive(url, { fetch: fakeFetch({ [url]: p }) });
   const hh = 'https://spb.hh.ru/vacancy/555';
   assert.equal(await alive(hh, page('<span data-qa="vacancy-title-archived-text">x</span>')), false);
-  assert.equal(await alive(hh, page('<p>В архиве с 12 сентября</p>')), false);
-  assert.equal(await alive(hh, page('<div class="vacancy-archived">x</div>')), false);
-  assert.equal(await alive(hh, page('<p>Вакансия в архиве</p>')), false);
+  // every hh.ru page carries "Вакансия в архиве" among its interface strings: a live page with it stays alive
+  const LIVE_HH = '<h1 data-qa="vacancy-title">Product Manager</h1><script>{"i18n":{"vacancy.archived":"Вакансия в архиве"}}</script>';
+  assert.equal(await alive(hh, page(LIVE_HH)), true);
+  assert.equal(await alive(hh, page(`<span data-qa="vacancy-title-archived-text">Вакансия в архиве</span>${LIVE_HH}`)), false);
+  assert.equal(await alive(hh, page('<p>Вакансия в архиве</p>')), true, 'the phrase alone says nothing on hh.ru');
+  assert.equal(await alive(hh, page('<p>No longer accepting applications</p>')), true, 'other boards\' text never judges an hh.ru page');
   // the page's embedded state lists other vacancies, some archived: that says nothing about this one
   assert.equal(await alive(hh, page('<h1>Product Manager</h1><template>{&quot;archived&quot;: true}</template>')), true);
   assert.equal(await alive(hh, page('<h1>Product Manager</h1><script>{"vacancies":[{"id":1,"archived" : true}],"archived":true}</script>')), true);
