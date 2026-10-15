@@ -437,6 +437,31 @@ except ImportError:
   assert.ok(!/the first use downloads it/.test(py), 'no unconditional download message');
 });
 
+test('transcribe.py: with the audio, a Whisper window boundary falls in the gap between words, not inside one', t => {
+  if (!PY) return t.skip('no python3 here');
+  const r = chunking(`
+try:
+    import numpy as np
+except ImportError:
+    print("null"); raise SystemExit
+rate = 16000
+# 30 s of steady sound with one 40 ms gap at 10.31 s; windows of 10 s searched 3 s either side
+a = np.full(30 * rate, 0.3, dtype=np.float32); a[1::2] = -0.3
+a[int(10.31 * rate):int(10.35 * rate)] = 0
+db = t.energy_db(a)
+print(json.dumps([t.whisper_windows(db, 30.0, window=10, search=3, audio=a)[0], t.whisper_windows(db, 30.0, window=10, search=3)[0],
+  t.quietest_point(a, 10.0, 10.5), t.quietest_point(a[:100], 0.0, 0.5)]))
+`);
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout.trim());
+  if (out === null) return t.skip('no numpy here');
+  const [withAudio, without, point, tiny] = out;
+  assert.deepEqual(without, [0, 10.25], 'without the audio: the middle of the quietest half second (inside a word here)');
+  assert.ok(withAudio[1] > 10.31 && withAudio[1] < 10.35, `the cut is inside the gap: ${withAudio[1]}`);
+  assert.ok(point > 10.31 && point < 10.35, `${point}`);
+  assert.equal(tiny, 0.25, 'too little audio: the middle');
+});
+
 test('GigaAM chunks never join speech across a long pause (speech after the pause was lost on a real meeting)', t => {
   if (!PY) return t.skip('no python3 here');
   const r = chunking(`

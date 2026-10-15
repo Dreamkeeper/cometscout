@@ -227,9 +227,26 @@ def energy_db(audio, step=ENERGY_STEP_S, rate=SAMPLE_RATE, block_s=600.0):
     return out
 
 
-def whisper_windows(db, duration, step=ENERGY_STEP_S, window=WHISPER_WINDOW_S, search=WINDOW_SEARCH_S):
+CUT_FRAME_S = 0.02   # inside the chosen half second, the cut goes to the quietest 20 ms (a gap between words)
+
+
+def quietest_point(audio, t0, t1, rate=SAMPLE_RATE, frame=CUT_FRAME_S):
+    """The middle of the quietest `frame` seconds of audio between t0 and t1 (seconds), so a window boundary falls in
+    the gap between two words rather than inside one; the middle of t0..t1 when there is too little audio."""
+    import numpy as np
+    a, b, n = max(0, int(t0 * rate)), min(len(audio), int(t1 * rate)), max(1, int(frame * rate))
+    seg = np.asarray(audio[a:b], dtype=np.float32)
+    k = len(seg) // n
+    if k < 1:
+        return round((t0 + t1) / 2, 2)
+    power = (seg[:k * n].reshape(k, n) ** 2).mean(axis=1)
+    return round((a + int(power.argmin()) * n + n / 2) / rate, 3)
+
+
+def whisper_windows(db, duration, step=ENERGY_STEP_S, window=WHISPER_WINDOW_S, search=WINDOW_SEARCH_S, audio=None):
     """[(start, end)] in seconds: the whole recording when it is short, else windows of about `window` seconds, each cut
-    at the quietest half second (db, energy_db's envelope) within `search` seconds of where the window would end."""
+    at the quietest half second (db, energy_db's envelope) within `search` seconds of where the window would end; with
+    the audio, at the quietest 20 ms inside that half second (quietest_point)."""
     if duration <= window * 1.25 or not db:
         return [(0.0, duration)]
     cuts, at = [], window
@@ -238,7 +255,7 @@ def whisper_windows(db, duration, step=ENERGY_STEP_S, window=WHISPER_WINDOW_S, s
         if hi <= lo:
             break
         i = min(range(lo, hi), key=lambda k: (db[k], abs(k - at / step)))
-        cut = round((i + 0.5) * step, 2)
+        cut = round((i + 0.5) * step, 2) if audio is None else quietest_point(audio, i * step, (i + 1) * step)
         cuts.append(cut)
         at = cut + window
     bounds = [0.0] + cuts + [duration]
@@ -258,6 +275,7 @@ def whisper_on_disk(model, models_dir):
         return os.path.isfile(os.path.join(model, "model.bin"))
     if not models_dir or not os.path.isdir(models_dir):
         return False
+    model = {"turbo": "large-v3-turbo"}.get(model, model)   # the short name faster-whisper accepts
     for name in os.listdir(models_dir):
         if name.startswith("models--") and name.endswith(f"--faster-whisper-{model}"):
             snaps = os.path.join(models_dir, name, "snapshots")
@@ -325,7 +343,7 @@ def run_whisper(a, started, model=None, audio=None, loaded=None):
     if audio is None:
         audio = load_audio(a.audio)   # what faster-whisper would decode itself; decoded here for the loudness envelope too
     duration, db = len(audio) / SAMPLE_RATE, energy_db(audio)
-    windows = whisper_windows(db, duration)
+    windows = whisper_windows(db, duration, audio=audio)
     language, info0, out, next_note = a.language or None, None, [], 300.0
     for w0, w1 in windows:
         segments, info = model.transcribe(audio[int(w0 * SAMPLE_RATE):int(w1 * SAMPLE_RATE)], language=language, vad_filter=True,

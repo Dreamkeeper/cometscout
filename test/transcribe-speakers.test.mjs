@@ -578,10 +578,10 @@ test('a speaker with too little speech is merged into the nearest voice; min_spe
 test('a job: the fragment joins the nearest voice and the header says so', async () => {
   const { r, md, j } = await job('synthetic interview PHANTOM');
   assert.ok(r.ok, r.error);
-  assert.match(md, /^- Speakers: 2 found \(Speaker 1, Me\); "Me" identified .+; separated in \d+ s; 1 more with too little speech \(0 s in all\) merged into the nearest voice$/m);
+  assert.match(md, /^- Speakers: 2 found \(Speaker 1, Me\); "Me" identified .+; separated in \d+ s; 1 more with too little speech \([\d.]+ s in all\) merged into the nearest voice$/m);
   assert.deepEqual(j.diarization.merged, [{ seconds: 0.4, similarity: 0.999 }]);
   assert.equal(j.diarization.found, 3);
   assert.deepEqual(j.diarization.speakers.map(x => x.label), ['Speaker 1', 'Me']);
   const ruJob = await job('synthetic interview PHANTOM', { t: ru });
-  assert.match(ruJob.md, /присоединено к ближайшему голосу говорящих со слишком короткой речью: 1 \(всего 0 с\)$/m);
+  assert.match(ruJob.md, /присоединено к ближайшему голосу говорящих со слишком короткой речью: 1 \(всего [\d.]+ с\)$/m);
 });

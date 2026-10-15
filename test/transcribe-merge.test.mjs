@@ -285,7 +285,7 @@ test('an automatic term needs a strong match on a whole word and never replaces 
   assert.equal(apply('Купили вольтвизе.', [auto('Voltwise')]), 'Купили вольтвизе.', 'too loose for an automatic term (0.125)');
   assert.equal(apply('Взяли зигби-модуль.', [auto('Zigbee')]), 'Взяли зигби-модуль.', 'one part of a hyphenated word is not a whole word');
   assert.equal(apply('Взяли зигби модуль.', [auto('Zigbee')]), 'Взяли Zigbee модуль.');
-  assert.equal(apply('Офис в Гибралтаре.', [auto('Gibraltar')]), 'Офис в Гибралтаре.', 'a Russian case form of a name is Russian, not a mishearing');
+  assert.equal(apply('Офис в Бранденвике.', [auto('Brandenvik')]), 'Офис в Бранденвике.', 'a Russian case form of a name is Russian, not a mishearing');
   // terms the user wrote: as before
   assert.equal(apply('Взяли зигби-модуль.', [mine('Zigbee')]), 'Взяли Zigbee-модуль.');
   assert.equal(apply('Купили вольтвизе.', [mine('Voltwise')]), 'Купили Voltwise.');
@@ -310,6 +310,12 @@ test('a glossary term settles a disagreement: Whisper\'s Latin word, a Cyrillic 
   assert.equal(run('Поставили диммеры в зал.', 'Поставили демеры@0.99 в зал.').text, 'Поставили диммеры в зал.', 'GigaAM\'s word is the term: it stays');
   assert.equal(M.mergeWords(words('Поставили демеры в зал.'), words('Поставили диммеры@0.7 в зал.')).substitutions.length, 0, 'no glossary: today\'s rule');
   assert.equal(run('Купили стол в зал.', 'Купили диммеры@0.99 в зал.').text, 'Купили стол в зал.', 'a different word, not a variant');
+  assert.equal(run('Поставили демеры в зал.', 'Поставили диммеры@0.3 в зал.').text, 'Поставили демеры в зал.', 'Whisper not sure enough: GigaAM\'s word stays');
+  // an automatic term is also one of Whisper's hotwords: a low-confidence one over a different word never replaces it
+  const autoZ = G.glossaryMatcher([{ term: 'Zigbee', spoken: [], auto: true }]).find;
+  const runZ = (g, w) => M.mergeWords(words(g), words(w), { glossary: autoZ });
+  assert.equal(runZ('Купили зубы вчера.', 'Купили Зигби@0.2 вчера.').substitutions.length, 0, 'an unsure hotword');
+  assert.equal(runZ('Купили зубы вчера.', 'Купили Зигби@0.95 вчера.').substitutions.length, 0, 'sure, but too far from GigaAM\'s word for an automatic term');
   // Whisper wrote a Latin term in Cyrillic and GigaAM misheard it: Whisper's word wins, then takes the term's spelling
   assert.equal(run('Купили окара датчики.', 'Купили Акара@0.9 датчики.').text, 'Купили Aqara датчики.');
   assert.equal(run('Он сказал вчера.', 'Он Акара@0.9 вчера.').text, 'Он сказал вчера.', 'too different to be the same word');
