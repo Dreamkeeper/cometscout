@@ -8,11 +8,13 @@ Needs Node 22 or newer. This version changes behaviour: read Changed before upda
 
 ### Highlights
 
+- The RealtimeJobs source keeps working through RTJ's rename of its API fields on 17 October 2026: update before then if you use it.
 - Cleaner transcripts of real recordings: the glossary no longer replaces ordinary words, fewer phantom speakers, and speech after a long pause is no longer lost.
 - A new install uses the machine's own time zone, so the digest arrives at the hour you expect.
 
 ### Changed
 
+- RealtimeJobs: requests use snake_case field names and fall back to the old camelCase once when the API asks for it, so the source works before and after RTJ's rename on 17 October 2026; the next-page cursor is read in both styles; the page size is capped at 250, the API maximum; a job RTJ already sent is recognised by its stable id even after its title or URL changed.
 - Glossary: terms taken from your own data are names only (brands, products, Latin-script words), never a common word, a part of a hyphenated word or a Russian case form of a name. Terms you wrote into profile/glossary.txt work as before.
 - Merge: an English-looking near miss from Whisper becomes the glossary term; a glossary term settles a Cyrillic disagreement only when Whisper is sure of its word; no word mixes Latin and Cyrillic letters, and no word is doubled where the engines meet.
 - Speakers: a speaker with under 60 seconds and under 3% of the speech is merged into the nearest voice, and the transcript header says so.
