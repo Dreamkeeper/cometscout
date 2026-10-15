@@ -50,7 +50,8 @@ if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
 fi
 
 echo "==> Config files"
-[ -f settings.json ] || cp settings.example.json settings.json
+# a new settings.json gets this machine's time zone (deploy/first-settings.mjs); an existing one is never touched
+[ -f settings.json ] || node deploy/first-settings.mjs
 [ -f .env ] || { touch .env; chmod 600 .env; }
 mkdir -p data
 

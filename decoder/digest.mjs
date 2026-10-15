@@ -31,6 +31,11 @@ export function heldBackLine(held, t = T, locale = LOCALE()) {
   const n = held.reduce((s, h) => s + (h.decoded || 0), 0), worth = held.reduce((s, h) => s + (h.worth || 0), 0);
   return t('digest.held_back', { days: held.map(h => dayLabel(h.date, locale)).join('; '), n, worth });
 }
+/**
+ * Apply-worthy jobs in the order the picks rank them first: apply_priority (none counts as 5, as in the picks score),
+ * then strong fit before an investable stretch; otherwise the decode order (a stable sort).
+ */
+export const byPriority = (a, b) => ((a.v.apply_priority || 5) - (b.v.apply_priority || 5)) || (APPLY_WORTHY.indexOf(a.v.verdict) - APPLY_WORTHY.indexOf(b.v.verdict));
 const jobLine = (d, i, t) => `${i + 1}. ${d.fm.company}: ${d.fm.role} [${String(d.fm.location || '').slice(0, 60)}] ${verdictLabel(d.v.verdict, t)}, p${d.v.apply_priority}`;
 
 /**
@@ -39,7 +44,7 @@ const jobLine = (d, i, t) => `${i + 1}. ${d.fm.company}: ${d.fm.role} [${String(
  * off: the day, when this is an off day (written, not sent); held: off days held back since the last digest.
  */
 export function digestText({ name, date, dry = false, done = [], failed = [], gaveUp = [], pk = { picks: [], open: 0 }, left = 0, cap = 0, maxTries = 0, off = null, held = [], locale = LOCALE(), coach } = {}, t = T) {
-  const worth = done.filter(d => APPLY_WORTHY.includes(d.v.verdict)), heldJobs = done.filter(d => ['long-shot', 'unreadable'].includes(d.v.verdict)), rej = done.filter(d => ['gate-reject', 'weak-fit'].includes(d.v.verdict));
+  const worth = done.filter(d => APPLY_WORTHY.includes(d.v.verdict)).sort(byPriority), heldJobs = done.filter(d => ['long-shot', 'unreadable'].includes(d.v.verdict)), rej = done.filter(d => ['gate-reject', 'weak-fit'].includes(d.v.verdict));
   const prep = pk.prep || null, back = heldBackLine(held, t, locale);
   const L = [...(off ? [t('digest.off_day', { day: dayLabel(off, locale) }), ''] : []), ...(back ? [back, ''] : [])];
   if (prep) L.push(...prepLines(prep, t, { locale, coach }), ...(pk.picks.length ? ['', ...picksText(pk, t)] : [t('prep.wait', { n: prep.wait }), '']));
