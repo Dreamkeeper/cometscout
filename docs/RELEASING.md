@@ -17,7 +17,7 @@ For the maintainer. A release is a git tag `vX.Y.Z` and a GitHub release with no
 5. **Tag.** On `main`, after the pull request is merged:
 
    ```bash
-   git tag -a v0.2.0 -m "CometScout 0.2.0"      # git tag -s with a signing key
+   git tag -s v0.2.0 -m "CometScout 0.2.0"      # signed: the tag rule refuses unsigned release tags
    git push origin v0.2.0
    ```
 
@@ -32,7 +32,7 @@ For the maintainer. A release is a git tag `vX.Y.Z` and a GitHub release with no
 
    ```bash
    node tools/changelog.mjs --release 0.2.0 --sha256 <hash> > notes.md
-   gh release create v0.2.0 --title "CometScout 0.2.0" --notes-file notes.md          # add --prerelease for v0.3.0-beta.1
+   gh release create v0.2.0 --title "CometScout 0.2.0" --notes-file notes.md --verify-tag          # add --prerelease for v0.3.0-beta.1
    ```
 
 8. **Check.** On a test install, `node cli.mjs update --check` names the new version; `node cli.mjs update` installs it and `node cli.mjs rollback` goes back.

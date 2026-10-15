@@ -33,7 +33,7 @@ Gmail outcomes ─► applications ──────────┘  (rejection
 On a Debian or Ubuntu VPS, as your normal user:
 
 ```bash
-git clone --branch v0.2.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git && cd cometscout
+git clone --branch v0.2.1 --depth 1 https://github.com/Dreamkeeper/cometscout.git && cd cometscout
 bash deploy/install.sh
 ```
 

@@ -39,19 +39,19 @@ Install one of the two.
 **Claude Code:**
 
 ```bash
-curl -fsSL https://claude.ai/install.sh | bash -s 2.1.287
+curl -fsSL https://claude.ai/install.sh | bash -s 2.1.292
 source ~/.profile
 claude
 ```
 
-The installer is Anthropic's own, asked for an exact version (2.1.287, from the stable channel; [install a specific version](https://code.claude.com/docs/en/setup#install-a-specific-version)), so every machine starts from the same, known release; Claude Code then updates itself. It puts `claude` into `~/.local/bin`. Debian adds that folder to PATH at login, so right after installing you need `source ~/.profile` (or log in over SSH again).
+The installer is Anthropic's own, asked for an exact version (2.1.292, from the stable channel; [install a specific version](https://code.claude.com/docs/en/setup#install-a-specific-version)), so every machine starts from the same, known release; Claude Code then updates itself. It puts `claude` into `~/.local/bin`. Debian adds that folder to PATH at login, so right after installing you need `source ~/.profile` (or log in over SSH again).
 
 On first start Claude Code shows a link. Open it in the browser on your own computer, sign in and paste the code the site shows into the terminal. After signing in, leave with `/exit`.
 
 **Codex:**
 
 ```bash
-sudo npm install -g @openai/codex@0.160.1
+sudo npm install -g @openai/codex@0.161.0
 codex login
 ```
 
@@ -61,7 +61,7 @@ If the machine has no browser, follow the prompts of `codex login` for signing i
 
 ```bash
 cd ~
-git clone --branch v0.2.0 --depth 1 https://github.com/Dreamkeeper/cometscout.git
+git clone --branch v0.2.1 --depth 1 https://github.com/Dreamkeeper/cometscout.git
 cd cometscout
 bash deploy/install.sh
 ```

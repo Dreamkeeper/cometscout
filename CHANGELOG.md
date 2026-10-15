@@ -2,6 +2,31 @@
 
 Generated from `release.json` by `node tools/changelog.mjs`. Edit `release.json`, not this file.
 
+## 0.2.1 (2026-10-15)
+
+Needs Node 22 or newer. This version changes behaviour: read Changed before updating.
+
+### Highlights
+
+- Cleaner transcripts of real recordings: the glossary no longer replaces ordinary words, fewer phantom speakers, and speech after a long pause is no longer lost.
+- A new install uses the machine's own time zone, so the digest arrives at the hour you expect.
+
+### Changed
+
+- Glossary: terms taken from your own data are names only (brands, products, Latin-script words), never a common word, a part of a hyphenated word or a Russian case form of a name. Terms you wrote into profile/glossary.txt work as before.
+- Merge: an English-looking near miss from Whisper becomes the glossary term; a glossary term settles a Cyrillic disagreement only when Whisper is sure of its word; no word mixes Latin and Cyrillic letters, and no word is doubled where the engines meet.
+- Speakers: a speaker with under 60 seconds and under 3% of the speech is merged into the nearest voice, and the transcript header says so.
+- GigaAM never joins speech across a pause longer than 3 seconds (speech after a long pause was being lost), and the header warns about a long stretch with sound but no text.
+- Whisper reads long recordings in 10-minute pieces cut between words: an hour now peaks at about 1.9 GB of memory instead of 4.2 GB.
+- The transcript header times every stage, speaker separation included, with the total and the peak memory; "downloads" is said only when a model really downloads.
+- The digest lists the jobs worth applying in the same order as the picks of the day.
+- A new settings.json gets this machine's time zone instead of the example's; an existing one is never changed.
+- The install guides name Claude Code 2.1.292 and Codex 0.161.0, and the transcription default (large-v3-turbo, about 1.6 GB) correctly.
+
+### Action needed
+
+- If a product or standard name that is also a common English word (for example Matter) should be fixed in transcripts, add it to profile/glossary.txt: the automatic glossary no longer takes common words.
+
 ## 0.2.0 (2026-10-14)
 
 Needs Node 22 or newer. This version changes behaviour: read Changed before updating.
