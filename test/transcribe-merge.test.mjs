@@ -145,8 +145,11 @@ test('glossary: built from applications, recent queue files, the CV library, pro
   const terms = g.map(t => t.term);
   assert.deepEqual(terms.slice(0, 4), ['KPI', 'ТехноПарк', 'Voltwise', 'Flussomat'], 'the user\'s own terms first, in their order');
   assert.deepEqual(g[0].spoken, ['кейпиай']); assert.deepEqual(g[2].spoken, ['вольтвайз', 'вольтвайс']);
-  for (const t of ['Northwind Robotics', 'NWR', 'Lumenhaus', 'Quillwave', 'Brightgrid', 'Zigbee', 'Philips Hue', 'Amplitude', 'SQL', 'B2B SaaS', 'Matter']) assert.ok(terms.includes(t), t);
-  for (const t of ['Oldcorp Labs', 'pricing', 'roadmapping', 'Who', 'Product manager']) assert.ok(!terms.includes(t), `${t} is not a term here`);
+  for (const t of ['Northwind Robotics', 'NWR', 'Lumenhaus', 'Quillwave', 'Brightgrid', 'Zigbee', 'Philips Hue', 'Amplitude', 'SQL', 'B2B SaaS']) assert.ok(terms.includes(t), t);
+  // names only: "Matter" is a common English word, so only glossary.txt or the settings can make it a term
+  for (const t of ['Oldcorp Labs', 'pricing', 'roadmapping', 'Who', 'Product manager', 'Matter']) assert.ok(!terms.includes(t), `${t} is not a term here`);
+  assert.ok(g.filter(t => t.source === 'glossary.txt' || t.source === 'settings').every(t => !t.auto), 'the user\'s own terms are not automatic');
+  assert.ok(g.filter(t => t.source === 'cv-library').every(t => t.auto));
   assert.equal(new Set(terms.map(t => t.toLowerCase())).size, terms.length, 'no duplicates');
   // Lumenhaus is in applications and the queue: more often seen than Quillwave, so it comes first
   assert.ok(terms.indexOf('Lumenhaus') < terms.indexOf('Quillwave'));
@@ -247,4 +250,89 @@ test('hotwords: at most 50 terms go to Whisper, most important first', () => {
   assert.equal(G.hotwords(terms).split(', ').length, 50);
   assert.equal(G.hotwords(terms).split(', ')[0], 'Term0');
   assert.equal(G.hotwordCount(terms), 50); assert.equal(G.hotwordCount(terms.slice(0, 3)), 3);
+});
+
+// ---------- task 23: real recordings ----------
+test('glossary from the data: names only, never a common word of either language', () => {
+  for (const w of ['Products', 'product', 'Manager', 'hardware', 'companies', 'batteries', 'продакт', 'продактов', 'менеджерами', 'Продукт']) assert.equal(G.commonWord(w), true, w);
+  for (const w of ['Zigbee', 'Aqara', 'Brightgrid', 'Лунабанк', 'KPI']) assert.equal(G.commonWord(w), false, w);
+  assert.equal(G.soundsCommonEnglish('продакт'), true, 'a loanword of "product"');
+  assert.equal(G.soundsCommonEnglish('брайтгрид'), false);
+  for (const t of ['Philips Hue', 'Claude Code', 'Zigbee', 'iPhone', 'E27', 'B2B SaaS', 'Квазар']) assert.equal(G.nameLike(t), true, t);
+  for (const t of ['Products', 'Product Manager', 'Smart Home', 'asking about working', 'IoT product lifecycle', 'his', 'квазар']) assert.equal(G.nameLike(t), false, t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-glossary-names-'));
+  fs.writeFileSync(path.join(dir, 'cv-library.json'), JSON.stringify({
+    experience: [{ company: 'Brightgrid', roles: [{ title: 'Senior Product Manager', bullets: [{ id: 'a', text: 'Led the Products team and shipped Aqara sensors with Philips Hue.' }, { id: 'b', text: 'Вёл продукт, писал PRDs и считал companies и contracts.' }] }] }],
+    skills: [{ id: 's', text: 'Hardware, Firmware, Amplitude, Product Strategy' }],
+  }));
+  const g = G.buildGlossary({ profileDir: dir }), terms = g.map(t => t.term);
+  for (const t of ['Brightgrid', 'Aqara', 'Philips Hue', 'PRDs', 'Amplitude']) assert.ok(terms.includes(t), t);
+  for (const t of ['Products', 'Senior Product Manager', 'Hardware', 'Firmware', 'Product Strategy', 'companies', 'contracts']) assert.ok(!terms.includes(t), `${t} is vocabulary, not a name`);
+  assert.ok(g.every(t => t.auto), 'all of them found in the data');
+  // the same word written into glossary.txt is the user's choice and is kept
+  fs.writeFileSync(path.join(dir, 'glossary.txt'), 'Products\n');
+  assert.deepEqual(G.buildGlossary({ profileDir: dir }).filter(t => t.term === 'Products').map(t => [t.source, !!t.auto]), [['glossary.txt', false]]);
+});
+
+test('an automatic term needs a strong match on a whole word and never replaces a common word; the user\'s terms work as before', () => {
+  const ws = line => words(line).map(w => ({ text: w.text, start: w.start, end: w.end, source: 'gigaam' }));
+  const apply = (line, terms) => M.joinWords(G.applyGlossary(M.prepare(ws(line)).map(w => ({ text: w.t, start: w.s, end: w.e, source: 'gigaam', ...(w.hy ? { hy: true } : {}) })), terms).words.map(w => ({ ...w, t: w.text })));
+  const auto = t => ({ term: t, spoken: [], auto: true }), mine = t => ({ term: t, spoken: [] });
+  // the failure seen on a real recording: a common Russian phrase turned into an English word from the CV
+  assert.equal(apply('Нам нужен продакт-менеджер.', [auto('Products')]), 'Нам нужен продакт-менеджер.');
+  assert.equal(apply('Наш продакт сказал.', [auto('Products')]), 'Наш продакт сказал.', 'a loanword of a common English word');
+  assert.equal(apply('Я работал в брайтгрит.', [auto('Brightgrid')]), 'Я работал в Brightgrid.', 'a strong match on a name');
+  assert.equal(apply('Купили вольтвизе.', [auto('Voltwise')]), 'Купили вольтвизе.', 'too loose for an automatic term (0.125)');
+  assert.equal(apply('Взяли зигби-модуль.', [auto('Zigbee')]), 'Взяли зигби-модуль.', 'one part of a hyphenated word is not a whole word');
+  assert.equal(apply('Взяли зигби модуль.', [auto('Zigbee')]), 'Взяли Zigbee модуль.');
+  assert.equal(apply('Офис в Бранденвике.', [auto('Brandenvik')]), 'Офис в Бранденвике.', 'a Russian case form of a name is Russian, not a mishearing');
+  // terms the user wrote: as before
+  assert.equal(apply('Взяли зигби-модуль.', [mine('Zigbee')]), 'Взяли Zigbee-модуль.');
+  assert.equal(apply('Купили вольтвизе.', [mine('Voltwise')]), 'Купили Voltwise.');
+});
+
+test('a glossary term settles a disagreement: Whisper\'s Latin word, a Cyrillic pair, and mixed scripts', () => {
+  const terms = [{ term: 'Aqara', spoken: [], auto: true }, { term: 'Диммер', spoken: [] }];
+  const m = G.glossaryMatcher(terms), glossary = t => m.find(t);
+  const run = (g, w) => { const r = M.mergeWords(words(g), words(w), { glossary, known: G.knownWords(terms) }); const a = G.applyGlossary(r.words, terms); return { r, text: M.joinWords(a.words.map(x => ({ ...x, t: x.text }))) }; };
+  // GigaAM heard the term, Whisper an English-looking word: the term
+  let x = run('Поставили датчики акара в зале.', 'Поставили датчики Takara@0.95 в зале.');
+  assert.equal(x.text, 'Поставили датчики Aqara в зале.');
+  assert.match(x.r.misses.find(y => y.whisper === 'Takara').why, /glossary term/);
+  // Whisper's word put in by the merge is matched on what GigaAM heard there
+  const merged = [{ text: 'Takara', start: 0, end: 0.5, source: 'whisper', heard: 'акара' }];
+  assert.equal(G.applyGlossary(merged, terms).words[0].text, 'Aqara');
+  assert.equal(G.applyGlossary([{ text: 'roadmap', start: 0, end: 0.5, source: 'whisper', heard: 'роадмап' }], [{ term: 'Roadmunk', spoken: [], auto: true }]).substitutions.length, 0, 'a common word stays');
+  // Cyrillic: Whisper's variant is the glossary term (another ending is the same term), GigaAM's a mishearing
+  x = run('Поставили демеры в зал.', 'Поставили диммеры@0.7 в зал.');
+  assert.equal(x.text, 'Поставили диммеры в зал.');
+  assert.deepEqual(x.r.substitutions.map(y => [y.before, y.after, y.kind]), [['демеры', 'диммеры', 'glossary']]);
+  assert.equal(run('Поставили диммеры в зал.', 'Поставили демеры@0.99 в зал.').text, 'Поставили диммеры в зал.', 'GigaAM\'s word is the term: it stays');
+  assert.equal(M.mergeWords(words('Поставили демеры в зал.'), words('Поставили диммеры@0.7 в зал.')).substitutions.length, 0, 'no glossary: today\'s rule');
+  assert.equal(run('Купили стол в зал.', 'Купили диммеры@0.99 в зал.').text, 'Купили стол в зал.', 'a different word, not a variant');
+  assert.equal(run('Поставили демеры в зал.', 'Поставили диммеры@0.3 в зал.').text, 'Поставили демеры в зал.', 'Whisper not sure enough: GigaAM\'s word stays');
+  // an automatic term is also one of Whisper's hotwords: a low-confidence one over a different word never replaces it
+  const autoZ = G.glossaryMatcher([{ term: 'Zigbee', spoken: [], auto: true }]).find;
+  const runZ = (g, w) => M.mergeWords(words(g), words(w), { glossary: autoZ });
+  assert.equal(runZ('Купили зубы вчера.', 'Купили Зигби@0.2 вчера.').substitutions.length, 0, 'an unsure hotword');
+  assert.equal(runZ('Купили зубы вчера.', 'Купили Зигби@0.95 вчера.').substitutions.length, 0, 'sure, but too far from GigaAM\'s word for an automatic term');
+  // Whisper wrote a Latin term in Cyrillic and GigaAM misheard it: Whisper's word wins, then takes the term's spelling
+  assert.equal(run('Купили окара датчики.', 'Купили Акара@0.9 датчики.').text, 'Купили Aqara датчики.');
+  assert.equal(run('Он сказал вчера.', 'Он Акара@0.9 вчера.').text, 'Он сказал вчера.', 'too different to be the same word');
+  // a token that mixes Latin and Cyrillic letters is never put in
+  assert.equal(M.mixedScript('Zigbeeшный'), true); assert.equal(M.mixedScript('IT-отдел'), false); assert.equal(M.mixedScript('Zigbee'), false);
+  x = run('Подключили зигбишный хаб.', 'Подключили Zigbeeшный@0.99 хаб.');
+  assert.equal(x.text, 'Подключили зигбишный хаб.');
+  assert.match(x.r.misses[0].why, /mixes Latin and Cyrillic/);
+  assert.equal(run('Позвоните в айти-отдел.', 'Позвоните в IT-отдел.').text, 'Позвоните в IT-отдел.', 'a hyphen between the scripts is fine');
+});
+
+test('a word the merge doubled is dropped; a repeat GigaAM heard itself stays', () => {
+  const w = (text, start, source, heard) => ({ text, start, end: start + 0.4, source, ...(heard ? { heard } : {}) });
+  let r = M.dropRepeats([w('Купили', 0, 'gigaam'), w('Zigbee', 0.5, 'whisper', 'зигби'), w('Zigbee,', 1, 'glossary', 'зикбе,'), w('хаб.', 1.5, 'gigaam')]);
+  assert.deepEqual(r.words.map(x => x.text), ['Купили', 'Zigbee,', 'хаб.'], 'one word, the punctuation kept');
+  assert.deepEqual([r.words[1].start, r.words[1].end, r.dropped.length], [0.5, 1.4, 1]);
+  r = M.dropRepeats([w('это', 0, 'gigaam'), w('это', 0.5, 'gigaam'), w('Zigbee', 1, 'whisper', 'зигби'), w('Zigbee', 1.5, 'whisper', 'зигби')]);
+  assert.deepEqual(r.words.map(x => x.text), ['это', 'это', 'Zigbee', 'Zigbee'], 'GigaAM said it twice: speech, not a seam');
+  assert.equal(M.dropRepeats([w('Zigbee', 0, 'whisper', 'зигби'), w('Zigbee', 3, 'whisper', 'зикбе')]).dropped.length, 0, 'far apart');
 });

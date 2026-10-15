@@ -11,7 +11,7 @@ picks the engine for the language and merges the two engines' words; this script
                        [--models-dir DIR] [--vad silero] [--vad-options JSON] [--gigaam-model v3_e2e_rnnt] AUDIO
 
 Writes {"engine", "language", "language_probability", "duration", "model", "compute_type", "threads", "vad",
-        "chunks", "forced_cuts", "load_seconds", "transcribe_seconds", "peak_rss_mb",
+        "chunks", "forced_cuts", "load_seconds", "transcribe_seconds", "peak_rss_mb", "energy": {"step", "db"},
         "segments": [{"start", "end", "text", "words": [{"text", "start", "end", "probability"}]}]}
   Whisper writes words only with --words (word timestamps cost a little time); GigaAM always writes them and gives no
   probability. GigaAM is Russian only: its language is "ru".
@@ -24,7 +24,7 @@ Writes {"engine", "language", "language_probability", "duration", "model", "comp
   that goes to GigaAM alone stops there; otherwise the same loaded model transcribes (with word times for
   "gigaam+whisper") and the result carries "detected", "route", "detect_seconds" and "mode": "transcribe".
 Progress goes to stderr. Exit 0 on success, 2 on a usage error, 1 on any other failure (the reason on stderr).
-Models are downloaded into --models-dir on first use: Whisper from Hugging Face (small about 0.5 GB, large-v3-turbo
+Models are downloaded into --models-dir by the first job that needs them (the log says so only when it downloads): Whisper from Hugging Face (small about 0.5 GB, large-v3-turbo
 1.6 GB), GigaAM from Sber's model server (v3_e2e_rnnt about 0.45 GB, into <models-dir>/gigaam).
 Long audio for GigaAM is cut with the Silero VAD that faster-whisper ships (no account, no pyannote; --vad-options:
 threshold, min_silence_duration_ms, speech_pad_ms, tuned for cutting rather than faster-whisper's defaults, whose 2 s
@@ -56,6 +56,9 @@ import time
 
 SAMPLE_RATE = 16000
 CHUNK_MIN_S, CHUNK_MAX_S, CHUNK_HARD_S = 15.0, 22.0, 25.0   # GigaAM's own limit for one pass is 25 s
+# A chunk never spans a pause longer than this: on a real meeting (2026-10-15) a chunk stretched to 15 s across a 17 s
+# pause came back with the speech after the pause missing (7 words for 23 s); the same speech in a chunk of its own had 52.
+CHUNK_MAX_PAUSE_S = 3.0
 VAD_DEFAULTS = {"threshold": 0.4, "min_silence_duration_ms": 400, "speech_pad_ms": 250}
 DETECT_SPEECH_S = 30.0  # the language is detected on this much speech
 DETECT_SCAN_S = 120.0   # audio is searched for it in pieces of this length, so a long file is not scanned whole
@@ -158,10 +161,10 @@ def vad_silero(audio, options):
 VADS = {"silero": vad_silero}   # each returns (speech segments, finer); the chunking below works with any of them
 
 
-def chunk_speech(speech, finer=None, min_s=CHUNK_MIN_S, max_s=CHUNK_MAX_S, hard_s=CHUNK_HARD_S, depth=0):
+def chunk_speech(speech, finer=None, min_s=CHUNK_MIN_S, max_s=CHUNK_MAX_S, hard_s=CHUNK_HARD_S, depth=0, max_pause=CHUNK_MAX_PAUSE_S):
     """Speech segments [(start, end)] into chunks for GigaAM: (chunks, forced_cuts). A chunk ends between two segments
     (at a pause) and runs up to max_s seconds, or up to hard_s when it would otherwise stay under min_s; a scrap under
-    2 seconds joins its neighbour. A segment longer than hard_s is first split at the short pauses `finer` finds inside
+    2 seconds joins its neighbour. None of that joins speech across a pause longer than max_pause. A segment longer than hard_s is first split at the short pauses `finer` finds inside
     it (twice at most); only speech with no pause at all is cut into equal parts, and each of those cuts counts as forced."""
     segs, forced = [], 0
     for start, end in speech:
@@ -172,7 +175,7 @@ def chunk_speech(speech, finer=None, min_s=CHUNK_MIN_S, max_s=CHUNK_MAX_S, hard_
             continue
         inner = [(max(start, a), min(end, b)) for a, b in (finer(start, end) if finer else []) if min(end, b) > max(start, a)]
         if len(inner) > 1:
-            sub, f = chunk_speech(inner, finer if depth < 1 else None, min_s, max_s, hard_s, depth + 1)
+            sub, f = chunk_speech(inner, finer if depth < 1 else None, min_s, max_s, hard_s, depth + 1, max_pause)
             segs.extend(sub)
             forced += f
             continue
@@ -183,21 +186,80 @@ def chunk_speech(speech, finer=None, min_s=CHUNK_MIN_S, max_s=CHUNK_MAX_S, hard_
     chunks, i = [], 0
     while i < len(segs):
         start, j = segs[i][0], i
-        while j + 1 < len(segs) and segs[j + 1][1] - start <= max_s:
+        while j + 1 < len(segs) and segs[j + 1][1] - start <= max_s and segs[j + 1][0] - segs[j][1] <= max_pause:
             j += 1
-        if segs[j][1] - start < min_s and j + 1 < len(segs) and segs[j + 1][1] - start <= hard_s:
+        if segs[j][1] - start < min_s and j + 1 < len(segs) and segs[j + 1][1] - start <= hard_s and segs[j + 1][0] - segs[j][1] <= max_pause:
             j += 1
         chunks.append((start, segs[j][1]))
         i = j + 1
     out = []
     for s, e in chunks:
-        if e - s < 2 and out and e - out[-1][0] <= hard_s:
+        if e - s < 2 and out and e - out[-1][0] <= hard_s and s - out[-1][1] <= max_pause:
             out[-1] = (out[-1][0], e)
-        elif out and out[-1][1] - out[-1][0] < 2 and e - out[-1][0] <= hard_s:
+        elif out and out[-1][1] - out[-1][0] < 2 and e - out[-1][0] <= hard_s and s - out[-1][1] <= max_pause:
             out[-1] = (out[-1][0], e)
         else:
             out.append((s, e))
     return out, forced
+
+
+ENERGY_STEP_S = 0.5   # the loudness envelope: one value per half second
+# Whisper gets a long recording in windows of about this length, cut at the quietest half second near each cut:
+# faster-whisper computes the features of everything it is given at once, which took the peak memory of large-v3-turbo
+# from 1.9 GB on 6 minutes to 4.2 GB on an hour (measured 2026-10-15); a window holds it near the short-file peak.
+WHISPER_WINDOW_S = 600.0
+WINDOW_SEARCH_S = 30.0
+
+
+def energy_db(audio, step=ENERGY_STEP_S, rate=SAMPLE_RATE, block_s=600.0):
+    """The loudness of the audio: the RMS level of each `step` seconds in dBFS, rounded to whole dB (-100 for silence),
+    computed 10 minutes at a time so it adds little memory. CometScout compares it with the text to find long stretches
+    with sound like speech and no words (lib/transcribe.mjs missedSpeech)."""
+    import numpy as np
+    n = int(step * rate)
+    frames = len(audio) // n
+    per = max(1, int(block_s / step))
+    out = []
+    for b in range(0, frames, per):
+        x = np.asarray(audio[b * n:min(frames, b + per) * n], dtype=np.float32).reshape(-1, n)
+        rms = np.sqrt(np.mean(np.square(x, dtype=np.float64), axis=1))
+        out.extend(int(round(float(v))) for v in np.maximum(20 * np.log10(np.maximum(rms, 1e-10)), -100.0))
+    return out
+
+
+CUT_FRAME_S = 0.02   # inside the chosen half second, the cut goes to the quietest 20 ms (a gap between words)
+
+
+def quietest_point(audio, t0, t1, rate=SAMPLE_RATE, frame=CUT_FRAME_S):
+    """The middle of the quietest `frame` seconds of audio between t0 and t1 (seconds), so a window boundary falls in
+    the gap between two words rather than inside one; the middle of t0..t1 when there is too little audio."""
+    import numpy as np
+    a, b, n = max(0, int(t0 * rate)), min(len(audio), int(t1 * rate)), max(1, int(frame * rate))
+    seg = np.asarray(audio[a:b], dtype=np.float32)
+    k = len(seg) // n
+    if k < 1:
+        return round((t0 + t1) / 2, 2)
+    power = (seg[:k * n].reshape(k, n) ** 2).mean(axis=1)
+    return round((a + int(power.argmin()) * n + n / 2) / rate, 3)
+
+
+def whisper_windows(db, duration, step=ENERGY_STEP_S, window=WHISPER_WINDOW_S, search=WINDOW_SEARCH_S, audio=None):
+    """[(start, end)] in seconds: the whole recording when it is short, else windows of about `window` seconds, each cut
+    at the quietest half second (db, energy_db's envelope) within `search` seconds of where the window would end; with
+    the audio, at the quietest 20 ms inside that half second (quietest_point)."""
+    if duration <= window * 1.25 or not db:
+        return [(0.0, duration)]
+    cuts, at = [], window
+    while at < duration - window * 0.25:
+        lo, hi = max(0, int((at - search) / step)), min(len(db), int((at + search) / step))
+        if hi <= lo:
+            break
+        i = min(range(lo, hi), key=lambda k: (db[k], abs(k - at / step)))
+        cut = round((i + 0.5) * step, 2) if audio is None else quietest_point(audio, i * step, (i + 1) * step)
+        cuts.append(cut)
+        at = cut + window
+    bounds = [0.0] + cuts + [duration]
+    return list(zip(bounds[:-1], bounds[1:]))
 
 
 # ---------- engines ----------
@@ -206,10 +268,32 @@ def load_audio(path):
     return decode_audio(path, sampling_rate=SAMPLE_RATE)
 
 
+def whisper_on_disk(model, models_dir):
+    """True when the Whisper model is already there: a folder given as the model, or a downloaded snapshot with model.bin
+    in the Hugging Face layout under models_dir (models--<org>--faster-whisper-<model>/snapshots/<rev>/model.bin)."""
+    if os.path.isdir(model):
+        return os.path.isfile(os.path.join(model, "model.bin"))
+    if not models_dir or not os.path.isdir(models_dir):
+        return False
+    model = {"turbo": "large-v3-turbo"}.get(model, model)   # the short name faster-whisper accepts
+    for name in os.listdir(models_dir):
+        if name.startswith("models--") and name.endswith(f"--faster-whisper-{model}"):
+            snaps = os.path.join(models_dir, name, "snapshots")
+            if os.path.isdir(snaps) and any(os.path.isfile(os.path.join(snaps, r, "model.bin")) for r in os.listdir(snaps)):
+                return True
+    return False
+
+
+def gigaam_on_disk(model, root):
+    """True when GigaAM's checkpoint is already in its download folder (gigaam keeps <root>/<model>.ckpt)."""
+    return os.path.isfile(os.path.join(root or os.path.join(os.path.expanduser("~"), ".cache", "gigaam"), f"{model}.ckpt"))
+
+
 def whisper_model(a):
     from faster_whisper import WhisperModel
     allow_newer_pyav()
-    log(f"loading Whisper {a.model} ({a.compute_type}, {a.threads} threads); the first use downloads it")
+    there = whisper_on_disk(a.model, a.models_dir)
+    log(f"loading Whisper {a.model} ({a.compute_type}, {a.threads} threads)" + ("" if there else "; it is not on disk yet, so it is downloaded from Hugging Face first"))
     return WhisperModel(a.model, device="cpu", compute_type=a.compute_type, cpu_threads=max(1, a.threads),
                         download_root=a.models_dir)
 
@@ -256,23 +340,32 @@ def detect_speech_language(model, audio, vad_options):
 def run_whisper(a, started, model=None, audio=None, loaded=None):
     model = model or whisper_model(a)
     loaded = loaded or time.monotonic()
-    segments, info = model.transcribe(audio if audio is not None else a.audio, language=a.language or None, vad_filter=True,
-                                      word_timestamps=a.words, hotwords=a.hotwords or None)
-    log(f"language {info.language} ({info.language_probability:.0%}), {info.duration:.0f} s of audio")
-    out, next_note = [], 300.0
-    for s in segments:  # the generator does the work as it is read
-        seg = {"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()}
-        if a.words:
-            seg["words"] = [{"text": w.word.strip(), "start": round(w.start, 2), "end": round(w.end, 2),
-                             "probability": round(w.probability, 3)} for w in (s.words or []) if w.word.strip()]
-        out.append(seg)
-        if s.end >= next_note:
-            log(f"{s.end / 60:.0f} of {info.duration / 60:.0f} min done")
-            next_note += 300.0
+    if audio is None:
+        audio = load_audio(a.audio)   # what faster-whisper would decode itself; decoded here for the loudness envelope too
+    duration, db = len(audio) / SAMPLE_RATE, energy_db(audio)
+    windows = whisper_windows(db, duration, audio=audio)
+    language, info0, out, next_note = a.language or None, None, [], 300.0
+    for w0, w1 in windows:
+        segments, info = model.transcribe(audio[int(w0 * SAMPLE_RATE):int(w1 * SAMPLE_RATE)], language=language, vad_filter=True,
+                                          word_timestamps=a.words, hotwords=a.hotwords or None)
+        if info0 is None:
+            info0, language = info, language or info.language   # detected on the first window, kept for the rest
+            log(f"language {info.language} ({info.language_probability:.0%}), {duration:.0f} s of audio"
+                + (f" in {len(windows)} windows" if len(windows) > 1 else ""))
+        for s in segments:  # the generator does the work as it is read
+            seg = {"start": round(s.start + w0, 2), "end": round(s.end + w0, 2), "text": s.text.strip()}
+            if a.words:
+                seg["words"] = [{"text": w.word.strip(), "start": round(w.start + w0, 2), "end": round(w.end + w0, 2),
+                                 "probability": round(w.probability, 3)} for w in (s.words or []) if w.word.strip()]
+            out.append(seg)
+            if seg["end"] >= next_note:
+                log(f"{seg['end'] / 60:.0f} of {duration / 60:.0f} min done")
+                next_note += 300.0
     done = time.monotonic()
-    return {"engine": "whisper", "language": info.language, "language_probability": round(info.language_probability, 3),
-            "duration": round(info.duration, 2), "model": a.model, "compute_type": a.compute_type, "threads": a.threads,
-            "load_seconds": round(loaded - started, 2), "transcribe_seconds": round(done - loaded, 2), "segments": out}
+    return {"engine": "whisper", "language": info0.language, "language_probability": round(info0.language_probability, 3),
+            "duration": round(duration, 2), "model": a.model, "compute_type": a.compute_type, "threads": a.threads,
+            "windows": len(windows), "load_seconds": round(loaded - started, 2), "transcribe_seconds": round(done - loaded, 2),
+            "energy": {"step": ENERGY_STEP_S, "db": db}, "segments": out}
 
 
 def run_auto(a, started):
@@ -315,7 +408,8 @@ def run_gigaam(a, started):
     except RuntimeError:
         pass  # already set in this process
     root = os.path.join(a.models_dir, "gigaam") if a.models_dir else None
-    log(f"loading GigaAM {a.gigaam_model} ({a.threads} threads); the first use downloads it (about 0.45 GB)")
+    there = gigaam_on_disk(a.gigaam_model, root)
+    log(f"loading GigaAM {a.gigaam_model} ({a.threads} threads)" + ("" if there else "; it is not on disk yet, so it is downloaded first (about 0.45 GB)"))
     model = gigaam.load_model(a.gigaam_model, fp16_encoder=False, use_flash=False, device="cpu", download_root=root)
     loaded = time.monotonic()
     audio = load_audio(a.audio)
@@ -340,7 +434,9 @@ def run_gigaam(a, started):
     done = time.monotonic()
     return {"engine": "gigaam", "language": "ru", "language_probability": None, "duration": round(duration, 2),
             "model": a.gigaam_model, "compute_type": "float32", "threads": a.threads, "vad": a.vad, "vad_options": a.vad_options, "chunks": len(chunks), "forced_cuts": forced,
-            "load_seconds": round(loaded - started, 2), "transcribe_seconds": round(done - loaded, 2), "segments": out}
+            "load_seconds": round(loaded - started, 2), "transcribe_seconds": round(done - loaded, 2),
+            "energy": {"step": ENERGY_STEP_S, "db": energy_db(audio)}, "speech": [[round(a0, 1), round(b0, 1)] for a0, b0 in speech],
+            "segments": out}
 
 
 # ---------- speakers ----------
@@ -356,13 +452,16 @@ def embed(extractor, samples):
     stream.input_finished()
     if not extractor.is_ready(stream):
         return None
-    return list(extractor.compute(stream))
+    v = list(extractor.compute(stream))
+    # the model gives NaN for some stretches (seen on the bench's Russian calls): no embedding rather than invalid JSON
+    return v if all(math.isfinite(x) for x in v) else None
 
 
 def mean_embedding(vectors):
     """The normalised mean of normalised vectors, rounded for the JSON; None without any."""
     import numpy as np
     vs = [np.asarray(v, dtype=np.float64) for v in vectors if v]
+    vs = [v for v in vs if np.all(np.isfinite(v))]
     vs = [v / (np.linalg.norm(v) or 1.0) for v in vs]
     if not vs:
         return None
