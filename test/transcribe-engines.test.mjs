@@ -401,3 +401,68 @@ test('pinned versions: one pin per package for every supported Python; markers, 
   assert.equal(old.code, 1);
   assert.match(old.logs.at(-1), /has Python 3\.10; the transcription module needs 3\.11 or newer\. Remove that folder and run the installer again/);
 });
+
+test('transcribe.py: "downloads" only when the model is not on disk; the loudness envelope, Whisper windows', t => {
+  if (!PY) return t.skip('no python3 here');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cometscout-ondisk-'));
+  const snap = path.join(dir, 'models--Systran--faster-whisper-small', 'snapshots', 'abc');
+  fs.mkdirSync(snap, { recursive: true }); fs.writeFileSync(path.join(snap, 'model.bin'), '');
+  fs.mkdirSync(path.join(dir, 'models--mobiuslabsgmbh--faster-whisper-large-v3-turbo', 'snapshots', 'cut'), { recursive: true });   // a download cut half-way
+  fs.mkdirSync(path.join(dir, 'gigaam')); fs.writeFileSync(path.join(dir, 'gigaam', 'v3_e2e_rnnt.ckpt'), '');
+  process.env.ONDISK = dir;
+  const r = chunking(`
+import os
+d = os.environ["ONDISK"]
+print(json.dumps([t.whisper_on_disk("small", d), t.whisper_on_disk("large-v3-turbo", d), t.whisper_on_disk("medium", d), t.whisper_on_disk("small", None),
+  t.whisper_on_disk(os.path.join(d, "models--Systran--faster-whisper-small", "snapshots", "abc"), None), t.gigaam_on_disk("v3_e2e_rnnt", os.path.join(d, "gigaam")),
+  t.gigaam_on_disk("v3_e2e_rnnt", os.path.join(d, "none")), t.ENERGY_STEP_S]))
+db = [-30] * 7200
+db[1210] = -80; db[2380] = -70
+print(json.dumps([t.whisper_windows(db, 3600.0), t.whisper_windows(db, 700.0), t.whisper_windows([], 3600.0), t.WHISPER_WINDOW_S]))
+try:
+    import numpy as np
+    tone = [0.1] * 16000 + [0.0] * 8000 + [0.5] * 3000
+    print(json.dumps(t.energy_db(np.array(tone, dtype=np.float32))))
+except ImportError:
+    print("null")
+`);
+  assert.equal(r.status, 0, r.stderr);
+  const [found, windows, energy] = r.stdout.trim().split('\n').map(l => JSON.parse(l));
+  // a long recording goes to Whisper in windows of about 10 minutes, each cut at the quietest half second near the cut
+  assert.deepEqual(windows[0], [[0, 605.25], [605.25, 1190.25], [1190.25, 1790.25], [1790.25, 2390.25], [2390.25, 2990.25], [2990.25, 3600]]);
+  assert.deepEqual(windows.slice(1), [[[0, 700]], [[0, 3600]], 600], 'a short one whole; no envelope, whole');
+  assert.deepEqual(found, [true, false, false, false, true, true, false, 0.5], 'a snapshot with model.bin counts; a cut download does not');
+  if (energy) assert.deepEqual(energy, [-20, -20, -100], 'whole half seconds in dBFS; silence floors at -100; a short tail is left out');
+  const py = fs.readFileSync(T.SCRIPT, 'utf8');
+  assert.ok(!/the first use downloads it/.test(py), 'no unconditional download message');
+});
+
+test('GigaAM chunks never join speech across a long pause (speech after the pause was lost on a real meeting)', t => {
+  if (!PY) return t.skip('no python3 here');
+  const r = chunking(`
+# 4.7 s of speech, a 17 s pause, 1.9 s of speech, then a long stretch: the short piece is not stretched across the pause
+chunks, forced = t.chunk_speech([(209.7, 214.4), (231.3, 233.2), (234.1, 249.4)])
+near, _ = t.chunk_speech([(0.0, 4.7), (6.0, 8.0), (9.0, 20.0)])
+print(json.dumps({"chunks": [[round(a, 1), round(b, 1)] for a, b in chunks], "near": [[round(a, 1), round(b, 1)] for a, b in near], "pause": t.CHUNK_MAX_PAUSE_S}))
+`);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.pause, 3);
+  assert.deepEqual(j.chunks, [[209.7, 214.4], [231.3, 249.4]], 'no chunk spans the 17 s pause');
+  assert.deepEqual(j.near, [[0, 20]], 'short pauses still join');
+});
+
+test('transcribe.py: a speaker embedding with NaN in it is left out, never written as invalid JSON', t => {
+  if (!PY) return t.skip('no python3 here');
+  const r = chunking(`
+try:
+    import numpy  # noqa: F401
+except ImportError:
+    print("null"); sys.exit(0)
+nan = float("nan")
+print(json.dumps([t.mean_embedding([[nan, 1.0], [0.0, 2.0]]), t.mean_embedding([[nan, nan]]), t.mean_embedding([None])], allow_nan=False))
+`);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  if (j) assert.deepEqual(j, [[0, 1], null, null], 'the finite vector only; none at all: no embedding');
+});

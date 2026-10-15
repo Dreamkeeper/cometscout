@@ -8,7 +8,7 @@
 // arguments and the thread caps it saw. Synthetic text only.
 // Speakers (task 21): --diarize gives canned turns for the same synthetic calls (English: speaker 0 asks, speaker 1
 // answers; "SPLIT" moves the change into the middle of a segment, "OVERLAP" adds 1.6 s of overlapping speech, "THREE"
-// adds a third speaker, "DIARBROKEN" fails) and fake embeddings: speaker 0 is [1, 0, 0], speaker 1 [0, 1, 0], a third
+// adds a third speaker, "PHANTOM" a 0.4 s cluster whose voice is close to speaker 0's, "DIARBROKEN" fails) and fake embeddings: speaker 0 is [1, 0, 0], speaker 1 [0, 1, 0], a third
 // [0, 0, 1]; each --samples file's text "VEC a,b,c" is its embedding. --convert (a list, or a file with it) copies each source to its destination.
 // --words gives English words too (evenly timed in each segment).
 import fs from 'node:fs';
@@ -33,8 +33,9 @@ if (flag('diarize')) {
     : [{ start: 0, end: text.includes('SPLIT') ? 7.0 : 10.0, speaker: 0 }, { start: text.includes('SPLIT') ? 7.1 : 12.9, end: 21, speaker: 1 }, { start: 3725, end: 3730, speaker: 0 }];
   if (text.includes('OVERLAP')) turns.push({ start: 8.0, end: 9.6, speaker: 1 });
   if (text.includes('THREE')) turns.push({ start: 21.5, end: 24, speaker: 2 });
+  if (text.includes('PHANTOM')) turns.push({ start: 22, end: 22.4, speaker: 3 });   // a fragment of speaker 0's voice
   turns.sort((a, b) => a.start - b.start);
-  const vec = { 0: [1, 0, 0], 1: [0, 1, 0], 2: [0, 0, 1] };
+  const vec = { 0: [1, 0, 0], 1: [0, 1, 0], 2: [0, 0, 1], 3: [0.95, 0.05, 0] };
   const speakers = Object.fromEntries([...new Set(turns.map(x => x.speaker))].map(k => [String(k), { embedding: vec[k], seconds: turns.filter(x => x.speaker === k).reduce((n, x) => n + x.end - x.start, 0), turns_used: 1 }]));
   const samples = JSON.parse(opt('samples') || '[]').map(f => ({ file: f, embedding: (fs.readFileSync(f, 'utf8').match(/VEC ([\d.,-]+)/)?.[1] || '0,0,0').split(',').map(Number), seconds: 30 }));
   fs.writeFileSync(out, JSON.stringify({ engine: 'diarize', duration: ru ? 16 : 3730, turns, speakers, samples, num_speakers: Object.keys(speakers).length, reclustered: false,

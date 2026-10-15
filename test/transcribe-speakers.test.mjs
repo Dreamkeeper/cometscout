@@ -552,3 +552,36 @@ test('bench: a call\'s reference leaves out the pauses inside its utterances', a
   const speech = p.turns.reduce((a, t) => a + t.end - t.start, 0), whole = p.items.reduce((a, x) => a + x.seconds, 0);
   assert.ok(Math.abs(whole - speech - p.items.length) < 0.2 * p.items.length, `about 1 s less per utterance (${whole} s of turns, ${speech} s of speech)`);
 });
+
+// ---------- task 23: too many speakers on real recordings ----------
+test('a speaker with too little speech is merged into the nearest voice; min_speakers and an exact count are kept', () => {
+  const j = { duration: 400, turns: turns([0, 100, 0], [100, 300, 1], [300, 306, 2], [306, 309, 3]),
+    speakers: { 0: { embedding: [1, 0, 0], seconds: 100 }, 1: { embedding: [0, 1, 0], seconds: 200 }, 2: { embedding: [0.9, 0.3, 0], seconds: 6 }, 3: { embedding: [0.2, 0.9, 0.1], seconds: 3 } } };
+  const m = SP.mergeSmallSpeakers(j);
+  assert.deepEqual(Object.keys(m.speakers), ['0', '1'], 'two real voices left');
+  assert.deepEqual(m.merged.map(x => [x.from, x.into, x.seconds]), [['3', '1', 3], ['2', '0', 6]], 'the smallest first, each into its nearest voice');
+  assert.deepEqual(m.turns.map(x => x.speaker), ['0', '1', '0', '1']);
+  assert.equal(m.speakers[0].seconds, 106);
+  assert.ok(Math.abs(Math.hypot(...m.speakers[0].embedding) - 1) < 1e-3, 'the merged embedding is a unit mean');
+  assert.equal(j.turns[2].speaker, 2, 'the input is not changed');
+  // enough speech, or a big share of a short call: a person, not a fragment
+  const call = { turns: turns([0, 10, 0], [10, 14, 1]), speakers: { 0: { embedding: [1, 0], seconds: 10 }, 1: { embedding: [0, 1], seconds: 4 } } };
+  assert.equal(SP.mergeSmallSpeakers(call).merged.length, 0);
+  assert.equal(SP.mergeSmallSpeakers(j, { min: 3 }).merged.length, 1, 'never below min_speakers');
+  assert.equal(SP.mergeSmallSpeakers(j, { exact: true }).merged.length, 0, 'num_speakers is an exact count');
+  // without an embedding: into the speaker with the most speech
+  const noEmb = { turns: turns([0, 100, 0], [100, 300, 1], [300, 302, 2]), speakers: { 0: { embedding: [1, 0], seconds: 100 }, 1: { embedding: [0, 1], seconds: 200 } } };
+  assert.deepEqual(SP.mergeSmallSpeakers(noEmb).merged.map(x => [x.from, x.into, x.similarity]), [['2', '1', null]]);
+  assert.ok(SP.MIN_SPEAKER_S > 0 && SP.MIN_SPEAKER_SHARE > 0 && SP.MIN_SPEAKER_SHARE < 0.2);
+});
+
+test('a job: the fragment joins the nearest voice and the header says so', async () => {
+  const { r, md, j } = await job('synthetic interview PHANTOM');
+  assert.ok(r.ok, r.error);
+  assert.match(md, /^- Speakers: 2 found \(Speaker 1, Me\); "Me" identified .+; separated in \d+ s; 1 more with too little speech \(0 s in all\) merged into the nearest voice$/m);
+  assert.deepEqual(j.diarization.merged, [{ seconds: 0.4, similarity: 0.999 }]);
+  assert.equal(j.diarization.found, 3);
+  assert.deepEqual(j.diarization.speakers.map(x => x.label), ['Speaker 1', 'Me']);
+  const ruJob = await job('synthetic interview PHANTOM', { t: ru });
+  assert.match(ruJob.md, /присоединено к ближайшему голосу говорящих со слишком короткой речью: 1 \(всего 0 с\)$/m);
+});

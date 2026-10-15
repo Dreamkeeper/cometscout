@@ -123,7 +123,7 @@ test('one file from the inbox: transcript.md, .srt and segments.json; the audio 
   assert.match(md, /^- Length: 01:02:10 \(1 h 2 min\)$/m);
   assert.match(md, /^- Model: large-v3-turbo \(int8, CPU, 2 threads\)$/m);
   // the factor comes from the measured wall time, so a busy machine makes it larger: the format is what is tested
-  assert.match(md, /^- Transcribed: in .+, real-time factor \d+(\.\d+)?, on \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/m);
+  assert.match(md, /^- Transcribed: in .+ in all \(Whisper with the language detection \d+ s\), real-time factor \d+(\.\d+)?, peak memory \d+\.\d GB, on \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/m);
   assert.match(md, /^- Speakers: not separated$/m);
   assert.match(md, /^\[00:00:00\] Hello, thanks for joining the call today\. Could you walk me through your last product launch\?$/m);
   assert.match(md, /^\[00:00:13\] Sure\. We shipped a synthetic billing feature in six weeks\.$/m);
@@ -707,4 +707,36 @@ test('the installer pins the compiled dependencies in one constraints file that 
     assert.match(text, /lib[\\/]transcribe\.mjs["')]* install/, f);
     assert.match(text, /constraints\.txt/, f);
   }
+});
+
+// ---------- task 23: honest reports ----------
+test('possibly missed speech: a long stretch with sound above the noise floor and no text', () => {
+  // 120 s at half-second frames: quiet (-50 dB) with speech-like sound (-30 dB) from 40 s to 90 s, and words elsewhere
+  const db = Array.from({ length: 240 }, (_, i) => (i >= 80 && i < 180 && i % 3 ? -30 : -50));
+  const energy = { step: 0.5, db };
+  const text = [[0, 39], [91, 120]];
+  assert.deepEqual(T.missedSpeech(text, energy), [{ start: 39, end: 91, seconds: 52, share: 0.64, speech: 0 }]);
+  assert.deepEqual(T.missedSpeech([[0, 39], [45, 120]], energy), [], 'the gaps are short');
+  assert.deepEqual(T.missedSpeech(text, { step: 0.5, db: db.map(() => -50) }), [], 'a quiet pause is not missed speech');
+  assert.deepEqual(T.missedSpeech([[0, 39]], energy).map(x => [x.start, x.end]), [[39, 120]], 'up to the end of the recording');
+  assert.deepEqual(T.missedSpeech(text, null), [], 'no loudness envelope: nothing to say');
+  assert.deepEqual([T.MISSED_MIN_S, T.MISSED_ABOVE_DB, T.MISSED_SHARE, T.MISSED_VAD_S], [20, 10, 0.3, 3]);
+  // the voice detection found speech in a stretch with no text and no loud sound (an engine dropped it)
+  const quiet = { step: 0.5, db: db.map(() => -50) };
+  assert.deepEqual(T.missedSpeech(text, quiet, { speech: [[50, 52], [60, 62.5]] }).map(x => [x.start, x.end, x.speech]), [[39, 91, 4.5]]);
+  assert.deepEqual(T.missedSpeech(text, quiet, { speech: [[50, 52]] }), [], 'under 3 s of speech');
+  const r = { source: 'a.m4a', duration: 120, language: 'ru', model: 'small', compute_type: 'int8', threads: 2, seconds: 30, at: '2026-10-15 10:00 UTC', segments: [],
+    missed_speech: T.missedSpeech(text, energy) };
+  assert.match(T.renderMarkdown(r), /^- Possibly missed speech: 00:00:39 to 00:01:31 \(52 s with sound like speech and no text; listen there\)$/m);
+  assert.match(T.renderMarkdown(r, translator('ru')), /^- Возможно, пропущена речь: с 00:00:39 до 00:01:31 \(52 с: звук похож на речь, а текста нет; послушайте это место\)$/m);
+});
+
+test('the header times every stage and the total, with the peak memory; an old transcript keeps its line', () => {
+  const base = { source: 'a.m4a', duration: 3600, language: 'ru', engine: 'gigaam+whisper', model: 'large-v3-turbo', compute_type: 'int8', threads: 4, at: '2026-10-15 10:00 UTC', segments: [] };
+  const r = { ...base, seconds: 2700, peak_rss_mb: 2150, stages: [{ stage: 'whisper', seconds: 1500, detect: true, peak_mb: 2150 }, { stage: 'gigaam', seconds: 420, peak_mb: 1700 },
+    { stage: 'merge', seconds: 3 }, { stage: 'speakers', seconds: 600, peak_mb: 900 }] };
+  assert.equal(T.tookLine(r), 'in 45 min 0 s in all (Whisper with the language detection 25 min 0 s, GigaAM 7 min 0 s, merge 3 s, speakers 10 min 0 s), real-time factor 0.75, peak memory 2.1 GB, on 2026-10-15 10:00 UTC');
+  assert.match(T.tookLine(r, translator('ru')), /^за 45 мин 0 с всего \(Whisper с определением языка 25 мин 0 с, GigaAM 7 мин 0 с, слияние 3 с, разделение говорящих 10 мин 0 с\), коэффициент реального времени 0\.75, пик памяти 2\.1 ГБ/);
+  assert.match(T.tookLine({ ...r, stages: [{ stage: 'gigaam', seconds: 10, failed: true }, { stage: 'whisper', seconds: 20 }] }), /\(GigaAM 10 s \(failed\), Whisper 20 s\)/);
+  assert.equal(T.tookLine({ ...base, seconds: 400, transcribe_seconds: 360 }), 'in 6 min 40 s, real-time factor 0.1, on 2026-10-15 10:00 UTC', 'segments.json from before: the old line');
 });
