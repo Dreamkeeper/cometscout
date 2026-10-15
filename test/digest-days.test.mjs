@@ -99,7 +99,8 @@ test('prep mode: interview tomorrow, at most one qualifying pick; today\'s finds
   assert.match(lines[1], /^Prep step: practise answers/);
   assert.equal(lines[2], 'In the interview coach: practice, or mock for a full run.');
   assert.match(text, /🎯 Apply today \(1; 3 open in the pipeline\)\n1\. Brightwater: Product Manager/);
-  assert.match(text, /For after the interview \(2\)\n1\. Cedarline: Product Owner \[Remote\] Strong fit, p2\n2\. Driftmark: Product Lead \[Remote\] Investable stretch, p1\n/);
+  // the same order as the picks rank: priority 1 before priority 2 (decoder/digest.mjs byPriority)
+  assert.match(text, /For after the interview \(2\)\n1\. Driftmark: Product Lead \[Remote\] Investable stretch, p1\n2\. Cedarline: Product Owner \[Remote\] Strong fit, p2\n/);
   assert.doesNotMatch(text, /Worth applying/);
   assert.equal(text.match(/Apply on the company site/g).length, 1, 'only the pick carries its apply instructions');
   assert.deepEqual(Object.keys(readState('picks.json', {})), [a.file], 'the roles that wait are not marked as shown');

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CLAUDE_CODE_VERSION } from '../lib/coach.mjs';
+import { DEFAULT_MODEL, MODEL_GB } from '../lib/transcribe.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -62,4 +63,11 @@ test('Node comes from NodeSource\'s signed apt repository, never from a script p
     assert.doesNotMatch(text, /deb\.nodesource\.com\/setup_/, `${f}: no NodeSource setup script`);
     assert.match(text, /signed-by=\/usr\/share\/keyrings\/nodesource\.gpg\] https:\/\/deb\.nodesource\.com\/node_\d+\.x nodistro main/, `${f}: the signed repository line`);
   }
+});
+
+test('the install guides name the transcription default model and its download size as the code does', () => {
+  const gb = MODEL_GB[DEFAULT_MODEL];
+  assert.ok(read('INSTALL.md').includes(`about ${gb} GB for the default \`${DEFAULT_MODEL}\``), 'INSTALL.md step 9');
+  assert.ok(read('README-rus.md').includes(`около ${String(gb).replace('.', ',')} ГБ для \`${DEFAULT_MODEL}\` по умолчанию`), 'README-rus.md');
+  assert.ok(read('README.md').includes(`the default ${DEFAULT_MODEL} about ${gb} GB`), 'README.md Transcription');
 });

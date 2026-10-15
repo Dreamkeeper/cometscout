@@ -179,7 +179,7 @@ If you already run [career-ops](https://github.com/career-ops-hq/career-ops), Co
 
 ## 9. Optional: transcribe your interview recordings
 
-CometScout can turn a recording of an interview into text on this machine, so the interview coach can analyze it. The audio stays on the server; the model (about 1.5 GB for the default `medium`) is downloaded once by the first job.
+CometScout can turn a recording of an interview into text on this machine, so the interview coach can analyze it. The audio stays on the server; the model (about 1.6 GB for the default `large-v3-turbo`) is downloaded once by the first job.
 
 ```bash
 bash deploy/modules/transcribe.sh                   # needs Python 3.11 to 3.14 and python3-venv: sudo apt-get install -y python3 python3-venv
