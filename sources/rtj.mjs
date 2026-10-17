@@ -2,7 +2,7 @@
 // Source: RealtimeJobs API (rtj.app, closed beta). Needs the user's own API token; the token's saved
 // subscription settings decide which roles come back, so this file only adds light client-side filters.
 // settings.sources.rtj = { enabled: true, token_env: "RTJ_API_TOKEN", hours: 24, overlap_hours: 6,
-//                          page_size: 100, max_pages: 3, title_exclude: [], max_headcount: null }
+//                          page_size: 100 (up to 250), max_pages: 3, title_exclude: [], max_headcount: null }
 // settings.gates (lib/gates.mjs) applies on top: rejects and demotes are not queued and are counted per gate in the log;
 // demotes are also appended to data/state/demoted.jsonl.
 // Usage: node sources/rtj.mjs [--dry-run] [--hours 72]
@@ -11,6 +11,7 @@ import { SETTINGS, STATE, readJson, secret, log, num } from '../lib/config.mjs';
 import { writeJob, matchesAny, applications } from '../lib/queue.mjs';
 import { checkGates, fromRtj, gateTally, settle } from '../lib/gates.mjs';
 import { secretEnvName } from '../lib/env-names.mjs';
+import { searchAll, pruneSeen, MAX_PAGE_SIZE } from '../lib/rtj.mjs';
 
 const cfg = SETTINGS.sources.rtj || {};
 const args = process.argv.slice(2);
@@ -32,23 +33,18 @@ let after = new Date(before - HOURS * 3600e3);
 if (state.last_before) { const resume = new Date(new Date(state.last_before) - num(cfg.overlap_hours, 6, 0) * 3600e3); if (resume < after) after = resume; }
 if (after < new Date(before - MAX_BACK * 3600e3)) after = new Date(before - MAX_BACK * 3600e3);
 
-async function page(body) {
-  const r = await fetch('https://rtj.app/api/jobs/search', { method: 'POST', signal: AbortSignal.timeout(60000),
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
-  const t = await r.text(); if (!r.ok) throw new Error(`RTJ ${r.status}: ${t.slice(0, 200)}`);
-  return JSON.parse(t);
-}
-const items = []; let cursor; const PAGES = num(cfg.max_pages, 3, 1), SIZE = num(cfg.page_size, 100, 1, 500);
-for (let i = 0; i < PAGES; i++) {
-  const p = await page({ after: after.toISOString(), before: before.toISOString(), pageSize: SIZE, ...(cursor ? { cursor } : {}) });
-  items.push(...(p.positions || [])); cursor = p.nextCursor; if (!cursor) break;
-}
-if (cursor) log(`rtj: max_pages ${PAGES} x page_size ${SIZE} reached; more positions exist in this window (raise max_pages to take them)`);
+const PAGES = num(cfg.max_pages, 3, 1), SIZE = num(cfg.page_size, 100, 1, MAX_PAGE_SIZE);
+const { positions: items, truncated } = await searchAll({ token, after: after.toISOString(), before: before.toISOString(), pageSize: SIZE, maxPages: PAGES, log });
+if (truncated) log(`rtj: max_pages ${PAGES} x page_size ${SIZE} reached; more positions exist in this window (raise max_pages to take them)`);
+// RTJ's stable position id stays the same when a job's title, location or URL changes: a renamed job is not new
+const today = before.toISOString().slice(0, 10);
+const seenIds = pruneSeen(state.seen_ids, today);
 
 const place = l => [l.city, l.country].filter(Boolean).join(', ') + (l.attendance?.length ? ` (${l.attendance.join('/')})` : '');
 let written = 0, skipped = 0; const gated = gateTally();
 for (const it of items) {
   const pos = it.position || {}, emp = it.employer || {};
+  if (pos.id && seenIds[pos.id]) { skipped++; continue; }
   if (matchesAny(pos.title, cfg.title_exclude)) { skipped++; continue; }
   const hc = emp.headcount ? `${emp.headcount.min ?? '?'}-${emp.headcount.max && emp.headcount.max < 1e7 ? emp.headcount.max : '+'}` : 'unknown';
   if (cfg.max_headcount && emp.headcount?.min > cfg.max_headcount) { skipped++; continue; }
@@ -76,7 +72,7 @@ for (const it of items) {
     headcount: hc, salary: pos.salary?.min ? `${pos.salary.min}-${pos.salary.max} ${pos.salary.currency}` : '', posted: pos.metadata?.computed_posted_at,
     text: pos.raw_job_description ? `${header}\n\n${pos.raw_job_description}` : '', extra: g.flags.length ? { gate_flags: g.flags.join('; ') } : undefined };
   const r = DRY ? { written: true } : writeJob(job);
-  if (r.written) written++; else skipped++;
+  if (r.written) { written++; if (pos.id) seenIds[pos.id] = today; } else skipped++;
 }
-if (!DRY) fs.writeFileSync(stateFile, JSON.stringify({ last_before: before.toISOString() }, null, 1));
+if (!DRY) fs.writeFileSync(stateFile, JSON.stringify({ last_before: before.toISOString(), seen_ids: seenIds }, null, 1));
 log(`rtj: ${items.length} fetched, ${written} new, ${skipped} skipped${gated.total ? `, ${gated}` : ''}${DRY ? ' (dry run)' : ''}`);
