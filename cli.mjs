@@ -71,10 +71,11 @@ import { updateCommands } from './lib/update-cli.mjs';
 import { afterRun as updateAfterRun } from './lib/update.mjs';
 import { evalsCommand } from './evals/cli.mjs';
 import { doctorItems, doctorLine } from './lib/doctor.mjs';
-import { SOURCES, entryFor } from './lib/settings-schema.mjs';
+import { SOURCES } from './lib/settings-schema.mjs';
 import { queueSnapshot, runCounts, recordRun } from './lib/run-log.mjs';
 import { mcpCommand } from './lib/mcp.mjs';
 import { onboardingState, onboardingLines, settingsSet, ToolError } from './lib/mcp-tools.mjs';
+import { entryFor } from './lib/settings-schema.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (COMETSCOUT_HOME) is where profile/ and settings live, which may be elsewhere.
