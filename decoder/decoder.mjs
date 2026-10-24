@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, today, log, num, isMain } from '../lib/config.mjs';
 import { envVar } from '../lib/legacy-names.mjs';
-import { loadJob, parseResult, frontMatter, norm, readApplications, laterOnly } from '../lib/queue.mjs';
+import { loadJob, parseResult, frontMatter, norm, readApplications, laterOnly, withoutDecode } from '../lib/queue.mjs';
 import { callJson } from '../lib/llm.mjs';
 import { sendText } from '../lib/telegram.mjs';
 import { runHook } from '../lib/hooks.mjs';
@@ -168,7 +168,8 @@ export async function decodeText(job, prompt, { before = null, excludeFile = nul
   if (job.fm.full_text === 'missing' || job.body.replace(/^#.*$/m, '').trim().length < MIN_TEXT) {
     return { verdict: 'unreadable', confidence: 'low', rationale: 'No readable job text; open the link and judge by hand.', fit_signals: [], gaps: [], action: 'Open the link and decide manually.', cost_usd: 0 };
   }
-  const input = `${prompt}\n\n${history(job.fm.company, { before, excludeFile, skip })}\n\n## Job file\n\n${job.text.slice(0, 16000)}\n`;
+  // the job without any earlier decode block: a decoded file decoded again must not see its own old verdict
+  const input = `${prompt}\n\n${history(job.fm.company, { before, excludeFile, skip })}\n\n## Job file\n\n${withoutDecode(job.text).slice(0, 16000)}\n`;
   const { value, cost } = await call({ prompt: input, schema: SCHEMA, model: SETTINGS.llm.model });
   if (!value?.verdict) throw new Error('no verdict');
   value.fact_flags = factFlags(value);

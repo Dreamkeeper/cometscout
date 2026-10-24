@@ -174,14 +174,34 @@ export function repeatMd(r) {
     `- Model cost of all runs: USD ${t.cost_usd.toFixed(2)}`, '', '## Per job', '',
     table(['Job', 'Verdicts', 'Priorities', 'Verdict changes', 'Priority changes'], r.stability.jobs.map(j => [j.file, show(j.verdicts), show(j.priorities), j.verdict_changes, j.priority_changes])), ''].join('\n');
 }
-/** --repeat N: the set decoded N times (replay), compared run to run; writes repeat-<date>-x<N>.md and .json. */
-export async function repeatEval({ set, n = 2, call, date = today(), log = () => {}, noContext = false }) {
+/** More model calls than this need --yes (yes: true): a repeat of a large set is a real bill. */
+export const REPEAT_CONFIRM_OVER = 200;
+/**
+ * The plan of a repeat before any call: { calls, avg_usd, line }. avg_usd is the last known average cost of one decode
+ * of the set's jobs: their decodes in the queue (cost_usd), else the newest repeat report of the set; null when none.
+ */
+export function repeatPlan(set, n, sample = readSample(set)) {
+  const m = sample?.jobs.length || 0, calls = n * m;
+  const costs = (sample?.jobs || []).map(({ file }) => { const q = queueEntry(file, ['decoded', 'rejected']); return q ? parseResult(read(path.join(DIRS[q.dir], file))).cost_usd : 0; }).filter(c => c > 0);
+  let avg = costs.length ? costs.reduce((s, c) => s + c, 0) / costs.length : null;
+  if (avg == null) {
+    const last = fs.existsSync(setDir(set)) ? fs.readdirSync(setDir(set)).filter(f => /^repeat-.*\.json$/.test(f)).sort().pop() : null;
+    try { const r = last && JSON.parse(read(path.join(setDir(set), last))); const k = r?.stability?.runs * r?.stability?.total?.jobs; if (k && r.stability.total.cost_usd > 0) avg = r.stability.total.cost_usd / k; } catch { /* no usable report */ }
+  }
+  return { calls, avg_usd: avg, line: `${n} runs x ${m} jobs = ${calls} model calls${avg != null ? ` (about USD ${(avg * calls).toFixed(2)} at the last known USD ${avg.toFixed(4)} a decode)` : ''}` };
+}
+/** --repeat N: the set decoded N times (replay), compared run to run; writes repeat-<date>-<time>-x<N>.md and .json. */
+export async function repeatEval({ set, n = 2, call, date = today(), log = () => {}, noContext = false, yes = false, now = new Date() }) {
   const sample = readSample(set); if (!sample) throw new Error(`no set "${set}" (make one with node cli.mjs evals sample --set ${set})`);
   if (!Number.isInteger(n) || n < 2 || n > 20) throw new Error('--repeat must be a whole number from 2 to 20');
+  const plan = repeatPlan(set, n, sample);
+  log(plan.line);
+  if (plan.calls > REPEAT_CONFIRM_OVER && !yes) throw new Error(`${plan.line}: more than ${REPEAT_CONFIRM_OVER}, so run it again with --yes to go ahead`);
   const runs = [];
   for (let i = 1; i <= n; i++) runs.push(await replayVerdicts(sample, { call, date, log: l => log(`run ${i}: ${l}`), noContext }));
   const r = { set, date, repeat: n, stability: stability(sample, runs), runs };
-  const base = path.join(setDir(set), `repeat-${date}-x${n}`);
+  // the time in the name, so a second repeat on the same day never writes over the first
+  const base = path.join(setDir(set), `repeat-${date}-${now.toISOString().slice(11, 19).replace(/:/g, '')}-x${n}`);
   fs.writeFileSync(`${base}.md`, repeatMd(r), 'utf8');
   fs.writeFileSync(`${base}.json`, JSON.stringify(r, null, 1) + '\n', 'utf8');
   return { report: r, md: `${base}.md`, json: `${base}.json` };

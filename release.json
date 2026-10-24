@@ -16,6 +16,9 @@
       ],
       "changed": [
         "The decoder sees a company's history in two blocks: the applications and outcomes you recorded, and other roles CometScout read there (date and role only, no verdict). Decodes from the same run or the same day are left out, so jobs decoded together no longer sway each other."
+      ],
+      "action_needed": [
+        { "text": "Decodes made before 0.2.2 may carry an invented \"earlier application\" in their action text. Before you build a pack for a held role decoded earlier, decode it again (node cli.mjs decode --dry-run --file <queue file> shows the new verdict)." }
       ]
     },
     "notes_ru": {
@@ -28,6 +31,9 @@
       ],
       "changed": [
         "История с компанией приходит в разбор двумя блоками: отклики и итоги, которые записали вы, и другие вакансии компании, которые прочитал CometScout (только дата и должность, без вердикта). Разборы того же запуска и того же дня в неё не попадают, поэтому вакансии, разобранные вместе, больше не влияют друг на друга."
+      ],
+      "action_needed": [
+        { "text": "В разборах, сделанных до 0.2.2, в тексте действия может стоять придуманный «прошлый отклик». Прежде чем собирать пакет для отложенной вакансии, разобранной раньше, разберите её заново (node cli.mjs decode --dry-run --file <файл очереди> покажет новый вердикт)." }
       ]
     }
   },

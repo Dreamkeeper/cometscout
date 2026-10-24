@@ -88,6 +88,21 @@ test('decodeText: the prompt carries both blocks and no verdict; the verdict car
   assert.equal((await d.decodeText(job, 'PROMPT', { call: async () => ({ value: { verdict: 'weak-fit', confidence: 'low', rationale: 'r', fit_signals: [], gaps: [], action: 'a' } }) })).cost_usd, 0, 'no cost reported: 0');
 });
 
+test('a decoded file decoded again never shows the model its own old decode block; the pack prompt drops cost_usd', async () => {
+  const { withoutDecode, decodeForPrompt } = await import('../lib/queue.mjs');
+  const body = `# Acme - Planning Lead\n\n${'Plans the robot fleet roll-out with operations and engineering. '.repeat(8)}`;
+  const text = `---\ncompany: "Acme"\n---\n\n${body}\n\n## Decode Result\nDecoded 2026-09-01 by CometScout (claude/sonnet).\nverdict: strong-fit\nrationale: OLD-RATIONALE-TEXT\naction: OLD-ACTION-TEXT\ncost_usd: 0.0100\n`;
+  const prompts = [];
+  const call = async ({ prompt }) => { prompts.push(prompt); return { value: { verdict: 'long-shot', confidence: 'low', rationale: 'r', fit_signals: [], gaps: [], action: 'a' } }; };
+  await d.decodeText({ file: 'x.md', fm: { company: 'Acme' }, body, text }, 'PROMPT', { call });
+  const job = prompts[0].slice(prompts[0].indexOf('## Job file'));
+  assert.match(job, /Plans the robot fleet/);
+  for (const old of ['## Decode Result', 'OLD-RATIONALE-TEXT', 'OLD-ACTION-TEXT', 'strong-fit', 'cost_usd']) assert.ok(!job.includes(old), old);
+  assert.equal(withoutDecode('a\n## Decode Result\nverdict: x\n\n## Decode Result\nverdict: y\n'), 'a\n## Decode Result\nverdict: x\n', 'cut at the last block');
+  assert.equal(withoutDecode('no decode here\n'), 'no decode here\n');
+  assert.equal(decodeForPrompt('## Decode Result\nverdict: x\ncost_usd: 0.0100\naction: a\n'), '## Decode Result\nverdict: x\naction: a\n');
+});
+
 test('the decode prompt tells the model which block is the user\'s history', () => {
   const p = d.buildPrompt();
   assert.ok(p.includes(`only the block "${d.RECORDED_HEADING}" is the candidate's history`), 'the rule names the first block');

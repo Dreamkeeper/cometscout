@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, log, today as runDate } from '../lib/config.mjs';
 import { callJson } from '../lib/llm.mjs';
-import { loadJob, slug } from '../lib/queue.mjs';
+import { loadJob, slug, decodeForPrompt } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
 import { packMessage } from './message.mjs';
 import { runHook } from '../lib/hooks.mjs';
@@ -280,7 +280,7 @@ async function buildPack(file) {
     PROMPT, '', '## CV library (select ids from here)', JSON.stringify(LIB),
     '', '## Request', `Company: ${fm.company}`, `Role: ${fm.role}`, `Location on the posting: ${fm.location || '?'}`, `Link: ${fm.url}`,
     `cover_letter_needed: ${clNeed}`,
-    '', '## Decode (the pipeline\'s assessment of this role)', job.decode.slice(0, 3000),
+    '', '## Decode (the pipeline\'s assessment of this role)', decodeForPrompt(job.decode).slice(0, 3000),
     '', '## Application form fields to answer', form ? (fields.length ? fields.map(f => `- ${f.label} [${f.type}${f.required ? ', required' : ''}]${f.options.length ? ` options: ${f.options.join(' / ')}` : ''}${f.description ? `\n  guidance: ${f.description}` : ''}`).join('\n') : '(none beyond personal data and uploads)') : '(the form could not be read: answer nothing, set answers to [])',
     '', '## Job description', jd.slice(0, 14000),
   ].join('\n');

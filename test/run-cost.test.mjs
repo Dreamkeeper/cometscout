@@ -74,6 +74,9 @@ test('run cost counts the packs built or refused since the pack step started; no
   const before = queueSnapshot();
   fs.mkdirSync(path.join(unit.data, 'decoded'), { recursive: true });
   fs.writeFileSync(path.join(unit.data, 'decoded', `${DAY}--cedar--pm.md`), `---\ncompany: "Cedar"\n---\n\n## Decode Result\nDecoded ${DAY} by CometScout (claude/sonnet).\nverdict: strong-fit\ncost_usd: 0.0200\n`);
+  // a job the decoder gave up on is no decode (the digest's own line does not count it either)
+  fs.mkdirSync(path.join(unit.data, 'rejected'), { recursive: true });
+  fs.writeFileSync(path.join(unit.data, 'rejected', `${DAY}--dune--pm.md`), `---\ncompany: "Dune"\n---\n\n## Decode Result\nDecoded ${DAY} by CometScout: gave up after 3 failed attempts.\nverdict: failed\nrationale: timeout\n`);
   fs.writeFileSync(path.join(unit.data, 'state', 'packs.json'), JSON.stringify({
     old: { built: '2026-10-05', dir: 'x', at: '2026-10-05T18:00:00.000Z', cost_usd: 9 },
     built: { built: DAY, dir: 'y', at: `${DAY}T18:10:00.000Z`, cost_usd: 0.4 },

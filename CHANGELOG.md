@@ -19,6 +19,10 @@ Needs Node 22 or newer. This version changes behaviour: read Changed before upda
 
 - The decoder sees a company's history in two blocks: the applications and outcomes you recorded, and other roles CometScout read there (date and role only, no verdict). Decodes from the same run or the same day are left out, so jobs decoded together no longer sway each other.
 
+### Action needed
+
+- Decodes made before 0.2.2 may carry an invented "earlier application" in their action text. Before you build a pack for a held role decoded earlier, decode it again (node cli.mjs decode --dry-run --file <queue file> shows the new verdict).
+
 ## 0.2.1 (2026-10-15)
 
 Needs Node 22 or newer. This version changes behaviour: read Changed before updating.
