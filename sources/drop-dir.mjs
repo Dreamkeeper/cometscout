@@ -8,8 +8,9 @@
 //      a site-specific page-title format, else a hint from the fetch, else the board slug of an ATS link, else a
 //      punctuation guess from the title ("Co - Title", "Co: Title"), else "Unknown". Listing pages (search
 //      results, not one job), closed postings and jobs with neither a company nor any text are skipped.
-// settings.sources.drop_dir = { enabled: true, dir: "/path/to/drop", settle_sec: 60, move_processed_to: "<dir>/processed",
+// settings.sources.drop_dir = { enabled: true, dir: "~/cometscout-drop", settle_sec: 60, move_processed_to: "<dir>/processed",
 //   max_fetches_per_run: 40 }
+// "~" in dir and move_processed_to is the user's home folder; the folder is created on the first run that needs it.
 // max_fetches_per_run caps the job pages fetched in one run (calls to a known ATS API do not count). Candidates past
 // the cap are not touched: their file stays and they are fetched on the next run.
 // Only *.md and *.queue.json are read; dotfiles and anything else (desktop.ini, editor swap files, sync clients'
@@ -27,10 +28,11 @@
 // Usage: node sources/drop-dir.mjs [--dry-run]
 import fs from 'node:fs';
 import path from 'node:path';
-import { SETTINGS, STATE, read, log, num, isMain } from '../lib/config.mjs';
+import { SETTINGS, STATE, read, log, num, isMain, expandHome } from '../lib/config.mjs';
 import { writeJob, frontMatter, norm, applications } from '../lib/queue.mjs';
 import { fetchDetail, parseSearchTitleRule, HEURISTIC_RULES, companyFromUrl, isListingPage } from '../lib/fetch-detail.mjs';
 
+export const DEFAULT_DIR = '~/cometscout-drop';   // when sources.drop_dir.dir is not set
 export const MAX_ATTEMPTS = 3;          // runs a URL (or a whole file) is tried before it is given up
 export const MAX_FETCHES_PER_RUN = 40;  // default page fetches per run (settings.sources.drop_dir.max_fetches_per_run)
 const PAGE_DELAY_MS = 1500;             // between page fetches; ATS APIs are not throttled
@@ -202,11 +204,15 @@ function saveState(stateFile, state) {
 
 /** Run one pass over settings.sources.drop_dir.dir. `fetch` lets tests inject a fake fetch (no network in tests). */
 export async function run({ fetch: fetchFn, dryRun = false, pageDelayMs = PAGE_DELAY_MS, sleep = defaultSleep } = {}) {
-  const cfg = SETTINGS.sources.drop_dir || {};
-  if (!cfg.enabled) { log('drop-dir: disabled in settings.json'); return { ran: false, report: [] }; }
+  const raw = SETTINGS.sources.drop_dir || {};
+  if (!raw.enabled) { log('drop-dir: disabled in settings.json'); return { ran: false, report: [] }; }
   applications();   // a broken applications.json stops the source before it marks anything seen
-  if (!cfg.dir) { log('drop-dir: enabled but no "dir" set in settings.json'); return { ran: false, report: [] }; }
-  if (!fs.existsSync(cfg.dir)) { log(`drop-dir: the folder ${cfg.dir} does not exist; create it or fix sources.drop_dir.dir in settings.json`); return { ran: false, report: [] }; }
+  // "~" is the user's home folder; no dir set means the default, ~/cometscout-drop
+  const cfg = { ...raw, dir: expandHome(raw.dir || DEFAULT_DIR), move_processed_to: expandHome(raw.move_processed_to) };
+  if (!fs.existsSync(cfg.dir)) {
+    if (dryRun) { log(`drop-dir: the folder ${cfg.dir} does not exist yet (the first real run creates it)`); return { ran: false, report: [] }; }
+    fs.mkdirSync(cfg.dir, { recursive: true }); log(`drop-dir: created ${cfg.dir}; put job files or *.queue.json files there`);
+  }
   const settleMs = num(cfg.settle_sec, 60, 0) * 1000;
   const pages = { fetched: 0, max: num(cfg.max_fetches_per_run, MAX_FETCHES_PER_RUN, 1), deferred: 0 };
   const processedDir = cfg.move_processed_to || path.join(cfg.dir, 'processed');

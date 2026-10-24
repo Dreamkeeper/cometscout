@@ -28,3 +28,4 @@ This is a made-up candidate that shows the format. The onboarding replaces it wi
 - At Parcelpoint, Alex owned the carrier-integrations product, not the whole platform.
 - No people management of a product team; mentored two junior PMs.
 - A/B testing experience is limited to two pricing experiments.
+- Never owned a P&L; gave input to the product budget.

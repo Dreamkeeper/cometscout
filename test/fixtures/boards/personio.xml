@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workzag-jobs>
+
+<position>
+    <id>4100001</id>
+    <subcompany>Northwind Devices GmbH</subcompany>
+    <office>Berlin</office>
+    <additionalOffices>
+        <office>Hamburg</office>
+    </additionalOffices>
+    <department>Product &amp; Design</department>
+    <recruitingCategory>Product</recruitingCategory>
+    <name>Senior Product Manager, Energy Platform (m/w/d)</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Your role</name>
+            <value>
+                <![CDATA[<p>You own the roadmap of a synthetic energy platform &amp; work with engineers every day.</p><ul><li>Discovery with operations teams</li><li>Pricing and launches</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>What you bring</name>
+            <value>
+                <![CDATA[<p>Five years in product management.<br>English required, German a plus.</p>]]>
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>5-7</yearsOfExperience>
+    <keywords>Product,Energy,B2B</keywords>
+    <occupation>product_management</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-10-02T09:15:00+00:00</createdAt>
+</position>
+
+<position>
+    <id>4100002</id>
+    <subcompany>Northwind Devices GmbH</subcompany>
+    <office>Remote (EU)</office>
+    <department>Engineering</department>
+    <recruitingCategory>Engineering</recruitingCategory>
+    <name>Product Owner Integrations</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-or-part-time</schedule>
+    <occupation>product_management</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-09-20T12:00:00+00:00</createdAt>
+</position>
+
+<position>
+    <id>4100003</id>
+    <subcompany>Northwind Devices GmbH</subcompany>
+    <office>Munich</office>
+    <department>Operations</department>
+    <recruitingCategory>Operations</recruitingCategory>
+    <name>Operations Analyst</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>intern</employmentType>
+    <seniority>entry-level</seniority>
+    <schedule>full-time</schedule>
+    <keywords>Home office,Excel</keywords>
+    <occupation>other</occupation>
+    <occupationCategory>other</occupationCategory>
+    <createdAt>2026-08-01T08:00:00+00:00</createdAt>
+</position>
+
+<position>
+    <subcompany>Northwind Devices GmbH</subcompany>
+    <office>Berlin</office>
+    <name>A position without an id is skipped</name>
+    <jobDescriptions></jobDescriptions>
+</position>
+
+</workzag-jobs>

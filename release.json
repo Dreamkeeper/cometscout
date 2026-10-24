@@ -1,5 +1,65 @@
 [
   {
+    "version": "0.2.2",
+    "date": "2026-10-24",
+    "min_node": 22,
+    "schema_version": 1,
+    "migrations": [],
+    "behaviour_changes": true,
+    "notes": {
+      "highlights": [
+        "A smoother first setup: the onboarding agent asks one question at a time, shows every change before it writes it, and picks up where a broken-off session stopped.",
+        "Installing or changing the timer never starts a run by itself; it says when the next one is."
+      ],
+      "new": [
+        "Job boards on Personio and Gem, next to Greenhouse, Ashby and Lever.",
+        "node cli.mjs onboarding-state: the setup steps, done or not, and the next one.",
+        "node cli.mjs settings set <key> <json-value> [--dry-run]: change one setting, checked like doctor, with the diff.",
+        "node cli.mjs install-module coach|transcribe, node cli.mjs sources --only <name>, node cli.mjs lint and node cli.mjs update --refresh-home: the installers, a single source, the lint check and the home's docs, always from the installed release."
+      ],
+      "changed": [
+        "candidate_name is null by default: your name comes from profile/profile.md. doctor says when settings.json still has the example person's name, or data/ holds decodes made with the example profile.",
+        "node cli.mjs reset --yes keeps data/state/schema.json, update.json and runs.jsonl, which describe the install.",
+        "Every update, adopt and rollback refreshes AGENTS.md, the READMEs, INSTALL.md and the example files in the home, and the scripts they name become wrappers for the installed release's copies. An edited copy is saved to app/replaced/ first.",
+        "doctor finds Claude Code in ~/.local/bin when the shell's PATH lacks it.",
+        "The timer is persistent only once an evening run has happened, and every install resets its stamp, so no install starts a catch-up run.",
+        "A salary expectation in the form answers is left blank, with your floor and the posting's range as a note: the floor is a minimum, not the figure to ask for.",
+        "The drop folder defaults to ~/cometscout-drop and is created on the first run."
+      ],
+      "action_needed": [
+        {
+          "text": "After updating from 0.2.1, run node cli.mjs update --refresh-home once: 0.2.1's updater does not refresh the home's docs, so AGENTS.md there is still the old one (doctor says so)."
+        }
+      ]
+    },
+    "notes_ru": {
+      "highlights": [
+        "Первая настройка проще: агент задаёт по одному вопросу, показывает каждое изменение до записи и продолжает с того места, где прервался прошлый сеанс.",
+        "Установка или изменение таймера больше не запускает разбор сразу; команда говорит, когда будет следующий запуск."
+      ],
+      "new": [
+        "Страницы вакансий на Personio и Gem, вместе с Greenhouse, Ashby и Lever.",
+        "node cli.mjs onboarding-state: шаги настройки, что сделано и что дальше.",
+        "node cli.mjs settings set <ключ> <значение JSON> [--dry-run]: изменить одну настройку с проверкой, как в doctor, и с показом разницы.",
+        "node cli.mjs install-module coach|transcribe, node cli.mjs sources --only <имя>, node cli.mjs lint и node cli.mjs update --refresh-home: установщики, один источник, проверка lint и документы в домашней папке, всегда из установленной версии."
+      ],
+      "changed": [
+        "candidate_name по умолчанию null: имя берётся из profile/profile.md. doctor подскажет, если в settings.json осталось имя человека из примера или в data/ лежат разборы, сделанные по примеру профиля.",
+        "node cli.mjs reset --yes оставляет data/state/schema.json, update.json и runs.jsonl: они описывают установку.",
+        "Каждое обновление, adopt и откат обновляют в домашней папке AGENTS.md, README, INSTALL.md и файлы примера, а скрипты, которые в них названы, становятся обёртками для копий из установленной версии. Изменённая вами копия сначала сохраняется в app/replaced/.",
+        "doctor находит Claude Code в ~/.local/bin, даже если его нет в PATH текущей оболочки.",
+        "Таймер становится persistent только после первого вечернего запуска, а каждая установка сбрасывает его отметку, так что установка не запускает догоняющий разбор.",
+        "Ожидаемая зарплата в ответах для формы остаётся пустой, с вашим минимумом и вилкой из вакансии в примечании: минимум не равен сумме, которую стоит просить.",
+        "Папка для файлов по умолчанию ~/cometscout-drop и создаётся при первом запуске."
+      ],
+      "action_needed": [
+        {
+          "text": "После обновления с 0.2.1 один раз выполните node cli.mjs update --refresh-home: программа обновления 0.2.1 не обновляет документы в домашней папке, и AGENTS.md там остаётся старым (doctor об этом скажет)."
+        }
+      ]
+    }
+  },
+  {
     "version": "0.2.1",
     "date": "2026-10-15",
     "min_node": 22,

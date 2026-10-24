@@ -66,6 +66,8 @@ export { APPLY_WORTHY };
 
 // ---------- applications (the user's own record of what happened) ----------
 export const APPS_FILE = STATE('applications.json');
+/** data/state/example-decodes.json { files }: decodes made while there was no profile/ (lib/doctor.mjs). */
+export const EXAMPLE_DECODES = () => STATE('example-decodes.json');
 // Strict, like the sources: a broken file throws instead of reading as "no applications", which would bring back
 // roles already applied to as picks. main() checks it before anything else.
 export const apps = () => readApplications(APPS_FILE);
@@ -379,6 +381,8 @@ async function main() {
     }
   }
   if (!DRY) fs.writeFileSync(TRIES_FILE, JSON.stringify(tries, null, 1));
+  // decodes made for the example person (no profile/ yet): doctor tells the user to clear them once profile/ exists
+  if (!DRY && PROFILE.isExample && done.length) { const ex = readJson(EXAMPLE_DECODES(), {}); fs.writeFileSync(EXAMPLE_DECODES(), JSON.stringify({ files: [...new Set([...(ex.files || []), ...done.map(d => d.file)])] }, null, 1)); }
   // COMETSCOUT_EVENING is set by cli.mjs run: off days (schedule.days) apply to the evening run only
   const r = await finishRun({ done, failed, gaveUp, left: LEFT, dry: DRY, noTg: NO_TG, evening: envVar('EVENING') === '1' });
   if (r.sendError) process.exitCode = 3;

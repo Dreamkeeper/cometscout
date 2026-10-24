@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Source: public job boards of target companies (Greenhouse, Ashby, Lever). No login, no API key.
+// Source: public job boards of target companies (Greenhouse, Ashby, Lever, Personio, Gem). No login, no API key.
 // settings.sources.ats_boards = {
 //   enabled: true,
-//   companies: [{ name: "Acme", ats: "greenhouse" | "ashby" | "lever", board: "<board slug from the careers URL>" }],
+//   companies: [{ name: "Acme", ats: "greenhouse" | "ashby" | "lever" | "personio" | "gem", board: "<board slug from the careers URL>" }],
+//   // personio: the subdomain of acme.jobs.personio.de (or .com), or that whole host; gem: jobs.gem.com/<board>
 //   title_include: ["product manager", "product owner"],   // any of these in the title
 //   title_exclude: ["intern", "associate"],
 //   location_include: ["remote", "spain", "europe"],       // any of these in location/workplace; empty = all
@@ -19,6 +20,7 @@
 import { SETTINGS, STATE, readJson, log, today } from '../lib/config.mjs';
 import { writeJob, htmlText, matchesAny, applications } from '../lib/queue.mjs';
 import { checkGates, fromText, gateTally, settle } from '../lib/gates.mjs';
+import { parsePersonio, personioHosts, parseGem } from '../lib/boards.mjs';
 import fs from 'node:fs';
 
 const cfg = SETTINGS.sources.ats_boards || {};
@@ -49,6 +51,17 @@ const FETCH = {
     return (Array.isArray(j) ? j : []).map(x => ({ role: x.text, url: x.hostedUrl, location: [x.categories?.location, x.workplaceType].filter(Boolean).join('; '), posted: x.createdAt ? new Date(x.createdAt).toISOString() : '',
       text: [x.descriptionPlain, ...(x.lists || []).map(l => `${l.text}\n${htmlText(l.content)}`), x.additionalPlain].filter(Boolean).join('\n\n') }));
   },
+  // the XML feed (lib/boards.mjs); "acme" is tried on jobs.personio.de, then on jobs.personio.com
+  async personio(board) {
+    const hosts = personioHosts(board); let last;
+    for (const host of hosts) {
+      const r = await fetch(`https://${host}/xml?language=en`, { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'cometscout/0.1' } });
+      if (r.ok) return parsePersonio(await r.text(), host);
+      last = new Error(`${r.status} https://${host}/xml`); if (r.status !== 404) break;
+    }
+    throw last;
+  },
+  async gem(board) { return parseGem(await get(`https://api.gem.com/job_board/v0/${board}/job_posts`)); },
 };
 
 if (!cfg.enabled) { log('ats-boards: disabled in settings.json'); process.exit(0); }
@@ -59,6 +72,7 @@ const MAX = cfg.max_per_run || 30;
 // 1. check every company
 const perCompany = [], report = []; const gated = gateTally(); const flagsOf = new Map();
 for (const c of cfg.companies || []) {
+  if (!Object.hasOwn(FETCH, c.ats)) { report.push(`${c.name}: unknown ats "${c.ats}" (use ${Object.keys(FETCH).join(', ')}; other boards: the drop folder, README: External producers)`); continue; }
   let jobs; try { jobs = await FETCH[c.ats](c.board); } catch (e) { report.push(`${c.name}: fetch failed (${e.message})`); continue; }
   const fits = jobs.filter(j => has(j.role, cfg.title_include) && hasNot(j.role, cfg.title_exclude) && has(j.location, cfg.location_include));
   const fresh = fits.filter(j => !seen[j.url]).filter(j => {

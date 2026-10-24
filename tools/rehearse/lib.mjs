@@ -8,6 +8,8 @@
 //   node tools/rehearse/lib.mjs jobs <drop dir>                               # synthetic job files for the drop-dir source
 //   node tools/rehearse/lib.mjs doctor-check <doctor output file> <stage>     # TODO lines that are not expected at this stage
 //   node tools/rehearse/lib.mjs export-check <export.zip> <home> [<home>...]   # every exported file has the same hash in each home
+//   node tools/rehearse/lib.mjs home-check <home>                             # the home's docs and the scripts they name match app/current
+//   node tools/rehearse/lib.mjs mark <version>                                # the line a rehearsal build adds to AGENTS.md
 //   node tools/rehearse/lib.mjs old-units                                     # the unit names from before the rename (timer, service)
 //   node tools/rehearse/lib.mjs old-env-prefix                                # the variable prefix from before the rename
 //   node tools/rehearse/lib.mjs report <results.tsv>                          # the PASS/FAIL table; exit 1 on any FAIL
@@ -18,7 +20,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ZipWriter, readZip, readEntry } from '../../lib/zip.mjs';
 import { parseVersion, bare } from '../../lib/release.mjs';
-import { codeFiles, FILE_LIST } from '../../lib/layout.mjs';
+import { codeFiles, FILE_LIST, HOME_DOCS, WRAPPER_MARK, scriptsNamedIn } from '../../lib/layout.mjs';
 import { OLD_UNITS, OLD } from '../../lib/legacy-names.mjs';
 
 /** The fake next release: the patch number plus one, without a pre-release suffix ("v0.1.0" -> "0.1.1"). */
@@ -44,6 +46,8 @@ export async function buildSourceZip({ codeDir, version, out, files = releaseFil
   const entry = { version: v, date, min_node: 22, schema_version: releases[0]?.schema_version ?? 1, migrations: [], behaviour_changes: false,
     notes: { highlights: [`Rehearsal build ${v}, made from v${pkg.version} by tools/rehearse.`], new: ['Nothing: the code of the previous version with a new number.'] } };
   const changed = { 'package.json': JSON.stringify({ ...pkg, version: v }, null, 2) + '\n', 'release.json': JSON.stringify([entry, ...releases.filter(r => r?.version !== v)], null, 2) + '\n' };
+  // AGENTS.md says which build it is, so the rehearsal sees the home's copy follow the update and the rollback
+  if (files.includes('AGENTS.md')) changed['AGENTS.md'] = `${fs.readFileSync(path.join(codeDir, 'AGENTS.md'), 'utf8').replace(/\n*$/, '\n')}\n${rehearsalMark(v)}\n`;
   fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
   const top = `cometscout-${v}`, z = await ZipWriter.open(out), all = [...new Set([...files, 'release.json'])].sort();
   try {
@@ -133,6 +137,30 @@ export async function exportMismatches(zipFile, homes) {
   return out;
 }
 
+/** The line buildSourceZip adds to AGENTS.md of a rehearsal build. */
+export const rehearsalMark = v => `<!-- tools/rehearse: build ${bare(v)} -->`;
+/**
+ * What in a git-clone home is older than app/current: [{ rel, why }]. Each user-facing doc must equal app/current's,
+ * and every script those docs name from the home must be a wrapper (lib/layout.mjs refreshHome) or app/current's own
+ * copy: after adopt and update, nothing the docs send the user or the agent to may run the first install's code.
+ */
+export function staleHome(home) {
+  const cur = path.join(home, 'app', 'current'), out = [];
+  if (!fs.existsSync(path.join(cur, 'cli.mjs'))) return [{ rel: 'app/current', why: 'missing' }];
+  const read = p => { try { return fs.readFileSync(p); } catch { return null; } };
+  for (const rel of HOME_DOCS) {
+    const a = read(path.join(home, rel)), b = read(path.join(cur, rel));
+    if (b && (!a || !a.equals(b))) out.push({ rel, why: a ? 'differs from app/current' : 'missing in the home' });
+  }
+  const named = new Set(HOME_DOCS.filter(d => d.endsWith('.md')).flatMap(d => scriptsNamedIn(read(path.join(home, d))?.toString('utf8'))));
+  for (const rel of named) {
+    const a = read(path.join(home, ...rel.split('/'))); if (!a) continue;
+    const b = read(path.join(cur, ...rel.split('/')));
+    if (!a.toString('utf8').includes(WRAPPER_MARK) && !(b && a.equals(b))) out.push({ rel, why: 'a stale script the docs name (not a wrapper, not app/current\'s copy)' });
+  }
+  return out;
+}
+
 /** The old timer and run unit, from lib/legacy-names.mjs. */
 export const oldUnits = () => ({ timer: OLD_UNITS.find(u => u.endsWith('.timer')), service: OLD_UNITS.find(u => /^[^-@]+\.service$/.test(u)) });
 
@@ -159,6 +187,8 @@ async function main([cmd, ...a]) {
     case 'jobs': { need(1); fs.mkdirSync(a[0], { recursive: true }); for (const j of syntheticJobs()) fs.writeFileSync(path.join(a[0], j.name), j.text); console.log(syntheticJobs().length); return 0; }
     case 'doctor-check': { need(2); const u = unexpectedTodos(fs.readFileSync(a[0], 'utf8'), a[1]); for (const l of u) console.log(l); return u.length ? 1 : 0; }
     case 'export-check': { need(2); const m = await exportMismatches(a[0], a.slice(1)); for (const x of m) console.log(`${x.home}: ${x.rel} ${x.why}`); return m.length ? 1 : 0; }
+    case 'home-check': { need(1); const s = staleHome(a[0]); for (const x of s) console.log(`${x.rel}: ${x.why}`); return s.length ? 1 : 0; }
+    case 'mark': need(1); console.log(rehearsalMark(a[0])); return 0;
     case 'old-env-prefix': console.log(`${OLD.toUpperCase()}_`); return 0;
     case 'old-units': { const o = oldUnits(); console.log(`${o.timer} ${o.service}`); return 0; }
     case 'report': { need(1); const r = report(parseResults(fs.existsSync(a[0]) ? fs.readFileSync(a[0], 'utf8') : '')); console.log(r.text); return r.code; }

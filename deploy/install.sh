@@ -7,6 +7,11 @@
 # and left in place, with how to move it here.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Run as the installed release's copy (app/current/deploy/install.sh: the home's deploy/install.sh becomes a wrapper
+# that runs it, with COMETSCOUT_HOME set), it works in the home, not in the release folder.
+case "$(pwd -P)" in
+  */app/current|*/app/releases/v*) cd "${COMETSCOUT_HOME:?run bash deploy/install.sh from the CometScout home}" ;;
+esac
 HOME_DIR="$(pwd)"
 
 OLD_HOME="$HOME/jobpilot"
@@ -41,6 +46,8 @@ echo "==> Code: app/releases/v<version>, with app/current pointing at it"
 # next version next to it and switch app/current back if anything fails. Running this script again changes nothing.
 command -v npm >/dev/null || echo "npm not found; the workspace (node cli.mjs serve) and updates need it: install npm, then run this script again"
 node cli.mjs update --adopt --no-units
+# the home's AGENTS.md, README and the scripts they name follow the installed release (the clone's copies may be older)
+node app/current/cli.mjs update --refresh-home
 
 echo "==> Claude Code or Codex CLI"
 if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then

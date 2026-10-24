@@ -1,0 +1,46 @@
+[
+  {
+    "absolute_url": "https://jobs.gem.com/lumenfield/5100001",
+    "content": "<h2>About the role</h2><ul><li><strong>Location:</strong> Remote within Europe.</li></ul><p>You lead discovery for a synthetic routing product.</p>",
+    "content_plain": "About the role\nLocation:\n Remote within Europe.\nYou lead discovery for a synthetic routing product.",
+    "created_at": "2026-09-01T10:00:00.000Z",
+    "departments": [{ "child_ids": [], "id": "5200001", "name": "Product", "parent_id": null }],
+    "employment_type": "full_time",
+    "first_published_at": "2026-09-02T10:00:00.000Z",
+    "id": "5100001",
+    "internal_job_id": "5300001",
+    "location": { "name": "Lisbon, Portugal" },
+    "location_type": "remote",
+    "offices": [
+      { "child_ids": [], "child_office_external_ids": [], "id": "5400001", "location": { "name": "Lisbon, Portugal" }, "name": "Lisbon", "parent_id": null, "parent_office_external_id": null },
+      { "child_ids": [], "child_office_external_ids": [], "id": "5400002", "location": { "name": "Madrid, Spain" }, "name": "Madrid", "parent_id": null, "parent_office_external_id": null }
+    ],
+    "requisition_id": "11",
+    "title": "Senior Product Manager",
+    "updated_at": "2026-10-01T10:00:00.000Z"
+  },
+  {
+    "absolute_url": "https://jobs.gem.com/lumenfield/5100002",
+    "content": "<p>Synthetic hybrid role. Three office days a week.</p>",
+    "content_plain": "",
+    "created_at": "2026-08-15T10:00:00.000Z",
+    "departments": [],
+    "employment_type": "full_time",
+    "first_published_at": null,
+    "id": "5100002",
+    "internal_job_id": "5300002",
+    "location": { "name": "Berlin, Germany" },
+    "location_type": "hybrid",
+    "offices": [],
+    "requisition_id": "12",
+    "title": "Data Analyst",
+    "updated_at": "2026-09-01T10:00:00.000Z"
+  },
+  {
+    "absolute_url": null,
+    "content": "<p>No link: skipped.</p>",
+    "id": "5100003",
+    "location": { "name": "Remote" },
+    "title": "Skipped Role"
+  }
+]

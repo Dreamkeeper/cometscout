@@ -3,13 +3,20 @@
 //   node cli.mjs help                # this list (also --help)
 //   node cli.mjs run                 # the evening run: every enabled source (and outcomes from Gmail), then decode + picks + digest, then packs
 //   node cli.mjs sources|decode|pack|picks
+//   node cli.mjs sources --only <name> [--dry-run ...]   # one source with its own arguments (README: each source's section)
+//   node cli.mjs lint <file.docx|document.xml|file.txt> [--rules lint-rules.json] [--json]   # check a file against the lint rules
 //   node cli.mjs applied <company> [role words]   # record an application (picks stop showing it)
 //   node cli.mjs status <company> <applied|screen|interview|offer|accepted|rejected|skipped|closed> [role words] [--note "..."]
 //                                    # add --manual to record a role that is not in the queue (it does not affect picks)
 //   node cli.mjs list                # what is recorded
 //   node cli.mjs doctor [--json]     # check the setup, one line per item (--json: the items as JSON)
-//   node cli.mjs timer [HH:MM] [--keep-old-units]  # (re)install the daily timer from settings.json (schedule.time, timezone); with Telegram on, also the bot unit; removes the units from before the rename unless --keep-old-units
-//   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example
+//   node cli.mjs timer [HH:MM] [--keep-old-units] [--dry-run]  # (re)install the daily timer from settings.json (schedule.time, timezone); with Telegram on, also the bot unit; removes the units from before the rename unless --keep-old-units
+//                                    # never starts a run itself: it prints the next run time (--dry-run: that, and writes nothing)
+//   node cli.mjs onboarding-state [--json]   # the "set me up" steps of AGENTS.md, done or not, and the next one
+//   node cli.mjs settings set <key> <json-value> [--dry-run]   # change one setting, checked like doctor; prints the diff
+//   node cli.mjs install-module <coach|transcribe> [args]      # an optional module's installer, from the installed release
+//   node cli.mjs reset --yes         # delete everything in data/ (queue, picks, packs, seen lists), e.g. after trying the example;
+//                                    # keeps data/state/schema.json, update.json and runs.jsonl (the install, not the queue)
 //   node cli.mjs export [--out file.zip|folder] [--data-only]   # data, profile and settings; .env is never exported
 //   node cli.mjs export --csv <file.csv>                        # applications as a spreadsheet
 //   node cli.mjs import --from <file.zip|file.tar.gz|folder> [--dry-run] [--on-conflict keep|theirs|both] [--data-only]
@@ -32,6 +39,7 @@
 //   node cli.mjs update [--to vX.Y.Z]                        # back up, install side by side, migrate, switch, verify; rolls back by itself on failure
 //   node cli.mjs update --check | --tonight [vX.Y.Z] | --skip vX.Y.Z   # ask GitHub now; install after tonight's run; never offer this version again
 //   node cli.mjs update --adopt [--no-units] [--keep-old-units]         # move a git-clone install's code into app/releases (once)
+//   node cli.mjs update --refresh-home                                  # the home's docs and the scripts they name, from app/current (adopt, update and rollback do it too)
 //   node cli.mjs update --to vX.Y.Z --from-zip <zip> --sha256 <hex>     # test hook (tools/rehearse): a local source zip instead of GitHub's
 //   node cli.mjs rollback [--to vX.Y.Z] [--restore-data [--yes]]        # switch the code back; --restore-data also restores the pre-update backup
 //   node cli.mjs migrate [--dry-run]                         # apply this version's data migrations (an update runs it)
@@ -66,6 +74,7 @@ import { doctorItems, doctorLine } from './lib/doctor.mjs';
 import { SOURCES } from './lib/settings-schema.mjs';
 import { queueSnapshot, runCounts, recordRun } from './lib/run-log.mjs';
 import { mcpCommand } from './lib/mcp.mjs';
+import { onboardingState, onboardingLines, settingsSet, ToolError } from './lib/mcp-tools.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Steps are scripts next to this file; ROOT (COMETSCOUT_HOME) is where profile/ and settings live, which may be elsewhere.
@@ -115,6 +124,8 @@ const refusedSince = at => Object.entries(readJson(STATE('packs.json'), {})).fil
   .map(([file, v]) => ({ file, company: v.company || null, role: v.role || null, rules: v.refused }));
 const refusedLine = refused => refused.map(r => `${r.company || r.file}, ${r.role || '?'} (${r.rules.join(', ')})`).join('; ');
 
+// reset keeps what describes the install rather than the job queue: which migrations ran, the update history, the run log
+const KEEP_ON_RESET = ['schema.json', 'update.json', 'runs.jsonl'];
 // One run at a time: the timer and a manual command must not decode the same files or write state twice.
 const lock = () => takeLock();
 
@@ -126,11 +137,38 @@ function setStatus(company, status, words, note, manual) {
 }
 
 function timer(...a) {
-  const keepOld = a.includes('--keep-old-units'), at = a.find(x => x && !x.startsWith('--'));
-  const r = installTimer({ time: at || scheduleOf().time, keepOld });
+  const keepOld = a.includes('--keep-old-units'), dryRun = a.includes('--dry-run'), at = a.find(x => x && !x.startsWith('--'));
+  const r = installTimer({ time: at || scheduleOf().time, keepOld, dryRun });
   for (const l of r.lines) console.log(l);
-  if (!r.code) spawnSync('systemctl', ['--user', 'list-timers', UNITS.timer, '--no-pager'], { stdio: 'inherit' });
+  if (!r.code && !dryRun) spawnSync('systemctl', ['--user', 'list-timers', UNITS.timer, '--no-pager'], { stdio: 'inherit' });
   return r.code;
+}
+
+// settings set <key> <json-value> [--dry-run]: the MCP server's settings_set from a shell (lib/mcp-tools.mjs settingsSet)
+function settingsCommand() {
+  const usage = 'Usage: node cli.mjs settings set <key> <json-value> [--dry-run]   (a JSON value: true, 3, "18:00", ["a","b"]; quote it for the shell)';
+  const args = rest.filter(x => x !== '--dry-run'), dry = rest.includes('--dry-run');
+  if (args[0] !== 'set' || args.length !== 3) { console.log(usage); return 1; }
+  let value; try { value = JSON.parse(args[2]); } catch { console.log(`The value must be JSON: ${JSON.stringify(args[2])} is not. Text needs quotes, e.g. '"${args[2]}"'.\n${usage}`); return 1; }
+  try {
+    const r = settingsSet({ path: args[1], value, dry_run: dry });
+    console.log(r.diff ? r.diff.trimEnd() : `No change: ${args[1]} already has this value.`);
+    for (const w of r.warnings) console.log(`note: ${w}`);
+    if (r.timer) console.log(`timer: ${r.timer}${r.timer === 'manual' ? ' (run node cli.mjs timer)' : ''}`);
+    console.log(dry ? (r.changed ? 'Dry run: nothing written. Run it again without --dry-run to write this change.' : 'Dry run: nothing written.') : r.written ? `Wrote ${args[1]} to settings.json.` : 'Nothing written.');
+    return 0;
+  } catch (e) { console.log(e instanceof ToolError ? e.message : `settings set failed: ${e.message}`); return 1; }
+}
+
+// install-module <coach|transcribe> [args]: the module's installer from this code (app/current in an installed home), so
+// a home whose own deploy/ is from an older version never runs a stale script
+function installModule() {
+  const [name, ...args] = rest;
+  if (!['coach', 'transcribe'].includes(name)) { console.log('Usage: node cli.mjs install-module <coach|transcribe> [installer arguments, e.g. --with-gigaam]'); return 1; }
+  const win = process.platform === 'win32', script = path.join(CODE, 'deploy', 'modules', `${name}.${win ? 'ps1' : 'sh'}`);
+  const r = win ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...args], { stdio: 'inherit' }) : spawnSync('bash', [script, ...args], { stdio: 'inherit' });
+  if (r.error) { console.log(`install-module: could not start ${win ? 'powershell' : 'bash'} (${r.error.message})`); return 1; }
+  return r.status ?? 1;
 }
 
 async function optional(name, fn) {
@@ -214,7 +252,18 @@ const codes = {
     let code = 1;
     try { code = await evening(); return code; } finally { await healthPing(code); }
   }),
-  sources: locked(() => { const broken = appsBroken(); if (broken) { console.log(broken); return 2; } return runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0; }),
+  sources: locked(() => {
+    const broken = appsBroken(); if (broken) { console.log(broken); return 2; }
+    // --only <name> [its own arguments, e.g. --dry-run]: one source, enabled or not in what it reads, from this code
+    const i = rest.indexOf('--only');
+    if (i >= 0) {
+      const name = rest[i + 1], args = [...rest.slice(0, i), ...rest.slice(i + 2)];
+      if (!Object.hasOwn(SOURCES, name || '')) { console.log(`Usage: node cli.mjs sources --only <${Object.keys(SOURCES).join('|')}> [--dry-run ...]`); return 1; }
+      return node(SOURCES[name], args) ?? 1;
+    }
+    return runSources().some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
+  }),
+  lint: () => node('lib/lint.mjs', rest) ?? 1,
   decode: locked(() => node('decoder/decoder.mjs', rest)),
   picks: () => node('decoder/decoder.mjs', ['--picks']),
   pack: locked(() => node('pack/pack.mjs', rest)),
@@ -227,10 +276,14 @@ const codes = {
   list: () => { for (const a of Object.values(readJson(APPS, {}))) console.log(`${a.updated || '?'}  ${String(a.status || '?').padEnd(9)} ${a.company}: ${a.role}${a.events?.length ? `  (${a.events.length} event(s), last ${a.events[a.events.length - 1].date || '?'})` : ''}`); return 0; },
   doctor: () => { const items = doctorItems(); if (rest.includes('--json')) console.log(JSON.stringify(items)); else for (const i of items) console.log(doctorLine(i)); return 0; },
   timer: () => timer(...rest),
+  settings: () => settingsCommand(),
+  'install-module': () => installModule(),
+  'onboarding-state': () => { const st = onboardingState(); console.log(rest.includes('--json') ? JSON.stringify(st, null, 1) : onboardingLines(st).join('\n')); return 0; },
   reset: locked(() => {
-    if (!rest.includes('--yes')) { console.log(`This deletes everything in ${DATA} (queue, decodes, picks, packs, seen lists, applications). Run again with --yes to confirm.`); return 1; }
-    for (const d of Object.values(DIRS)) for (const f of fs.readdirSync(d)) if (f !== 'run.lock') fs.rmSync(path.join(d, f), { recursive: true, force: true });
-    console.log(`Cleared ${DATA}.`); return 0;
+    const kept = `Kept: ${KEEP_ON_RESET.map(f => `data/state/${f}`).join(', ')} (they describe the install, not the job queue).`;
+    if (!rest.includes('--yes')) { console.log(`This deletes everything in ${DATA} (queue, decodes, picks, packs, seen lists, applications). ${kept} Run again with --yes to confirm.`); return 1; }
+    for (const d of Object.values(DIRS)) for (const f of fs.readdirSync(d)) if (f !== 'run.lock' && !(d === DIRS.state && KEEP_ON_RESET.includes(f))) fs.rmSync(path.join(d, f), { recursive: true, force: true });
+    console.log(`Cleared ${DATA}. ${kept}`); return 0;
   }),
   'tracker-export': () => {
     const i = rest.indexOf('--out'); if (i >= 0 && !rest[i + 1]) { console.log('Usage: node cli.mjs tracker-export [--out <file>] [--dry-run]'); return 1; }

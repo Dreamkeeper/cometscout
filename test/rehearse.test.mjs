@@ -10,7 +10,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { nextVersion, buildSourceZip, releaseFiles, rehearsalSettings, fakeModelAnswer, syntheticJobs, unexpectedTodos, exportMismatches, oldUnits, parseResults, report } from '../tools/rehearse/lib.mjs';
+import { nextVersion, buildSourceZip, releaseFiles, rehearsalSettings, fakeModelAnswer, syntheticJobs, unexpectedTodos, exportMismatches, oldUnits, parseResults, report, staleHome, rehearsalMark } from '../tools/rehearse/lib.mjs';
 import { readZip, readEntry, ZipWriter } from '../lib/zip.mjs';
 import { OLD_UNITS } from '../lib/legacy-names.mjs';
 
@@ -59,6 +59,24 @@ test('buildSourceZip: GitHub layout, the new version in package.json, a release.
   assert.deepEqual(await unpackRelease(r.file, dir), files);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version, '0.4.1');
   await assert.rejects(buildSourceZip({ codeDir: path.join(tmp, 'zips'), version: '1.0.0', out: path.join(tmp, 'x.zip') }), /does not look like CometScout code/);
+});
+
+test('staleHome: docs equal to app/current\'s, and every script they name is a wrapper or app/current\'s copy; a build marks its AGENTS.md', async () => {
+  const L = await import('../lib/layout.mjs');
+  const h = path.join(tmp, 'stale-home'), rel = L.releaseDir(h, '0.4.0');
+  const put = (base, f, t) => { const p = path.join(base, ...f.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); };
+  for (const base of [h, rel]) { put(base, 'cli.mjs', ''); put(base, 'package.json', JSON.stringify({ version: '0.4.0' })); put(base, 'tools/gmail-auth.mjs', 'v1'); put(base, 'deploy/install.sh', 'v1'); }
+  put(h, 'AGENTS.md', 'old: run `node tools/gmail-auth.mjs` and `bash deploy/install.sh`\n'); put(rel, 'AGENTS.md', 'new: run `node tools/gmail-auth.mjs` and `bash deploy/install.sh`\n');
+  put(rel, 'tools/gmail-auth.mjs', 'v2');
+  L.pointCurrent(h, '0.4.0');
+  assert.deepEqual(staleHome(h).map(x => x.rel), ['AGENTS.md', 'tools/gmail-auth.mjs'], 'install.sh is app/current\'s own copy');
+  L.refreshHome({ root: h, release: rel });
+  assert.deepEqual(staleHome(h), []);
+  assert.deepEqual(staleHome(path.join(tmp, 'nowhere')), [{ rel: 'app/current', why: 'missing' }]);
+  const code = path.join(tmp, 'marked'); fakeRelease(code); put(code, 'AGENTS.md', '# agents\n');
+  const list = JSON.parse(fs.readFileSync(path.join(code, '.release-files.json'), 'utf8')); list.files['AGENTS.md'] = 'x'; fs.writeFileSync(path.join(code, '.release-files.json'), JSON.stringify(list));
+  const z = readZip((await buildSourceZip({ codeDir: code, version: '0.4.1', out: path.join(tmp, 'zips', 'marked.zip') })).file);
+  assert.equal((await readEntry(z, z.entries.find(e => e.name === 'cometscout-0.4.1/AGENTS.md'))).toString('utf8'), `# agents\n\n${rehearsalMark('0.4.1')}\n`);
 });
 
 test('rehearsalSettings: only drop-dir, Telegram and the update check off, a fixed schedule in UTC, packs on; the input is not changed', () => {
