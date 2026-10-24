@@ -1,8 +1,9 @@
 {
-  "_comment": "Regex guards against claims the candidate cannot back. A hit flags the decode or pack text; in a CV tagline or summary it replaces the model's text with the vetted version. Case-insensitive JavaScript regex.",
+  "_comment": "Regex guards against claims the candidate cannot back. A hit flags the decode or pack text; in a CV tagline or summary it replaces the model's text with the vetted version. Case-insensitive JavaScript regex. Anchor each rule on the candidate's own verb (managed, ran, owned ...), so the posting's words (\"P&L ownership\", \"you will manage a team\") are not flagged.",
   "rules": [
     { "id": "managed-pm-team", "pattern": "\\b(managed|led|hired)\\b[^.]{0,40}\\bteam of (product managers|PMs)\\b", "why": "Alex mentored two junior PMs but never managed a product team." },
     { "id": "whole-platform", "pattern": "\\bowned\\b[^.]{0,40}\\bParcelpoint('s)? (platform|product)\\b", "why": "At Parcelpoint Alex owned carrier integrations only, not the whole platform." },
-    { "id": "ab-program", "pattern": "\\b(ran|led|owned)\\b[^.]{0,40}\\b(a/b|experimentation) (program|platform)\\b", "why": "Alex ran two pricing experiments; no experimentation program." }
+    { "id": "ab-program", "pattern": "\\b(ran|led|owned)\\b[^.]{0,40}\\b(a/b|experimentation) (program|platform)\\b", "why": "Alex ran two pricing experiments; no experimentation program." },
+    { "id": "pnl-owner", "pattern": "\\b(ran|owned|managed|held|had)\\b[^.]{0,40}\\bP&L\\b", "why": "Alex gave input to budgets but never owned a P&L." }
   ]
 }

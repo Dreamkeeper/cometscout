@@ -1,0 +1,29 @@
+# On every pushed release tag (v*): package.json's version and release.json's newest entry must be the tag's version,
+# and that entry's date must not be in the future (tools/release-check.mjs). A failure here means the tag does not
+# match the notes the update check and What is new read: fix them in a new release, never by moving the tag.
+# Official actions only, pinned by full commit SHA (the version in the comment); runner image by exact label and its
+# preinstalled Node; no package install, no cache, no secrets; read-only token.
+name: release-check
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-check-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release-check:
+    name: release-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # the runner image's own Node is enough (the check reads two JSON files); no setup-node, so no tool cache a
+      # tag-triggered job could pick up (zizmor: cache-poisoning)
+      - name: The tag matches package.json and release.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node tools/release-check.mjs "$TAG"

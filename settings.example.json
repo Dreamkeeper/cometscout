@@ -1,6 +1,6 @@
 {
   "_comment": "Copy to settings.json. Secrets (tokens) go in .env, never here. Every source is optional: enable what you have.",
-  "candidate_name": "Alex Rivera",
+  "candidate_name": null,
   "timezone": "Europe/Madrid",
   "schedule": { "days": [1, 2, 3, 4, 5, 6, 7], "time": "18:00" },
   "llm": {
@@ -56,9 +56,9 @@
     },
     "drop_dir": {
       "enabled": false,
-      "dir": "/home/youruser/cometscout-drop",
+      "dir": "~/cometscout-drop",
       "settle_sec": 60,
-      "move_processed_to": "/home/youruser/cometscout-drop/processed",
+      "move_processed_to": "~/cometscout-drop/processed",
       "max_fetches_per_run": 40
     },
     "hirify": {

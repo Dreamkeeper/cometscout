@@ -135,7 +135,7 @@ test('launchDetached: systemd-run --user on systemd hosts, else a detached child
 });
 
 test('defaultVerify: a doctor TODO the previous release did not print fails; the same TODOs pass', () => {
-  const out = { old: 'ok  Node 20\nTODO profile/profile.md missing', same: 'ok  Node 22\nTODO profile/profile.md missing', worse: 'TODO profile/profile.md missing\nTODO settings.json: schedule.days is not a list' };
+  const out = { old: 'ok  Node 20\nTODO profile/profile.md missing  ->  old advice', same: 'ok  Node 22\nTODO profile/profile.md missing  ->  reworded advice', worse: 'TODO profile/profile.md missing\nTODO settings.json: schedule.days is not a list' };
   const cli = which => (dir, args) => ({ ok: true, out: args[0] === 'doctor' ? out[dir === 'old' ? 'old' : which] : '' });
   assert.equal(U.defaultVerify('new', { cli: cli('same'), before: null }).ok, true, 'no previous release: exit codes only');
   fs.mkdirSync(path.join(tmp, 'old-release'), { recursive: true }); fs.writeFileSync(path.join(tmp, 'old-release', 'cli.mjs'), '');

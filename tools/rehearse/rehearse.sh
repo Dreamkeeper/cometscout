@@ -15,15 +15,19 @@
 # Steps, each PASS or FAIL with its time, then a summary; the exit code is 1 when any step failed:
 #   1 install   bash deploy/install.sh in a clone of the ref
 #   2 layout    app/releases/v<version> and app/current; doctor has no TODO beyond the expected ones (EXPECTED_TODOS in
-#               tools/rehearse/lib.mjs: the model CLI, which the rehearsal never installs, and the example profile)
-#   3 profile   profile.example copied to profile/, settings for drop-dir and a fixed schedule, node cli.mjs timer, doctor
+#               tools/rehearse/lib.mjs: the model CLI, which the rehearsal never installs, and the example profile);
+#               the scripts the home's docs name are wrappers for app/current's
+#   3 profile   profile.example copied to profile/, settings for drop-dir and a fixed schedule, node cli.mjs timer (it
+#               prints the next run and starts none; not persistent before a run), doctor
 #   4 units     cometscout.timer enabled at that time, the failure alert runs, the run unit on app/current, lingering
-#   5 run       systemctl --user start cometscout.service: jobs decoded, picks, digest, packs, a backup, no Telegram
+#   5 run       systemctl --user start cometscout.service: jobs decoded, picks, digest, packs, a backup, no Telegram;
+#               then the timer moved to an hour ago with a stale stamp: persistent now, and still no run starts
 #   6 workspace serve --check, then serve on a free port answering / and /api/today
 #   7 backup    backup, a changed file, restore --dry-run lists it, restore brings it back
 #   8 export    export, import into a second fresh home, the same file hashes both ways
 #   9 update    --adopt and install.sh again change nothing, --to the same version is refused, an update to a fake next version from a local
-#               source zip (--from-zip, with its sha256), rollback, the units still on app/current
+#               source zip (--from-zip, with its sha256), rollback, the units still on app/current; after the update and
+#               after the rollback the home's docs are that release's and no stale script is reachable from them
 #  10 old names the units from before the rename (lib/legacy-names.mjs) are replaced by node cli.mjs timer
 #  11 cleanup   tools/rehearse/cleanup.sh (not with --keep)
 #
@@ -129,6 +133,8 @@ layout_step() {
   [ -f "$H/app/releases/v$VER/node_modules/preact/package.json" ] || fail "the workspace modules are not installed in the release"
   [ -f "$H/settings.json" ] || fail "install.sh made no settings.json"
   [ "$(stat -c %a "$H/.env")" = 600 ] || fail ".env is not mode 600"
+  # the clone's scripts the docs name are wrappers for app/current's (lib/layout.mjs refreshHome)
+  helper home-check "$H" > "$WORK/home.txt" || fail "after the install: $(tr '\n' ' ' < "$WORK/home.txt")"
   cs doctor > "$WORK/doctor-install.txt" 2>&1 || fail "doctor exited non-zero"
   cat "$WORK/doctor-install.txt"
   helper doctor-check "$WORK/doctor-install.txt" install > "$WORK/todo.txt" || fail "unexpected doctor TODO: $(tr '\n' ' ' < "$WORK/todo.txt")"
@@ -139,7 +145,13 @@ profile_step() {
   cp -r "$H/profile.example" "$H/profile"
   mkdir -p "$DROP"
   helper settings "$H/settings.json" "$DROP" "$TIME"
-  cs timer || fail "node cli.mjs timer exited non-zero"
+  cs timer > "$WORK/timer.txt" 2>&1 || { cat "$WORK/timer.txt"; fail "node cli.mjs timer exited non-zero"; }
+  cat "$WORK/timer.txt"
+  grep -q "^Next run: .* at $TIME UTC" "$WORK/timer.txt" || fail "node cli.mjs timer did not print the next run time"
+  # installing the timer never starts a run; before any run it is not persistent (lib/ops.mjs timerPlan)
+  sleep 3
+  [ -z "$(systemctl --user show cometscout.service -p InvocationID --value)" ] || fail "installing the timer started a run"
+  ! grep -q '^Persistent=' "$UNITDIR/cometscout.timer" || fail "the timer is persistent before any run"
   cs doctor > "$WORK/doctor-profile.txt" 2>&1 || fail "doctor exited non-zero"
   cat "$WORK/doctor-profile.txt"
   grep -q '^ok   profile: profile$' "$WORK/doctor-profile.txt" || fail "doctor does not see profile/"
@@ -192,6 +204,22 @@ run_step() {
   ls "$H"/backups/cometscout-backup-*.zip >/dev/null 2>&1 || fail "the run made no nightly backup"
   ! grep -qiE 'api\.telegram\.org|telegram failed|sent to telegram' "$WORK/run.txt" || fail "the run tried Telegram"
   echo "decoded $decoded, packs: $docx docx, $pdf pdf; digest $(ls "$H"/data/digests/)"
+  # after a run the timer is persistent, and changing it still starts no run: a time an hour ago with a stamp from two
+  # days back would be a missed run to systemd, but the install resets the stamp to now (lib/ops.mjs installTimer)
+  # the first evening run gave the timer (installed before any run) its catch-up, without a reinstall
+  grep -qx 'Persistent=true' "$UNITDIR/cometscout.timer" || fail "after the first run the timer did not gain Persistent=true"
+  grep -q 'is now caught up when it starts' "$WORK/run.txt" || fail "the run did not say it made the timer persistent"
+  local inv stamp past
+  inv="$(systemctl --user show cometscout.service -p InvocationID --value)"
+  stamp="${XDG_DATA_HOME:-$HOME/.local/share}/systemd/timers/stamp-cometscout.timer"
+  mkdir -p "$(dirname "$stamp")"; touch -d '2 days ago' "$stamp"
+  past="$(date -u -d '-1 hour' +%H:%M)"
+  cs timer "$past" > "$WORK/timer-past.txt" 2>&1 || { cat "$WORK/timer-past.txt"; fail "node cli.mjs timer $past exited non-zero"; }
+  grep -qx 'Persistent=true' "$UNITDIR/cometscout.timer" || fail "after a reinstall the timer is not persistent"
+  sleep 5
+  [ "$(systemctl --user show cometscout.service -p InvocationID --value)" = "$inv" ] || fail "moving the timer to a time already past started a run"
+  cs timer > /dev/null 2>&1 || fail "node cli.mjs timer (back to $TIME) exited non-zero"
+  echo "timer changes start no run"
 }
 
 # ---------- 6. workspace ----------
@@ -271,8 +299,13 @@ update_step() {
   ls "$H"/backups/*--pre-update-v"$VER"-to-v"$NEXT".zip >/dev/null 2>&1 || fail "no pre-update backup"
   grep -q "^ExecStart=.* $H/app/current/cli.mjs run$" "$UNITDIR/cometscout.service" || fail "after the update the run unit does not run app/current"
   cs doctor > "$WORK/doctor-next.txt" 2>&1; grep -q "code: app/releases/v$NEXT" "$WORK/doctor-next.txt" || fail "doctor does not report v$NEXT"
+  # the home's docs followed the update (the build's AGENTS.md carries its mark) and no stale script is reachable from them
+  grep -qxF "$(helper mark "$NEXT")" "$H/AGENTS.md" || fail "the home's AGENTS.md is not v$NEXT's after the update"
+  helper home-check "$H" > "$WORK/home.txt" || fail "after the update: $(tr '\n' ' ' < "$WORK/home.txt")"
   cs rollback || fail "rollback failed"
   [ "$(readlink -f "$H/app/current")" = "$(readlink -f "$H/app/releases/v$VER")" ] || fail "app/current does not point at v$VER after the rollback"
+  ! grep -qxF "$(helper mark "$NEXT")" "$H/AGENTS.md" || fail "the home's AGENTS.md is still v$NEXT's after the rollback"
+  helper home-check "$H" > "$WORK/home.txt" || fail "after the rollback: $(tr '\n' ' ' < "$WORK/home.txt")"
   grep -q "^ExecStart=.* $H/app/current/cli.mjs run$" "$UNITDIR/cometscout.service" || fail "after the rollback the run unit does not run app/current"
   [ "$(systemctl --user is-enabled cometscout.timer)" = enabled ] || fail "cometscout.timer is not enabled after the rollback"
 }

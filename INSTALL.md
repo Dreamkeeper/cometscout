@@ -104,8 +104,10 @@ The agent walks you through the steps, one question at a time:
 2. **CV library:** the agent splits your CV into items and you confirm every line. Tailored CVs are built only from these items; the model invents nothing.
 3. **Fact rules:** a check that catches overstatements.
 4. **Your voice:** optional. Share two or three texts you wrote yourself, so form answers sound like you.
-5. **First source:** the easiest start is the public job pages of companies on Greenhouse, Ashby and Lever. Name 5 to 10 companies and the agent finds their pages.
-6. **First result:** a real job decoded against your profile and a CV for it, in the same sitting.
+5. **Sources:** the easiest start is the public job pages of companies on Greenhouse, Ashby, Lever, Personio and Gem. Name 5 to 10 companies and the agent finds their pages. It then asks whether you have a RealtimeJobs token, whether you get LinkedIn job alerts in Gmail, and whether you have other job links (they go through a drop folder).
+6. **First result:** a real job decoded against your profile and a CV for it, in the same sitting. If you tried the example profile first, the agent offers to clear its results before this.
+
+The agent shows every change to `settings.json` and your profile before it writes it, and asks one question at a time. If the session breaks off, `node cli.mjs onboarding-state` tells the next session where to go on.
 
 ## 6. Delivery to Telegram
 
@@ -121,7 +123,7 @@ TELEGRAM_CHAT_ID=your_chat_id
 4. In `settings.json` turn on `"delivery": { "telegram": { "enabled": true } }`, or ask the agent to.
 5. For Russian labels in the messages (digest, picks of the day, application packs), add `"locale": "ru"` to `settings.json`. What the model writes is not translated.
 
-If a timed run fails, the bot sends an error message (after `node cli.mjs timer`).
+If a timed run fails, the bot sends an error message (after `node cli.mjs timer`). Installing or changing the timer never starts a run: `node cli.mjs timer` prints when the next one is.
 
 Run `node cli.mjs timer` once more after turning Telegram on: it also installs the bot service, which answers your chat (and nobody else's):
 
@@ -156,14 +158,14 @@ cd ~/cometscout && node tools/gmail-auth.mjs
 6. Turn on the `linkedin_alerts` source (and `hh_alerts` for hh.ru) in `settings.json` and check it:
 
 ```bash
-node sources/linkedin-alerts.mjs --dry-run --max-fetch 3
+node cli.mjs sources --only linkedin_alerts --dry-run --max-fetch 3
 ```
 
 The same Gmail access lets CometScout notice answers to your applications (received, rejection, interview, test task, offer): turn on `sources.outcomes`. See [Outcomes from Gmail](README.md#outcomes-from-gmail).
 
 The RealtimeJobs source is turned on the same way: the token `RTJ_API_TOKEN=...` in `.env` and `"rtj": { "enabled": true }` in the settings.
 
-Hirify (remote and relocation jobs) is read through your session on the site: copy the value of the `Cookie` header from your browser into a line `HIRIFY_COOKIE="..."` in `.env` (yourself, not in the chat), add your saved filters to the `"hirify"` block in `settings.json` and check with `node sources/hirify.mjs --dry-run`. Details, including what to do when the session expires: the [Hirify](README.md#hirify) section of the README.
+Hirify (remote and relocation jobs) is read through your session on the site: copy the value of the `Cookie` header from your browser into a line `HIRIFY_COOKIE="..."` in `.env` (yourself, not in the chat), add your saved filters to the `"hirify"` block in `settings.json` and check with `node cli.mjs sources --only hirify --dry-run`. Details, including what to do when the session expires: the [Hirify](README.md#hirify) section of the README.
 
 If you already run [career-ops](https://github.com/career-ops-hq/career-ops), CometScout can pick up what it finds: put the path of your career-ops folder into `sources.career_ops.path` and turn the source on. CometScout only reads `data/pipeline.md` and `data/scan-history.tsv` and never writes into the career-ops folder. Details: the [career-ops](README.md#career-ops) section of the README.
 
@@ -175,15 +177,15 @@ If you already run [career-ops](https://github.com/career-ops-hq/career-ops), Co
 - You took an offer and work there, but keep looking: `node cli.mjs status Company accepted`. The job stops counting as an open process, and no email changes that status.
 - An interview is booked: `node cli.mjs interview Company 2026-10-07 14:00` (or the bot's `/interview`, or Record interview in the workspace). In the 2 days before it, the digest leads with the interview and a prep step, and offers at most one new role, only a strong and fresh one; the rest wait until after the interview. `"picks": { "prep": { "days_before": 0 } }` turns this off.
 - All your applications: `node cli.mjs list`.
-- Clear the data after trying the example: `node cli.mjs reset --yes`.
+- Clear the data after trying the example: `node cli.mjs reset --yes` (it keeps the install's own state: migrations, update history, run log).
 
 ## 9. Optional: transcribe your interview recordings
 
 CometScout can turn a recording of an interview into text on this machine, so the interview coach can analyze it. The audio stays on the server; the model (about 1.6 GB for the default `large-v3-turbo`) is downloaded once by the first job.
 
 ```bash
-bash deploy/modules/transcribe.sh                   # needs Python 3.11 to 3.14 and python3-venv: sudo apt-get install -y python3 python3-venv
-bash deploy/modules/transcribe.sh --with-gigaam     # for Russian recordings: adds GigaAM and a CPU-only PyTorch (about 0.2 GB to download)
+node cli.mjs install-module transcribe                  # needs Python 3.11 to 3.14 and python3-venv: sudo apt-get install -y python3 python3-venv
+node cli.mjs install-module transcribe --with-gigaam    # for Russian recordings: adds GigaAM and a CPU-only PyTorch (about 0.2 GB to download)
 node cli.mjs transcribe --bench sample.m4a --models small,large-v3-turbo   # which model is fast enough here
 ```
 

@@ -17,6 +17,7 @@ import { callJson } from '../lib/llm.mjs';
 import { loadJob, slug, decodeForPrompt } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
 import { packMessage } from './message.mjs';
+import { holdSalary, payFloor } from './answers.mjs';
 import { runHook } from '../lib/hooks.mjs';
 import { profileRules, paragraphsFromXml, lintParagraphs, lintText, formatReport, RULES_FILE, matchesWhole } from '../lib/lint.mjs';
 
@@ -353,8 +354,9 @@ async function buildPack(file) {
     }
   } else if (clNeed !== 'no') flags.push('The model returned no cover letter.');
 
-  // Answers
-  const answers = (pack.answers || []).map(a => ({ ...a, answer: dedash(a.answer) }));
+  // Answers (a salary expectation stays blank, with the floor and the posting's range as a note: pack/answers.mjs)
+  const held = holdSalary((pack.answers || []).map(a => ({ ...a, answer: dedash(a.answer) })), { floor: payFloor(PROFILE.facts), range: fm.salary || null, choices: new Set(fields.filter(f => f.options?.length).map(f => f.label)) });
+  const answers = held.answers; flags.push(...held.flags);
   const answersLint = [];
   for (const a of answers) {
     const iss = textIssues(a.answer); if (iss.length) flags.push(`Answer "${a.field}": ${iss.join('; ')}.`);

@@ -15,6 +15,7 @@ without network access and without anyone's personal data.
 | `gmail/` | Application outcome emails with the expected event type |
 | `lint/` | A WordprocessingML `document.xml` (bold heading, long summary, a bullet with entities split over runs, a tab, empty paragraphs), lint and fact rules, and a CV library in which one bullet breaks a rule on purpose |
 | `career-ops/` | career-ops `data/pipeline.md` and `data/scan-history.tsv` in the shapes its `scan.mjs` writes (every row shape, labeled segments, skipped and expired rows, the 12-column history); canned Ashby, Greenhouse and Lever answers and a plain job page for the links it lists; `expected.json` |
+| `boards/` | Personio's public XML feed (`<workzag-jobs>` positions with offices, additional offices, keywords and job descriptions as HTML in CDATA) and Gem's job board API (`api.gem.com/job_board/v0/<board>/job_posts`), as of 2026-10, for `lib/boards.mjs` |
 | `workspace/` | `tiny.pdf`: a one-page PDF (made by `tools/text-pdf.mjs`) that the workspace tests serve as a pack's CV |
 | `transcribe/` | `fake-transcriber.mjs.txt` (copied to a temp `.mjs` by the test, so `node --test` does not run it): stands in for `deploy/modules/transcribe/transcribe.py` (same arguments, the JSON it writes), with canned English segments; the "audio" files the tests make are short text files that steer it |
 

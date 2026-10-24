@@ -367,17 +367,40 @@ test('a closed posting or a redirect to a listing page is never queued', async (
   assert.equal(seen[movedUrl].reason, 'redirected to a listing page');
 });
 
-test('run(): a missing folder is reported clearly, and doctor flags it', async () => {
-  SETTINGS.sources.drop_dir.dir = path.join(tmp, 'does-not-exist');
+test('run(): the default folder is created on the first run (a dry run only says so); one named by hand must exist; doctor says so', async () => {
+  const was = SETTINGS.sources.drop_dir.dir, missing = path.join(tmp, 'does-not-exist'), fakeHome = path.join(tmp, 'default-home');
+  const homeWas = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   const lines = []; const realLog = console.log; console.log = (...a) => lines.push(a.join(' '));
-  try { const r = await run({}); assert.equal(r.ran, false); } finally { console.log = realLog; }
-  assert.ok(lines.some(l => /drop-dir: the folder .*does-not-exist does not exist/.test(l)), lines.join('\n'));
+  const noNet = { fetch: async () => { throw new Error('no network in tests'); } };
+  try {
+    SETTINGS.sources.drop_dir.dir = missing;   // named by hand: a typo is never turned into a folder
+    assert.equal((await run(noNet)).ran, false);
+    assert.ok(!fs.existsSync(missing));
+    fs.mkdirSync(fakeHome, { recursive: true }); process.env.HOME = fakeHome; process.env.USERPROFILE = fakeHome;
+    SETTINGS.sources.drop_dir.dir = '~/cometscout-drop';   // the default: created
+    assert.equal((await run({ dryRun: true })).ran, false);
+    assert.ok(!fs.existsSync(path.join(fakeHome, 'cometscout-drop')), 'a dry run creates nothing');
+    assert.equal((await run(noNet)).ran, true);
+  } finally {
+    console.log = realLog; SETTINGS.sources.drop_dir.dir = was;
+    for (const [k, v] of Object.entries(homeWas)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+  assert.ok(lines.some(l => /drop-dir: the folder .*does-not-exist does not exist; create it or fix sources\.drop_dir\.dir/.test(l)), lines.join('\n'));
+  assert.ok(lines.some(l => /drop-dir: the folder .*cometscout-drop does not exist yet/.test(l)), lines.join('\n'));
+  assert.ok(lines.some(l => /drop-dir: created .*cometscout-drop/.test(l)), lines.join('\n'));
+  assert.ok(fs.statSync(path.join(fakeHome, 'cometscout-drop')).isDirectory());
+  const { expandHome } = await import('../lib/config.mjs');
+  assert.equal(expandHome('~/cometscout-drop', '/home/sam'), path.join('/home/sam', 'cometscout-drop'));
+  assert.equal(expandHome('~', '/home/sam'), path.join('/home/sam'));
+  assert.equal(expandHome('/srv/drop', '/home/sam'), '/srv/drop'); assert.equal(expandHome('~other/x', '/home/sam'), '~other/x');
 
-  const settings = path.join(tmp, 'settings-doctor.json');
-  fs.writeFileSync(settings, JSON.stringify({ sources: { drop_dir: { enabled: true, dir: path.join(tmp, 'does-not-exist') } } }));
+  const settings = path.join(tmp, 'settings-doctor.json'), home = path.join(tmp, 'fake-home');
+  fs.mkdirSync(home, { recursive: true });
   const { spawnSync } = await import('node:child_process');
-  const d = spawnSync(process.execPath, [path.join(HERE, '..', 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: { ...process.env, COMETSCOUT_SETTINGS: settings }, timeout: 60000 });
-  assert.match(d.stdout, /TODO drop-dir folder: .*does-not-exist/);
+  const doctor = dir => { fs.writeFileSync(settings, JSON.stringify({ sources: { drop_dir: { enabled: true, ...(dir ? { dir } : {}) } } }));
+    return spawnSync(process.execPath, [path.join(HERE, '..', 'cli.mjs'), 'doctor'], { encoding: 'utf8', env: { ...process.env, COMETSCOUT_SETTINGS: settings, HOME: home, USERPROFILE: home }, timeout: 60000 }).stdout; };
+  for (const dir of [null, '~/cometscout-drop']) { const out = doctor(dir); assert.ok(out.includes(`ok   drop-dir folder: ${path.join(home, 'cometscout-drop')} (created on the first run)`), out); }
+  assert.ok(doctor('~/drop-here').includes(`TODO drop-dir folder: ${path.join(home, 'drop-here')}  ->  create ${path.join(home, 'drop-here')} or fix sources.drop_dir.dir in settings.json`), 'a folder named by hand that is missing stays a TODO');
 });
 
 test('page fetches are spaced 1.5 s apart; ATS API calls are not', async () => {

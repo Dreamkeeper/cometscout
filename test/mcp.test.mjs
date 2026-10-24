@@ -168,7 +168,10 @@ test('read tools answer on the example profile, each matching its outputSchema',
   assert.equal(structured('settings_schema', await s.call('settings_schema', { path: 'hooks' })).settings.every(x => x.settable === false), true);
   const ob = structured('onboarding_state', await s.call('onboarding_state'));
   assert.equal(ob.steps.find(x => x.id === 'profile').done, true); assert.equal(ob.steps.find(x => x.id === 'first_result').done, true);
-  assert.equal(ob.next, 'delivery');
+  // Telegram is off and a digest exists: that counts once step 8 is through (no systemd here, or the timer installed)
+  const noTimerYet = ob.steps.find(x => x.id === 'timer').done === false;
+  assert.equal(ob.next, noTimerYet ? 'delivery' : null);
+  assert.ok(ob.steps.every(x => Number.isInteger(x.step) && x.shell), 'every step has its AGENTS.md number and a shell form');
   const today = structured('today', await s.call('today'));
   assert.deepEqual(today.picks.map(p => p.file), [F.pick]); assert.ok(today.pool.some(p => p.file === F.pool));
   assert.deepEqual(structured('jobs_search', await s.call('jobs_search', { query: 'birch' })).jobs.map(j => j.file), [F.pool]);
@@ -299,7 +302,8 @@ test('resources and prompts', async () => {
   assert.ok(JSON.parse((await read('cometscout://settings/schema')).text).settings.some(x => x.key === 'schedule.time'));
   assert.equal((await read('cometscout://digest/latest')).text, DIGEST);
   assert.ok(Array.isArray(JSON.parse((await read('cometscout://doctor')).text).items));
-  assert.equal(JSON.parse((await read('cometscout://onboarding')).text).next, 'delivery');
+  const onb = JSON.parse((await read('cometscout://onboarding')).text);
+  assert.equal(onb.next, onb.steps.find(x => x.id === 'timer').done === false ? 'delivery' : null);
   const missing = await s.modern('resources/read', { uri: 'cometscout://nope' });
   assert.equal(missing.error.code, -32602); assert.deepEqual(missing.error.data, { uri: 'cometscout://nope' });
   const prompts = (await s.modern('prompts/list')).result.prompts;
