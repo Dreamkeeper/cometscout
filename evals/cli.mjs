@@ -8,6 +8,7 @@ export const USAGE = [
   '  node cli.mjs evals sample --set <name> [--size 70] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--seed N] [--include <queue file>]...',
   '  node cli.mjs evals sets                  # every label set and how far its labelling got',
   '  node cli.mjs evals decode --set <name> [--system queue|replay|file:<path>] [--compare <system>] [--no-context]',
+  '  node cli.mjs evals decode --set <name> --repeat [N] [--no-context] [--yes]   # decode the set N times (default 2): verdict and priority changes; --yes for over 200 model calls',
   '  node cli.mjs evals pack --a <dir> --b <dir> [--judge-model <model>] [--seed N]',
   '  node cli.mjs evals voice --dir <packs> [--judge-model <model>]',
   'Label a set in the workspace: node cli.mjs serve, then open /label?set=<name>.',
@@ -33,6 +34,19 @@ export async function evalsCommand(rest, { print = console.log, call } = {}) {
       const sets = listSets();
       if (!sets.length) print('evals: no label sets yet (node cli.mjs evals sample --set <name>)');
       for (const s of sets) print(`${s.name}: ${s.labelled} of ${s.total} labelled`);
+      return 0;
+    }
+    if (sub === 'decode' && opt(args, 'repeat') !== undefined) {
+      const { repeatEval } = await import('./decode.mjs');
+      const set = need(args, 'set'), rep = opt(args, 'repeat'), system = opt(args, 'system');
+      if (system && system !== 'replay') throw new Error('--repeat decodes the set again, so it works with --system replay only');
+      if (opt(args, 'compare') !== undefined) throw new Error('--repeat and --compare do not go together');
+      const n = rep === '' ? 2 : Number(rep);
+      const r = await repeatEval({ set, n, call, log: l => print(`  ${l}`), noContext: args.includes('--no-context'), yes: args.includes('--yes') });
+      const t = r.report.stability.total;
+      print(`repeat: ${n} runs of ${t.jobs} jobs (${t.compared} with a verdict in two runs or more): ${t.verdict_changes} verdict change(s) on ${t.jobs_verdict_changed} job(s), ${t.priority_changes} priority change(s) on ${t.jobs_priority_changed} job(s), ${t.jobs_surfaced_changed} crossed the surfaced line`);
+      for (const j of r.report.stability.jobs.filter(x => x.verdict_changes || x.priority_changes)) print(`  ${j.file}: ${j.verdicts.map(v => v ?? '-').join(' / ')}; priorities ${j.priorities.map(v => v ?? '-').join(' / ')}`);
+      print(`report: ${r.md}`);
       return 0;
     }
     if (sub === 'decode') {

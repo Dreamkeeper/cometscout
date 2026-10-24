@@ -45,6 +45,7 @@
 //   node cli.mjs migrate [--dry-run]                         # apply this version's data migrations (an update runs it)
 //   node cli.mjs evals sample --set <name> [--size 70] [--from D] [--to D] [--seed N] [--include <file>]   # a label set (label it at /label?set=<name>)
 //   node cli.mjs evals decode --set <name> [--system queue|replay|file:<path>] [--compare <system>]      # verdicts against your labels
+//   node cli.mjs evals decode --set <name> --repeat [N]      # decode the set N times (default 2): how many verdicts and priorities change
 //   node cli.mjs evals pack --a <dir> --b <dir> [--judge-model m] | evals voice --dir <packs> | evals sets   # blind pack A/B, voice, sets
 import fs from 'node:fs';
 import path from 'node:path';
@@ -72,7 +73,8 @@ import { afterRun as updateAfterRun } from './lib/update.mjs';
 import { evalsCommand } from './evals/cli.mjs';
 import { doctorItems, doctorLine } from './lib/doctor.mjs';
 import { SOURCES } from './lib/settings-schema.mjs';
-import { queueSnapshot, runCounts, recordRun } from './lib/run-log.mjs';
+import { queueSnapshot, runCounts, runCost, recordRun } from './lib/run-log.mjs';
+import { costLine } from './decoder/digest.mjs';
 import { mcpCommand } from './lib/mcp.mjs';
 import { onboardingState, onboardingLines, settingsSet, ToolError } from './lib/mcp-tools.mjs';
 import { entryFor } from './lib/settings-schema.mjs';
@@ -193,6 +195,12 @@ async function optional(name, fn) {
   // a step after the digest: a failure is logged, the run's exit code stays
   try { await fn(); } catch (e) { console.log(`cometscout: ${name} failed: ${e.message}`); }
 }
+// The run's cost line at the end of today's digest file, once the packs are built; nothing when no call reported a cost
+// or the decoder wrote no digest today.
+function addCostToDigest(cost, date = today()) {
+  const line = costLine(cost), file = path.join(DIRS.digests, `${date}.md`);
+  if (line && fs.existsSync(file)) fs.appendFileSync(file, `\n${line}\n`, 'utf8');
+}
 // data/state/runs.jsonl also gets a line for a run that stops before its steps, with the reason in result
 async function stoppedEarly(exit, result, started, off = null) {
   await optional('run log', () => recordRun({ date: today(), started, finished: new Date().toISOString(), seconds: 0, exit, off_day: off,
@@ -224,9 +232,13 @@ async function evening() {
   const closing = [...(failed.length ? [`failed source(s): ${failedLine(failed)}`] : []), ...(refused.length ? [`refused pack(s): ${refusedLine(refused)}`] : [])];
   if (closing.length) console.log(`cometscout: run finished; ${closing.join('; ')}`);
   const exit = failed.some(f => f.exit === NEEDS_USER) ? NEEDS_USER : 0;
+  // what the decodes and packs of this run cost; on a digest day with packs on, the digest was written before the
+  // packs (its line counts the decodes only), so the full line goes at its end
+  let cost = null;
+  await optional('run cost', () => { cost = runCost(before, packStart); if (pack !== null && !off) addCostToDigest(cost); });
   // data/state/runs.jsonl: what the MCP server's status and run_log tools report; never fails the run
   await optional('run log', () => recordRun({ date: today(), started, finished: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000), exit, off_day: off,
-    sources: ran, decoder_exit: decoder, pack_exit: pack, refused, counts: runCounts(before, today()), result: closing.length ? `finished; ${closing.join('; ')}` : 'finished' }));
+    sources: ran, decoder_exit: decoder, pack_exit: pack, refused, counts: runCounts(before, today()), cost, result: closing.length ? `finished; ${closing.join('; ')}` : 'finished' }));
   await nightlyBackup({ alert: text => notify(text, { send: sendText, on: telegramOn }) });   // backup.nightly; never fails the run
   // a timer installed before the first run gains its catch-up now (lib/ops.mjs ensurePersistent; no stop or start)
   await optional('timer catch-up', () => { const l = ensurePersistent(); if (l) console.log(l); });

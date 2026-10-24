@@ -8,11 +8,14 @@ Needs Node 22 or newer. This version changes behaviour: read Changed before upda
 
 ### Highlights
 
+- Steadier verdicts: the decoder no longer sees its own earlier verdicts, and never mistakes a role it read for one you applied to.
 - A smoother first setup: the onboarding agent asks one question at a time, shows every change before it writes it, and picks up where a broken-off session stopped.
 - Installing or changing the timer never starts a run by itself; it says when the next one is.
 
 ### New
 
+- node cli.mjs evals decode --set <name> --repeat [N] decodes the same jobs N times and counts how many verdicts and priorities change.
+- Each decode records what its model call cost; the digest ends with the run's cost (decodes, packs, total), and data/state/runs.jsonl keeps it for every run.
 - Job boards on Personio and Gem, next to Greenhouse, Ashby and Lever.
 - node cli.mjs onboarding-state: the setup steps, done or not, and the next one.
 - node cli.mjs settings set <key> <json-value> [--dry-run]: change one setting, checked like doctor, with the diff.
@@ -20,6 +23,7 @@ Needs Node 22 or newer. This version changes behaviour: read Changed before upda
 
 ### Changed
 
+- The decoder sees a company's history in two blocks: the applications and outcomes you recorded, and other roles CometScout read there (date and role only, no verdict). Decodes from the same run or the same day are left out, so jobs decoded together no longer sway each other.
 - candidate_name is null by default: your name comes from profile/profile.md. doctor says when settings.json still has the example person's name, or data/ holds decodes made with the example profile.
 - node cli.mjs reset --yes keeps data/state/schema.json, update.json and runs.jsonl, which describe the install.
 - Every update, adopt and rollback refreshes AGENTS.md, the READMEs, INSTALL.md and the example files in the home, and the scripts they name become wrappers for the installed release's copies. An AGENTS.md, CLAUDE.md or settings.example.json you edited stays, with the release's version next to it as <name>.new (doctor warns); any other edited copy is saved to app/replaced/ first.
@@ -31,6 +35,7 @@ Needs Node 22 or newer. This version changes behaviour: read Changed before upda
 
 ### Action needed
 
+- Decodes made before 0.2.2 may carry an invented "earlier application" in their action text. Before you build a pack for a held role decoded earlier, decode it again (node cli.mjs decode --dry-run --file <queue file> shows the new verdict).
 - After updating from 0.2.1, run node cli.mjs update --refresh-home once: 0.2.1's updater does not refresh the home's docs, so AGENTS.md there is still the old one (doctor says so).
 
 ## 0.2.1 (2026-10-15)

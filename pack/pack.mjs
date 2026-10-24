@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS, PROFILE, DIRS, STATE, read, readJson, log, today as runDate } from '../lib/config.mjs';
 import { callJson } from '../lib/llm.mjs';
-import { loadJob, slug } from '../lib/queue.mjs';
+import { loadJob, slug, decodeForPrompt } from '../lib/queue.mjs';
 import { sendText, sendFile, telegramOn } from '../lib/telegram.mjs';
 import { packMessage } from './message.mjs';
 import { holdSalary, payFloor } from './answers.mjs';
@@ -281,7 +281,7 @@ async function buildPack(file) {
     PROMPT, '', '## CV library (select ids from here)', JSON.stringify(LIB),
     '', '## Request', `Company: ${fm.company}`, `Role: ${fm.role}`, `Location on the posting: ${fm.location || '?'}`, `Link: ${fm.url}`,
     `cover_letter_needed: ${clNeed}`,
-    '', '## Decode (the pipeline\'s assessment of this role)', job.decode.slice(0, 3000),
+    '', '## Decode (the pipeline\'s assessment of this role)', decodeForPrompt(job.decode).slice(0, 3000),
     '', '## Application form fields to answer', form ? (fields.length ? fields.map(f => `- ${f.label} [${f.type}${f.required ? ', required' : ''}]${f.options.length ? ` options: ${f.options.join(' / ')}` : ''}${f.description ? `\n  guidance: ${f.description}` : ''}`).join('\n') : '(none beyond personal data and uploads)') : '(the form could not be read: answer nothing, set answers to [])',
     '', '## Job description', jd.slice(0, 14000),
   ].join('\n');
@@ -320,7 +320,7 @@ async function buildPack(file) {
   }
   if (cvLint.errors.length) {
     log(`pack ${file}: CV still breaks ${ids(cvLint.errors)} after the vetted fallback; fix profile/cv-library.json`);
-    return { file, fm, refused: [...new Set(cvLint.errors.map(h => h.id))], lint: { errors: cvLint.errors, warns: cvLint.warns } };
+    return { file, fm, cost, refused: [...new Set(cvLint.errors.map(h => h.id))], lint: { errors: cvLint.errors, warns: cvLint.warns } };
   }
   // Warnings on vetted text are doctor's to report (once); a pack flags only the ones in model-written text.
   // Every warning stays in answers.md (## Lint) and pack.json.
@@ -372,7 +372,7 @@ async function buildPack(file) {
   // Machine-readable record for evals and debugging: what the model returned, what was kept, what was flagged.
   fs.writeFileSync(path.join(dir, 'pack.json'), JSON.stringify({ model: MODEL, built: new Date().toISOString(), model_ms: modelMs, cost_usd: cost, form: form ? form.ats : null, cover_letter: clNeed,
     pages: cvPdf.pages, raw, cv, flags, answers, lint: { cv: { errors: cvLint.errors, warns: cvLint.warns }, cover_letter: clLint, answers: answersLint } }, null, 2), 'utf8');
-  return { file, fm, dir, files, md, flags, answers, clNeed, clText, form };
+  return { file, fm, dir, files, md, flags, answers, clNeed, clText, form, cost };
 }
 
 // answers.md -> plain Telegram text: headings become marked lines, each question separated from its answer by a blank line.
@@ -436,13 +436,14 @@ for (const f of targets) {
     const r = await buildPack(f);
     if (r.refused) {
       // remembered, so later runs skip it without a model call until the library or the rules change
-      packs[f] = { refused: r.refused, date: today, at: new Date().toISOString(), library_mtime: mtime(LIB_FILE), rules_mtime: mtime(LINT_FILE), company: r.fm.company, role: r.fm.role };
+      packs[f] = { refused: r.refused, date: today, at: new Date().toISOString(), library_mtime: mtime(LIB_FILE), rules_mtime: mtime(LINT_FILE), company: r.fm.company, role: r.fm.role, cost_usd: r.cost || 0 };
       fs.writeFileSync(PACKS_FILE, JSON.stringify(packs, null, 2), 'utf8');
       refused.push(`${f} (${r.refused.join(', ')})`);
       if (!NO_TG && telegramOn()) await sendText(`Pack not built: ${r.fm.company}, ${r.fm.role}. The CV still breaks ${r.refused.join(', ')} with vetted text; fix profile/cv-library.json.`);
       continue;
     }
-    packs[f] = { built: today, dir: path.basename(r.dir) };
+    // at and cost_usd: what this model call cost, summed per run into data/state/runs.jsonl and the digest file (cli.mjs run)
+    packs[f] = { built: today, dir: path.basename(r.dir), at: new Date().toISOString(), cost_usd: r.cost || 0 };
     fs.writeFileSync(PACKS_FILE, JSON.stringify(packs, null, 2), 'utf8');
     log(`${f}: pack in ${r.dir} (${r.files.length} file(s), ${r.answers.length} answer(s), ${r.flags.length} flag(s))`);
     runHook('pack_built', { file: f, company: r.fm.company, role: r.fm.role, url: r.fm.url || null, dir: r.dir, files: r.files, flags: r.flags, answers: r.answers.length, cover_letter: r.clNeed });
