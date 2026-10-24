@@ -36,14 +36,27 @@ export function heldBackLine(held, t = T, locale = LOCALE()) {
  * then strong fit before an investable stretch; otherwise the decode order (a stable sort).
  */
 export const byPriority = (a, b) => ((a.v.apply_priority || 5) - (b.v.apply_priority || 5)) || (APPLY_WORTHY.indexOf(a.v.verdict) - APPLY_WORTHY.indexOf(b.v.verdict));
+/**
+ * The cost footer, one line: { decodes, decodes_usd, packs, packs_usd } (lib/run-log.mjs runCost). packs null: the
+ * packs are built after this digest (the evening run adds the full line to the digest file then). null when no call
+ * reported a cost (Codex reports none).
+ */
+export function costLine({ decodes = 0, decodes_usd = 0, packs = null, packs_usd = 0 } = {}, t = T) {
+  const total = (Number(decodes_usd) || 0) + (Number(packs_usd) || 0);
+  if (!(total > 0)) return null;
+  const usd = n => (Number(n) || 0).toFixed(2);
+  return packs == null ? t('digest.cost_before_packs', { decodes, decodes_usd: usd(decodes_usd) })
+    : t('digest.cost', { decodes, decodes_usd: usd(decodes_usd), packs, packs_usd: usd(packs_usd), total: usd(total) });
+}
 const jobLine = (d, i, t) => `${i + 1}. ${d.fm.company}: ${d.fm.role} [${String(d.fm.location || '').slice(0, 60)}] ${verdictLabel(d.v.verdict, t)}, p${d.v.apply_priority}`;
 
 /**
  * The whole digest. done: [{ file, fm, v }] decoded this run; failed / gaveUp: [{ file }]; pk: the picks (with
  * pk.prep in prep mode: { interview, days, step, wait }); left: jobs still waiting because of the cap.
  * off: the day, when this is an off day (written, not sent); held: off days held back since the last digest.
+ * packsLater: packs are built after this digest (the evening run), so the cost footer counts the decodes only.
  */
-export function digestText({ name, date, dry = false, done = [], failed = [], gaveUp = [], pk = { picks: [], open: 0 }, left = 0, cap = 0, maxTries = 0, off = null, held = [], locale = LOCALE(), coach } = {}, t = T) {
+export function digestText({ name, date, dry = false, done = [], failed = [], gaveUp = [], pk = { picks: [], open: 0 }, left = 0, cap = 0, maxTries = 0, off = null, held = [], locale = LOCALE(), coach, packsLater = false } = {}, t = T) {
   const worth = done.filter(d => APPLY_WORTHY.includes(d.v.verdict)).sort(byPriority), heldJobs = done.filter(d => ['long-shot', 'unreadable'].includes(d.v.verdict)), rej = done.filter(d => ['gate-reject', 'weak-fit'].includes(d.v.verdict));
   const prep = pk.prep || null, back = heldBackLine(held, t, locale);
   const L = [...(off ? [t('digest.off_day', { day: dayLabel(off, locale) }), ''] : []), ...(back ? [back, ''] : [])];
@@ -61,5 +74,7 @@ export function digestText({ name, date, dry = false, done = [], failed = [], ga
   if (failed.length) L.push(t('digest.failed', { n: failed.length, files: failed.map(f => f.file).join(', ') }));
   if (gaveUp.length) L.push(t('digest.gave_up', { tries: maxTries, n: gaveUp.length, files: gaveUp.map(f => f.file).join(', ') }));
   if (left) L.push(t('digest.waiting', { n: left, cap }));
+  const cost = costLine({ decodes: done.length, decodes_usd: done.reduce((s, d) => s + (Number(d.v.cost_usd) || 0), 0), packs: packsLater ? null : 0 }, t);
+  if (cost) L.push(...(L.at(-1) === '' ? [] : ['']), cost);
   return L.join('\n');
 }

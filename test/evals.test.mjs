@@ -211,10 +211,11 @@ test('replay: each job decoded with the history cut at its own date; no later ou
   const prompts = [];
   const call = async ({ prompt }) => { prompts.push(prompt); return { value: { verdict: prompt.includes('Kestrel') ? 'weak-fit' : 'strong-fit', confidence: 'high', rationale: 'r', fit_signals: [], gaps: [], action: 'a', hold_reason: null } }; };
   const r = await D.decodeEval({ set: 'replay', system: 'replay', call, date: '2026-10-07' });
-  const p = prompts.find(x => x.includes('## History with Kestrel Labs'));
-  const hist = p.slice(p.indexOf('## History with'), p.indexOf('## Job file'));
+  const p = prompts.find(x => x.includes('company: "Kestrel Labs"'));
+  const hist = p.slice(p.indexOf('## Applications and outcomes the user recorded'), p.indexOf('## Job file'));
   assert.match(hist, /2026-09-01: Ops PM: applied/, 'the application as it stood on the job date');
-  assert.match(hist, /2026-09-05: decoded "Data PM"/);
+  assert.match(hist, /^- 2026-09-05: Data PM$/m, 'another role read before, with no verdict');
+  assert.doesNotMatch(hist, /investable-stretch|strong-fit/);
   for (const later of ['LATER-REJECTION-NOTE', 'rejected', 'Platform PM', 'Growth PM', 'interview', 'Senior PM']) assert.ok(!hist.includes(later), `"${later}" leaked into the history`);
   assert.ok(!p.includes('## Decode Result') && !p.includes('DECODER-RATIONALE-TEXT'), 'the old verdict is not in the job text');
   const replay = JSON.parse(fs.readFileSync(path.join(S.setDir('replay'), 'replay-2026-10-07.json'), 'utf8'));
@@ -224,6 +225,61 @@ test('replay: each job decoded with the history cut at its own date; no later ou
   assert.equal(again[k].verdict, 'weak-fit', 'a replay file works as file:<path>');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(DATA, 'state', 'applications.json'), 'utf8'))[k].status, 'interview', 'replay writes nothing to the queue or applications');
   assert.ok(fs.existsSync(path.join(DATA, 'decoded', k)));
+});
+
+test('--repeat: the same set decoded N times, verdict and priority changes per job and in total, the cost of all runs', async () => {
+  S.createSet('repeat', { include: [K.a, K.b, K.c], size: 3 });
+  // run 1: every job strong-fit p2; run 2: Alder becomes investable-stretch, Birch moves to p1; run 3: Alder back to strong-fit
+  let run = 0; const seen = new Map();
+  const call = async ({ prompt }) => {
+    const who = ['Alder', 'Birch', 'Cedar'].find(c => prompt.includes(`company: "${c}"`)); seen.set(who, (seen.get(who) || 0) + 1); run = seen.get(who);
+    const verdict = who === 'Alder' && run === 2 ? 'investable-stretch' : 'strong-fit', apply_priority = who === 'Birch' && run >= 2 ? 1 : 2;
+    return { value: { verdict, apply_priority, confidence: 'high', rationale: 'r', fit_signals: [], gaps: [], action: 'a' }, cost: 0.01 };
+  };
+  const logs = [];
+  const r = await D.repeatEval({ set: 'repeat', n: 3, call, date: '2026-10-07', noContext: true, log: l => logs.push(l), now: new Date('2026-10-07T09:08:07Z') });
+  assert.equal(logs[0], '3 runs x 3 jobs = 9 model calls', 'the plan comes before the first call (no cost known yet)');
+  const t = r.report.stability.total;
+  assert.deepEqual({ ...t, cost_usd: undefined }, { jobs: 3, compared: 3, verdict_changes: 2, jobs_verdict_changed: 1, priority_changes: 1, jobs_priority_changed: 1, jobs_surfaced_changed: 0, cost_usd: undefined });
+  assert.equal(t.cost_usd, 0.09, 'nine calls at 0.01');
+  const alder = r.report.stability.jobs.find(j => j.file === K.a);
+  assert.deepEqual(alder.verdicts, ['strong-fit', 'investable-stretch', 'strong-fit']); assert.equal(alder.verdict_changes, 2);
+  assert.deepEqual(r.report.stability.jobs.find(j => j.file === K.b).priorities, [2, 1, 1]);
+  assert.ok(r.md.endsWith('repeat-2026-10-07-090807-x3.md') && fs.existsSync(r.json), r.md);
+  // a second repeat the same day gets its own files; the plan now knows the average cost from the last report
+  const again = await D.repeatEval({ set: 'repeat', n: 2, call, date: '2026-10-07', noContext: true, log: l => logs.push(l), now: new Date('2026-10-07T10:00:00Z') });
+  assert.ok(again.md.endsWith('repeat-2026-10-07-100000-x2.md') && fs.existsSync(r.md));
+  assert.ok(logs.includes('2 runs x 3 jobs = 6 model calls (about USD 0.06 at the last known USD 0.0100 a decode)'), logs.join('\n'));
+  const md = fs.readFileSync(r.md, 'utf8');
+  assert.match(md, /- Verdict changes: 2, on 1 job\(s\)/); assert.match(md, /- Priority changes: 1, on 1 job\(s\)/);
+  assert.ok(md.includes(`| ${K.a} | strong-fit / investable-stretch / strong-fit | 2 / 2 / 2 | 2 | 0 |`), md);
+  assert.ok(!md.includes('—'), 'no em dash');
+  assert.ok(!fs.existsSync(path.join(S.setDir('repeat'), 'replay-2026-10-07.json')), 'the runs go into the repeat report only');
+  // a run with no verdict for a job is left out of its changes; a crossing of the surfaced line is counted
+  const s = D.stability({ jobs: [{ file: 'x' }] }, [{ x: { verdict: 'strong-fit', apply_priority: 1 } }, { x: { verdict: null, error: 'boom' } }, { x: { verdict: 'long-shot', apply_priority: 4 } }]);
+  assert.deepEqual([s.jobs[0].verdict_changes, s.jobs[0].priority_changes, s.jobs[0].errors, s.total.jobs_surfaced_changed], [1, 1, 1, 1]);
+  await assert.rejects(D.repeatEval({ set: 'repeat', n: 1, call }), /from 2 to 20/);
+  // over 200 model calls: nothing is called without yes
+  S.createSet('repeat-big', { include: POOL.slice(0, 11), size: 11 });
+  let calls = 0; const count = async () => { calls++; return { value: { verdict: 'weak-fit', confidence: 'low', rationale: 'r', fit_signals: [], gaps: [], action: 'a' }, cost: 0 }; };
+  await assert.rejects(D.repeatEval({ set: 'repeat-big', n: 20, call: count, noContext: true }), /20 runs x 11 jobs = 220 model calls: more than 200, so run it again with --yes/);
+  assert.equal(calls, 0);
+  await D.repeatEval({ set: 'repeat-big', n: 20, call: count, noContext: true, yes: true });
+  assert.equal(calls, 220);
+});
+
+test('cli: evals decode --repeat (default 2) with COMETSCOUT_LLM_FAKE; --repeat refuses another system or --compare', () => {
+  const env = { ...process.env, COMETSCOUT_LLM_FAKE: '1' };
+  const run = (...a) => spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'evals', ...a], { env, encoding: 'utf8' });
+  const r = run('decode', '--set', 'repeat', '--repeat');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /repeat: 2 runs of 3 jobs \(3 with a verdict in two runs or more\): 0 verdict change\(s\) on 0 job\(s\), 0 priority change\(s\) on 0 job\(s\)/);
+  assert.match(r.stdout, /report: .*repeat-2026-10-07-\d{6}-x2\.md/);
+  assert.match(r.stdout, /^ {2}2 runs x 3 jobs = 6 model calls/m, 'the plan is printed first');
+  assert.match(run('decode', '--set', 'repeat-big', '--repeat', '20').stdout, /220 model calls: more than 200, so run it again with --yes/);
+  assert.match(run('decode', '--set', 'repeat', '--repeat', '3', '--system', 'queue').stdout, /works with --system replay only/);
+  assert.match(run('decode', '--set', 'repeat', '--repeat', '--compare', 'queue').stdout, /do not go together/);
+  assert.match(run('decode', '--set', 'repeat', '--repeat', 'many').stdout, /whole number from 2 to 20/);
 });
 
 test('cli: evals sample, sets and decode --system replay with COMETSCOUT_LLM_FAKE (no model, no network)', () => {

@@ -18,7 +18,11 @@ const entry = (extra = {}) => ({ version: '0.2.0', date: '2026-11-01', min_node:
 test('release.json has a valid entry for package.json\'s version, with this code\'s data schema', () => {
   const list = R.readReleases();
   assert.deepEqual(R.releaseProblems(list, { version: pkg.version, schema: SCHEMA_VERSION }), []);
-  assert.equal(list[0].version, pkg.version, 'the newest entry is the current version');
+  // between releases the top entry may be the next, unreleased version, where pull requests collect their notes
+  // (docs/RELEASING.md); never more than one entry ahead of package.json
+  const top = list[0].version === pkg.version ? 0 : 1;
+  assert.equal(list[top]?.version, pkg.version, 'the newest entry is the current version, or the next one above it');
+  if (top) assert.ok(R.compareVersions(list[0].version, pkg.version) > 0, 'the unreleased entry is newer than package.json');
 });
 
 test('CHANGELOG.md is what tools/changelog.mjs generates from release.json', () => {

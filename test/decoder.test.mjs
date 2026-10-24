@@ -36,26 +36,89 @@ fs.writeFileSync(path.join(DATA, 'state', 'applications.json'), JSON.stringify({
 const d = await import('../decoder/decoder.mjs');
 const { SETTINGS, PROFILE } = await import('../lib/config.mjs');
 
-test('history matches the company through alias families, applications and decodes', () => {
+// history() as the decode prompt shows it: [the user's block, the block of other roles CometScout read]
+const blocks = h => { const [mine, others] = h.split(`## ${d.OTHERS_HEADING}\n`); return { mine, others }; };
+const NONE_APPLIED = 'none: the user has not applied to this company';
+
+test('history: two labelled blocks; applications through alias families; other decodes with date and role only', () => {
   const h = d.history('Acme');
-  assert.match(h, /2026-09-10: Product Manager, Robotics: rejected \(filled internally\)/, 'application under the family name');
-  assert.match(h, /2026-08-15: Firmware Lead: applied/);
-  assert.match(h, /decoded "Product Manager, Robotics": strong-fit/);
-  assert.match(h, /decoded "Data Analyst": weak-fit/);
+  const { mine, others } = blocks(h);
+  assert.ok(mine.startsWith(`## ${d.RECORDED_HEADING}\n`), h);
+  assert.equal(d.RECORDED_HEADING, 'Applications and outcomes the user recorded');
+  assert.equal(d.OTHERS_HEADING, 'Other roles at this company that CometScout read (not applications)');
+  assert.match(mine, /2026-09-10: Product Manager, Robotics: rejected \(filled internally\)/, 'application under the family name');
+  assert.match(mine, /2026-08-15: Firmware Lead: applied/);
+  assert.doesNotMatch(mine, /Data Analyst/, 'a decode is never in the user\'s block');
+  assert.match(others, /^- 2026-08-01: Product Manager, Robotics$/m);
+  assert.match(others, /^- 2026-09-20: Data Analyst$/m);
+  assert.doesNotMatch(h, /strong-fit|weak-fit|investable|long-shot|decoded "/, 'no verdict from an earlier decode reaches the prompt');
   assert.doesNotMatch(h, /Driftwood|Product Owner/);
-  assert.equal(d.history('Lumenfield'), '(nothing before with this company)');
+});
+
+test('history of a company with only past decodes: the none line in the first block and no verdict text', () => {
+  assert.equal(d.history('Driftwood'), `## ${d.RECORDED_HEADING}\n${NONE_APPLIED}\n\n## ${d.OTHERS_HEADING}\n- 2026-09-25: Product Owner`);
+  assert.equal(d.history('Lumenfield'), `## ${d.RECORDED_HEADING}\n${NONE_APPLIED}\n\n## ${d.OTHERS_HEADING}\nnone`);
+});
+
+test('history leaves out decodes from the same day and from the same run (verdicts must not anchor on each other)', () => {
+  const same = '2026-10-01--acme--ops-lead.md', earlier = '2026-09-28--acme--qa-lead.md';
+  decoded('decoded', same, 'Acme', 'Ops Lead', 'investable-stretch', '2026-10-01');   // the run date (COMETSCOUT_RUN_DATE)
+  decoded('decoded', earlier, 'Acme', 'QA Lead', 'strong-fit', '2026-09-28');
+  try {
+    assert.doesNotMatch(d.history('Acme'), /Ops Lead/, 'decoded today: left out');
+    assert.match(blocks(d.history('Acme')).others, /^- 2026-09-28: QA Lead$/m);
+    assert.doesNotMatch(d.history('Acme', { skip: new Set([earlier]) }), /QA Lead/, 'a file of this run: left out whatever its date');
+    assert.match(d.history('Acme', { before: '2026-10-02' }), /^- 2026-10-01: Ops Lead$/m, 'a replay cutoff decides instead of today');
+    assert.match(d.historyParts('Acme').decodes.map(x => x.role).join(), /Ops Lead/, 'the workspace still sees every decode');
+  } finally { fs.rmSync(path.join(DATA, 'decoded', same)); fs.rmSync(path.join(DATA, 'decoded', earlier)); }
+});
+
+test('decodeText: the prompt carries both blocks and no verdict; the verdict carries the call\'s cost', async () => {
+  const prompts = [];
+  const call = async ({ prompt }) => { prompts.push(prompt); return { value: { verdict: 'investable-stretch', confidence: 'high', apply_priority: 2, rationale: 'r', fit_signals: [], gaps: [], action: 'a' }, cost: 0.0123 }; };
+  const body = `# Acme - Planning Lead\n\n${'Plans the robot fleet roll-out with operations and engineering. '.repeat(8)}`;
+  const job = { file: '2026-10-01--acme--planning-lead.md', fm: { company: 'Acme', role: 'Planning Lead' }, body, text: `---\ncompany: "Acme"\n---\n\n${body}` };
+  const v = await d.decodeText(job, 'PROMPT', { call });
+  assert.equal(v.cost_usd, 0.0123);
+  const p = prompts[0];
+  assert.ok(p.includes(`## ${d.RECORDED_HEADING}\n- 2026-09-20: Robotics QA: offer`), p);
+  assert.match(p, /^- 2026-09-10: Product Manager, Robotics: rejected \(filled internally\)/m);
+  assert.ok(p.indexOf(`## ${d.OTHERS_HEADING}`) < p.indexOf('## Job file'));
+  assert.doesNotMatch(p.slice(0, p.indexOf('## Job file')), /strong-fit|weak-fit|History with/);
+  assert.equal((await d.decodeText(job, 'PROMPT', { call: async () => ({ value: { verdict: 'weak-fit', confidence: 'low', rationale: 'r', fit_signals: [], gaps: [], action: 'a' } }) })).cost_usd, 0, 'no cost reported: 0');
+});
+
+test('a decoded file decoded again never shows the model its own old decode block; the pack prompt drops cost_usd', async () => {
+  const { withoutDecode, decodeForPrompt } = await import('../lib/queue.mjs');
+  const body = `# Acme - Planning Lead\n\n${'Plans the robot fleet roll-out with operations and engineering. '.repeat(8)}`;
+  const text = `---\ncompany: "Acme"\n---\n\n${body}\n\n## Decode Result\nDecoded 2026-09-01 by CometScout (claude/sonnet).\nverdict: strong-fit\nrationale: OLD-RATIONALE-TEXT\naction: OLD-ACTION-TEXT\ncost_usd: 0.0100\n`;
+  const prompts = [];
+  const call = async ({ prompt }) => { prompts.push(prompt); return { value: { verdict: 'long-shot', confidence: 'low', rationale: 'r', fit_signals: [], gaps: [], action: 'a' } }; };
+  await d.decodeText({ file: 'x.md', fm: { company: 'Acme' }, body, text }, 'PROMPT', { call });
+  const job = prompts[0].slice(prompts[0].indexOf('## Job file'));
+  assert.match(job, /Plans the robot fleet/);
+  for (const old of ['## Decode Result', 'OLD-RATIONALE-TEXT', 'OLD-ACTION-TEXT', 'strong-fit', 'cost_usd']) assert.ok(!job.includes(old), old);
+  assert.equal(withoutDecode('a\n## Decode Result\nverdict: x\n\n## Decode Result\nverdict: y\n'), 'a\n## Decode Result\nverdict: x\n', 'cut at the last block');
+  assert.equal(withoutDecode('no decode here\n'), 'no decode here\n');
+  assert.equal(decodeForPrompt('## Decode Result\nverdict: x\ncost_usd: 0.0100\naction: a\n'), '## Decode Result\nverdict: x\naction: a\n');
+});
+
+test('the decode prompt tells the model which block is the user\'s history', () => {
+  const p = d.buildPrompt();
+  assert.ok(p.includes(`only the block "${d.RECORDED_HEADING}" is the candidate's history`), 'the rule names the first block');
+  assert.ok(p.includes(`"${d.OTHERS_HEADING}"`) && /never state or imply that the candidate applied/.test(p));
 });
 
 test('history before a day shows the world as it was then', () => {
   const h = d.history('Acme Robotics', { before: '2026-09-01' });
-  assert.match(h, /^- 2026-08-02: Product Manager, Robotics: applied \[events: 2026-08-02 applied\] \[recorded by the candidate\]$/m,
+  assert.match(h, /^- 2026-08-02: Product Manager, Robotics: applied \[events: 2026-08-02 applied\]$/m,
     'applied before the cutoff, rejected after it: shown as applied on the day of that event, without the later note');
   assert.doesNotMatch(h, /rejected|filled internally|rejection/);
   assert.match(h, /^- 2026-08-25: Robotics QA: interview \[events: 2026-08-25 test_task; 2026-08-26 reopened\]/m, 'a test task sets "interview"; an event with no status is skipped');
   assert.doesNotMatch(h, /offer/);
   assert.doesNotMatch(h, /Vision Lead/, 'nothing before the cutoff');
-  assert.match(h, /2026-08-15: Firmware Lead: applied \[recorded by the candidate\]$/m, 'updated before the cutoff, its only event after it: no events shown');
-  assert.match(h, /decoded "Product Manager, Robotics"/);
+  assert.match(h, /2026-08-15: Firmware Lead: applied$/m, 'updated before the cutoff, its only event after it: no events shown');
+  assert.match(blocks(h).others, /^- 2026-08-01: Product Manager, Robotics$/m);
   assert.doesNotMatch(h, /Data Analyst/, 'decoded after the cutoff');
   const later = d.history('Acme Robotics', { before: '2026-09-15' });
   assert.match(later, /2026-09-10: Product Manager, Robotics: rejected \(filled internally\) \[events: 2026-08-02 applied; 2026-09-10 rejection\]/);
@@ -76,6 +139,7 @@ test('asOf maps every event type to a status', () => {
 test('history excludeFile drops the job\'s own application and decode', () => {
   const h = d.history('Acme', { excludeFile: '2026-08-01--acme-robotics--product-manager-robotics.md' });
   assert.doesNotMatch(h, /Product Manager, Robotics/);
+  assert.match(h, /^## Applications and outcomes the user recorded\n/);
   assert.match(h, /Firmware Lead/);
   assert.match(h, /Data Analyst/);
 });
