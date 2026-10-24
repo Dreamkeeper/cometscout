@@ -60,7 +60,7 @@ import { nightlyBackup } from './lib/backup.mjs';
 import { trackerExport, exportNotes } from './lib/tracker.mjs';
 import { sourcesReport, sourcesReportCommand } from './lib/scorecard.mjs';
 import { trimSightings } from './lib/sightings.mjs';
-import { healthPing, notify, installTimer, UNITS } from './lib/ops.mjs';
+import { healthPing, notify, installTimer, ensurePersistent, UNITS } from './lib/ops.mjs';
 import { scheduleOf, offDay } from './lib/schedule.mjs';
 import { sendText, telegramOn } from './lib/telegram.mjs';
 import { startServer } from './lib/server.mjs';
@@ -71,7 +71,7 @@ import { updateCommands } from './lib/update-cli.mjs';
 import { afterRun as updateAfterRun } from './lib/update.mjs';
 import { evalsCommand } from './evals/cli.mjs';
 import { doctorItems, doctorLine } from './lib/doctor.mjs';
-import { SOURCES } from './lib/settings-schema.mjs';
+import { SOURCES, entryFor } from './lib/settings-schema.mjs';
 import { queueSnapshot, runCounts, recordRun } from './lib/run-log.mjs';
 import { mcpCommand } from './lib/mcp.mjs';
 import { onboardingState, onboardingLines, settingsSet, ToolError } from './lib/mcp-tools.mjs';
@@ -144,12 +144,29 @@ function timer(...a) {
   return r.code;
 }
 
+/**
+ * The value `raw` given for setting `key`: JSON when it parses. Otherwise (Windows PowerShell 5.1 strips the inner
+ * quotes of '"ru"' and '["a b"]') the schema decides: a text setting, or a value in its allowed list, takes the raw
+ * text; a list setting takes it split at commas (brackets dropped). undefined when neither fits.
+ */
+function settingValue(key, raw) {
+  try { return JSON.parse(raw); } catch { /* below */ }
+  const e = entryFor(String(key).split('.')); if (!e) return undefined;
+  if (e.type === 'string' || e.type === 'text-or-list' || (Array.isArray(e.allowed) && e.allowed.includes(raw))) return raw;
+  if (e.type === 'array') {
+    const items = String(raw).replace(/^\s*\[|\]\s*$/g, '').split(',').map(x => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+    if (e.items === 'integer') return items.every(x => /^-?\d+$/.test(x)) ? items.map(Number) : undefined;
+    return items;
+  }
+  return undefined;
+}
 // settings set <key> <json-value> [--dry-run]: the MCP server's settings_set from a shell (lib/mcp-tools.mjs settingsSet)
 function settingsCommand() {
-  const usage = 'Usage: node cli.mjs settings set <key> <json-value> [--dry-run]   (a JSON value: true, 3, "18:00", ["a","b"]; quote it for the shell)';
+  const usage = 'Usage: node cli.mjs settings set <key> <json-value> [--dry-run]   (a JSON value: true, 3, \'"18:00"\', \'["a","b"]\'; for a text setting plain text works too, for a list "a, b". Windows PowerShell 5.1 drops the inner quotes: there, write the text or "a, b" plainly)';
   const args = rest.filter(x => x !== '--dry-run'), dry = rest.includes('--dry-run');
   if (args[0] !== 'set' || args.length !== 3) { console.log(usage); return 1; }
-  let value; try { value = JSON.parse(args[2]); } catch { console.log(`The value must be JSON: ${JSON.stringify(args[2])} is not. Text needs quotes, e.g. '"${args[2]}"'.\n${usage}`); return 1; }
+  const value = settingValue(args[1], args[2]);
+  if (value === undefined) { console.log(`The value for ${args[1]} must be JSON (true, 3, a list ...): ${JSON.stringify(args[2])} is not.\n${usage}`); return 1; }
   try {
     const r = settingsSet({ path: args[1], value, dry_run: dry });
     console.log(r.diff ? r.diff.trimEnd() : `No change: ${args[1]} already has this value.`);
@@ -210,6 +227,8 @@ async function evening() {
   await optional('run log', () => recordRun({ date: today(), started, finished: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000), exit, off_day: off,
     sources: ran, decoder_exit: decoder, pack_exit: pack, refused, counts: runCounts(before, today()), result: closing.length ? `finished; ${closing.join('; ')}` : 'finished' }));
   await nightlyBackup({ alert: text => notify(text, { send: sendText, on: telegramOn }) });   // backup.nightly; never fails the run
+  // a timer installed before the first run gains its catch-up now (lib/ops.mjs ensurePersistent; no stop or start)
+  await optional('timer catch-up', () => { const l = ensurePersistent(); if (l) console.log(l); });
   // the update check (settings.update); a newer version is announced once, a Tonight update starts after this run; never fails the run
   if (!PROFILE.isExample) await updateAfterRun({ quiet: off });
   return exit;

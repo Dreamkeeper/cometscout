@@ -206,13 +206,16 @@ run_step() {
   echo "decoded $decoded, packs: $docx docx, $pdf pdf; digest $(ls "$H"/data/digests/)"
   # after a run the timer is persistent, and changing it still starts no run: a time an hour ago with a stamp from two
   # days back would be a missed run to systemd, but the install resets the stamp to now (lib/ops.mjs installTimer)
+  # the first evening run gave the timer (installed before any run) its catch-up, without a reinstall
+  grep -qx 'Persistent=true' "$UNITDIR/cometscout.timer" || fail "after the first run the timer did not gain Persistent=true"
+  grep -q 'is now caught up when it starts' "$WORK/run.txt" || fail "the run did not say it made the timer persistent"
   local inv stamp past
   inv="$(systemctl --user show cometscout.service -p InvocationID --value)"
   stamp="${XDG_DATA_HOME:-$HOME/.local/share}/systemd/timers/stamp-cometscout.timer"
   mkdir -p "$(dirname "$stamp")"; touch -d '2 days ago' "$stamp"
   past="$(date -u -d '-1 hour' +%H:%M)"
   cs timer "$past" > "$WORK/timer-past.txt" 2>&1 || { cat "$WORK/timer-past.txt"; fail "node cli.mjs timer $past exited non-zero"; }
-  grep -qx 'Persistent=true' "$UNITDIR/cometscout.timer" || fail "after a run the timer is not persistent"
+  grep -qx 'Persistent=true' "$UNITDIR/cometscout.timer" || fail "after a reinstall the timer is not persistent"
   sleep 5
   [ "$(systemctl --user show cometscout.service -p InvocationID --value)" = "$inv" ] || fail "moving the timer to a time already past started a run"
   cs timer > /dev/null 2>&1 || fail "node cli.mjs timer (back to $TIME) exited non-zero"

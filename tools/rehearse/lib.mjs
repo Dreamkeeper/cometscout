@@ -20,7 +20,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ZipWriter, readZip, readEntry } from '../../lib/zip.mjs';
 import { parseVersion, bare } from '../../lib/release.mjs';
-import { codeFiles, FILE_LIST, HOME_DOCS, WRAPPER_MARK, scriptsNamedIn } from '../../lib/layout.mjs';
+import { codeFiles, FILE_LIST, HOME_DOCS, KEEP_EDITED, WRAPPER_MARK, scriptsNamedIn } from '../../lib/layout.mjs';
 import { OLD_UNITS, OLD } from '../../lib/legacy-names.mjs';
 
 /** The fake next release: the patch number plus one, without a pre-release suffix ("v0.1.0" -> "0.1.1"). */
@@ -149,8 +149,9 @@ export function staleHome(home) {
   if (!fs.existsSync(path.join(cur, 'cli.mjs'))) return [{ rel: 'app/current', why: 'missing' }];
   const read = p => { try { return fs.readFileSync(p); } catch { return null; } };
   for (const rel of HOME_DOCS) {
-    const a = read(path.join(home, rel)), b = read(path.join(cur, rel));
-    if (b && (!a || !a.equals(b))) out.push({ rel, why: a ? 'differs from app/current' : 'missing in the home' });
+    const a = read(path.join(home, rel)), b = read(path.join(cur, rel)), n = read(path.join(home, `${rel}.new`));
+    // an edited AGENTS.md, CLAUDE.md or settings.example.json is kept, with the release's copy as <name>.new
+    if (b && (!a || !a.equals(b)) && !(KEEP_EDITED.includes(rel) && n && n.equals(b))) out.push({ rel, why: a ? 'differs from app/current' : 'missing in the home' });
   }
   const named = new Set(HOME_DOCS.filter(d => d.endsWith('.md')).flatMap(d => scriptsNamedIn(read(path.join(home, d))?.toString('utf8'))));
   for (const rel of named) {

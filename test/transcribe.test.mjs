@@ -598,12 +598,12 @@ test('units: the path unit watches the inbox and starts the queue service; cli.m
   const run = (cmd, args) => { runs.push([cmd, ...args].join(' ')); return { status: 0 }; };
   const r = installTimer({ time: '19:30', tz: 'UTC', bot: false, transcribe: s, dir, run, stdio: 'ignore' });
   assert.equal(r.code, 0, r.lines.join('\n'));
-  assert.deepEqual(runs, ['systemctl --user stop cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-transcribe.path']);
+  assert.deepEqual(runs, ['systemctl --user is-active --quiet cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user stop cometscout.timer', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-transcribe.path']);
   assert.ok(fs.existsSync(path.join(dir, 'cometscout-transcribe.path')) && fs.existsSync(path.join(dir, 'cometscout-transcribe.service')));
   assert.ok(r.lines.some(l => /^Transcription: a file in .* starts cometscout-transcribe\.service/.test(l)));
   runs.length = 0;
   const off = installTimer({ time: '19:30', tz: 'UTC', bot: false, transcribe: { ...s, enabled: false }, dir, run, stdio: 'ignore' });
-  assert.deepEqual(runs, ['systemctl --user disable --now cometscout-transcribe.path', 'systemctl --user stop cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer']);
+  assert.deepEqual(runs, ['systemctl --user disable --now cometscout-transcribe.path', 'systemctl --user is-active --quiet cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user stop cometscout.timer', 'systemctl --user enable --now cometscout.timer']);
   assert.ok(!fs.existsSync(path.join(dir, 'cometscout-transcribe.path')) && !fs.existsSync(path.join(dir, 'cometscout-transcribe.service')));
   assert.ok(off.lines.some(l => /Transcription is off/.test(l)));
 });

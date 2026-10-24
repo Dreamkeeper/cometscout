@@ -355,7 +355,7 @@ async function buildPack(file) {
   } else if (clNeed !== 'no') flags.push('The model returned no cover letter.');
 
   // Answers (a salary expectation stays blank, with the floor and the posting's range as a note: pack/answers.mjs)
-  const held = holdSalary((pack.answers || []).map(a => ({ ...a, answer: dedash(a.answer) })), { floor: payFloor(PROFILE.facts), range: fm.salary || null });
+  const held = holdSalary((pack.answers || []).map(a => ({ ...a, answer: dedash(a.answer) })), { floor: payFloor(PROFILE.facts), range: fm.salary || null, choices: new Set(fields.filter(f => f.options?.length).map(f => f.label)) });
   const answers = held.answers; flags.push(...held.flags);
   const answersLint = [];
   for (const a of answers) {

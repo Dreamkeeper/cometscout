@@ -12,6 +12,7 @@ For the maintainer. A release is a git tag `vX.Y.Z` and a GitHub release with no
    - `notes`: `highlights` (one to three lines a user cares about; the Telegram notice shows the first two), `new`, `changed`, `action_needed` (`{ text, setting }`: setting is its path in `settings.json`, such as `schedule.time`; the workspace opens the settings dialog there), `changed_defaults` (`{ setting, default, text }`: the user's own value is kept, and they can accept the new one). `notes_ru` is optional, key by key, English fills the rest.
    - `media`: `{ path, alt }` for screenshots in the repo (`docs/screenshots/...`).
    - Plain words, no em dashes. Data changes follow expand, then contract (`DEVELOPMENT.md`).
+   - The `release-check` workflow (`.github/workflows/release-check.yml`, `tools/release-check.mjs`) runs on every pushed `v*` tag and fails unless `package.json`'s version and the top entry's `version` are the tag's and the entry's `date` is not in the future. Run `node tools/release-check.mjs v0.2.0` before you tag.
 3. **Changelog.** `node tools/changelog.mjs` rewrites `CHANGELOG.md`. Commit both.
 4. **Tests.** `npm test` passes on Linux and Windows (`test/release.test.mjs` fails when the version has no valid entry or the changelog is stale). `node cli.mjs doctor` runs on the example profile.
 5. **Tag.** On `main`, after the pull request is merged:

@@ -20,11 +20,12 @@
       "changed": [
         "candidate_name is null by default: your name comes from profile/profile.md. doctor says when settings.json still has the example person's name, or data/ holds decodes made with the example profile.",
         "node cli.mjs reset --yes keeps data/state/schema.json, update.json and runs.jsonl, which describe the install.",
-        "Every update, adopt and rollback refreshes AGENTS.md, the READMEs, INSTALL.md and the example files in the home, and the scripts they name become wrappers for the installed release's copies. An edited copy is saved to app/replaced/ first.",
+        "Every update, adopt and rollback refreshes AGENTS.md, the READMEs, INSTALL.md and the example files in the home, and the scripts they name become wrappers for the installed release's copies. An AGENTS.md, CLAUDE.md or settings.example.json you edited stays, with the release's version next to it as <name>.new (doctor warns); any other edited copy is saved to app/replaced/ first.",
         "doctor finds Claude Code in ~/.local/bin when the shell's PATH lacks it.",
-        "The timer is persistent only once an evening run has happened, and every install resets its stamp, so no install starts a catch-up run.",
+        "The timer is persistent once an evening run has happened (the first run adds it), and every install resets its stamp, so no install starts a catch-up run. A run missed before you reinstall or change the timer is therefore not caught up: start it with node cli.mjs run.",
+        "settings validation refuses an ats_boards company whose ats is not one CometScout reads.",
         "A salary expectation in the form answers is left blank, with your floor and the posting's range as a note: the floor is a minimum, not the figure to ask for.",
-        "The drop folder defaults to ~/cometscout-drop and is created on the first run."
+        "The drop folder defaults to ~/cometscout-drop, created on the first run; a folder you name yourself must exist (doctor says so)."
       ],
       "action_needed": [
         {
@@ -46,11 +47,12 @@
       "changed": [
         "candidate_name по умолчанию null: имя берётся из profile/profile.md. doctor подскажет, если в settings.json осталось имя человека из примера или в data/ лежат разборы, сделанные по примеру профиля.",
         "node cli.mjs reset --yes оставляет data/state/schema.json, update.json и runs.jsonl: они описывают установку.",
-        "Каждое обновление, adopt и откат обновляют в домашней папке AGENTS.md, README, INSTALL.md и файлы примера, а скрипты, которые в них названы, становятся обёртками для копий из установленной версии. Изменённая вами копия сначала сохраняется в app/replaced/.",
+        "Каждое обновление, adopt и откат обновляют в домашней папке AGENTS.md, README, INSTALL.md и файлы примера, а скрипты, которые в них названы, становятся обёртками для копий из установленной версии. Изменённые вами AGENTS.md, CLAUDE.md и settings.example.json остаются как есть, версия из релиза кладётся рядом как <имя>.new (doctor предупредит); другие изменённые копии сначала сохраняются в app/replaced/.",
         "doctor находит Claude Code в ~/.local/bin, даже если его нет в PATH текущей оболочки.",
-        "Таймер становится persistent только после первого вечернего запуска, а каждая установка сбрасывает его отметку, так что установка не запускает догоняющий разбор.",
+        "Таймер становится persistent после первого вечернего запуска (запуск сам это добавляет), а каждая установка сбрасывает его отметку, так что установка не запускает догоняющий разбор. Поэтому запуск, пропущенный до переустановки или смены времени таймера, не догоняется: запустите его сами, node cli.mjs run.",
+        "Проверка настроек отклоняет компанию в ats_boards, у которой указан ats, который CometScout не читает.",
         "Ожидаемая зарплата в ответах для формы остаётся пустой, с вашим минимумом и вилкой из вакансии в примечании: минимум не равен сумме, которую стоит просить.",
-        "Папка для файлов по умолчанию ~/cometscout-drop и создаётся при первом запуске."
+        "Папка для файлов по умолчанию ~/cometscout-drop и создаётся при первом запуске; папка, которую вы указали сами, должна существовать (doctor подскажет)."
       ],
       "action_needed": [
         {

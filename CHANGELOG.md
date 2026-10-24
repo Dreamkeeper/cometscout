@@ -22,11 +22,12 @@ Needs Node 22 or newer. This version changes behaviour: read Changed before upda
 
 - candidate_name is null by default: your name comes from profile/profile.md. doctor says when settings.json still has the example person's name, or data/ holds decodes made with the example profile.
 - node cli.mjs reset --yes keeps data/state/schema.json, update.json and runs.jsonl, which describe the install.
-- Every update, adopt and rollback refreshes AGENTS.md, the READMEs, INSTALL.md and the example files in the home, and the scripts they name become wrappers for the installed release's copies. An edited copy is saved to app/replaced/ first.
+- Every update, adopt and rollback refreshes AGENTS.md, the READMEs, INSTALL.md and the example files in the home, and the scripts they name become wrappers for the installed release's copies. An AGENTS.md, CLAUDE.md or settings.example.json you edited stays, with the release's version next to it as <name>.new (doctor warns); any other edited copy is saved to app/replaced/ first.
 - doctor finds Claude Code in ~/.local/bin when the shell's PATH lacks it.
-- The timer is persistent only once an evening run has happened, and every install resets its stamp, so no install starts a catch-up run.
+- The timer is persistent once an evening run has happened (the first run adds it), and every install resets its stamp, so no install starts a catch-up run. A run missed before you reinstall or change the timer is therefore not caught up: start it with node cli.mjs run.
+- settings validation refuses an ats_boards company whose ats is not one CometScout reads.
 - A salary expectation in the form answers is left blank, with your floor and the posting's range as a note: the floor is a minimum, not the figure to ask for.
-- The drop folder defaults to ~/cometscout-drop and is created on the first run.
+- The drop folder defaults to ~/cometscout-drop, created on the first run; a folder you name yourself must exist (doctor says so).
 
 ### Action needed
 

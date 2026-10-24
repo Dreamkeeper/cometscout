@@ -5,8 +5,20 @@
 
 const PAY = /salary|compensation|remuneration|\bpay\b|\bwage|gehalt|verg(?:ü|ue)tung|зарплат|заработн|оклад|доход/i;
 const ASK = /expect|desired|requirement|range|asking|target|wish|how much|ожида|желаем|vorstellung|wunsch/i;
-/** True for a form field that asks for a salary expectation ("Salary expectations", "Desired compensation (EUR)"). */
-export const isSalaryField = field => { const f = String(field || ''); return PAY.test(f) && (ASK.test(f) || f.length <= 40); };
+// a choice about the pay, not the figure: currency, frequency, gross or net, the kind of contract
+const ABOUT = /currency|frequency|period|\btype\b|gross|\bnet\b|format|basis|валют|периодичн|währung/i;
+// a field that is the bare word ("Salary", "Gehalt:", "Зарплата (EUR)")
+const BARE = /^\s*(salary|gehalt|зарплата)\s*(\([^)]*\))?\s*[:?]?\s*$/i;
+/**
+ * True for a form field that asks for the salary figure the candidate expects ("Salary expectations", "Desired
+ * compensation (EUR)", a bare "Salary"). Never a field with options to choose from (choices: true), and never a field
+ * about the pay's currency, frequency or kind ("Compensation currency", "Pay frequency", "Salary type (gross/net)").
+ */
+export const isSalaryField = (field, { choices = false } = {}) => {
+  const f = String(field || '');
+  if (choices || ABOUT.test(f) || !PAY.test(f)) return false;
+  return ASK.test(f) || BARE.test(f);
+};
 
 /** The pay floor as profile.md states it ("Pay floor: EUR 60,000 gross a year ..."), or null. */
 export function payFloor(facts) {
@@ -19,12 +31,13 @@ export function payFloor(facts) {
 
 /**
  * The answers with every salary-expectation answer emptied and explained: { answers, flags }. floor: payFloor of the
- * profile; range: the posting's salary as the job file states it (front matter salary), or null.
+ * profile; range: the posting's salary as the job file states it (front matter salary), or null; choices: the labels
+ * of the form's fields that have options (never emptied).
  */
-export function holdSalary(answers, { floor = null, range = null } = {}) {
+export function holdSalary(answers, { floor = null, range = null, choices = new Set() } = {}) {
   const flags = [];
   const out = (answers || []).map(a => {
-    if (!isSalaryField(a?.field)) return a;
+    if (!isSalaryField(a?.field, { choices: choices.has(a?.field) })) return a;
     const note = `Left blank for you to decide. Your floor (profile): ${floor || 'not in your profile'}. The posting: ${range ? String(range).trim() : 'states no range'}.`;
     flags.push(`Salary: "${a.field}" is left blank for you to decide (your floor is a minimum, not the figure to ask for).`);
     return { ...a, answer: '', own_words: false, note };

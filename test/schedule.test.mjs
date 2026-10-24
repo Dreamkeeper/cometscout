@@ -148,7 +148,7 @@ test('the timer units: the bot unit only with Telegram on; installTimer writes t
   assert.equal(r.code, 0);
   assert.match(fs.readFileSync(path.join(dir, 'cometscout.timer'), 'utf8'), /OnCalendar=\*-\*-\* 07:15:00 UTC/);
   assert.ok(fs.existsSync(path.join(dir, 'cometscout-bot.service')));
-  assert.deepEqual(runs, ['systemctl --user stop cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-bot.service']);
+  assert.deepEqual(runs, ['systemctl --user is-active --quiet cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user stop cometscout.timer', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-bot.service']);
   assert.equal(installTimer({ time: '7:15', dir, run: () => {} }).code, 1);
 });
 

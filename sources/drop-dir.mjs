@@ -33,6 +33,8 @@ import { writeJob, frontMatter, norm, applications } from '../lib/queue.mjs';
 import { fetchDetail, parseSearchTitleRule, HEURISTIC_RULES, companyFromUrl, isListingPage } from '../lib/fetch-detail.mjs';
 
 export const DEFAULT_DIR = '~/cometscout-drop';   // when sources.drop_dir.dir is not set
+/** True when dir is unset or the default (the folders the source creates by itself). */
+export const isDefaultDir = dir => !dir || String(dir).replace(/[\\/]+$/, '') === DEFAULT_DIR;
 export const MAX_ATTEMPTS = 3;          // runs a URL (or a whole file) is tried before it is given up
 export const MAX_FETCHES_PER_RUN = 40;  // default page fetches per run (settings.sources.drop_dir.max_fetches_per_run)
 const PAGE_DELAY_MS = 1500;             // between page fetches; ATS APIs are not throttled
@@ -210,6 +212,8 @@ export async function run({ fetch: fetchFn, dryRun = false, pageDelayMs = PAGE_D
   // "~" is the user's home folder; no dir set means the default, ~/cometscout-drop
   const cfg = { ...raw, dir: expandHome(raw.dir || DEFAULT_DIR), move_processed_to: expandHome(raw.move_processed_to) };
   if (!fs.existsSync(cfg.dir)) {
+    // only the default folder is made: a folder named by hand that is missing is most likely a typo
+    if (!isDefaultDir(raw.dir)) { log(`drop-dir: the folder ${cfg.dir} does not exist; create it or fix sources.drop_dir.dir in settings.json`); return { ran: false, report: [] }; }
     if (dryRun) { log(`drop-dir: the folder ${cfg.dir} does not exist yet (the first real run creates it)`); return { ran: false, report: [] }; }
     fs.mkdirSync(cfg.dir, { recursive: true }); log(`drop-dir: created ${cfg.dir}; put job files or *.queue.json files there`);
   }

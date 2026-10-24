@@ -85,7 +85,7 @@ test('cli.mjs timer replaces old units: the old timer and bot are stopped and di
   const r = installTimer({ time: '19:30', tz: 'UTC', bot: true, dir, run: (cmd, args) => runs.push([cmd, ...args].join(' ')), stdio: 'ignore' });
   assert.equal(r.code, 0);
   // new units first; the old bot is stopped last and without blocking (this may be running inside it)
-  assert.deepEqual(runs, ['systemctl --user stop cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-bot.service',
+  assert.deepEqual(runs, ['systemctl --user is-active --quiet cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user stop cometscout.timer', 'systemctl --user enable --now cometscout.timer', 'systemctl --user enable --now cometscout-bot.service',
     'systemctl --user stop jobpilot.timer', 'systemctl --user disable jobpilot.timer', 'systemctl --user disable jobpilot-bot.service',
     'systemctl --user daemon-reload', 'systemctl --user stop --no-block jobpilot-bot.service']);
   assert.ok(r.lines.some(l => /Removed the units from before the rename: jobpilot\.timer/.test(l)));
@@ -96,7 +96,7 @@ test('cli.mjs timer replaces old units: the old timer and bot are stopped and di
   assert.deepEqual(oldUnitsDoctor({ dir }), []);
   // a second install finds nothing old and stops nothing old
   runs.length = 0; installTimer({ time: '19:30', tz: 'UTC', bot: false, dir, run: (cmd, args) => runs.push([cmd, ...args].join(' ')), stdio: 'ignore' });
-  assert.deepEqual(runs, ['systemctl --user stop cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user enable --now cometscout.timer']);
+  assert.deepEqual(runs, ['systemctl --user is-active --quiet cometscout.timer', 'systemctl --user daemon-reload', 'systemctl --user stop cometscout.timer', 'systemctl --user enable --now cometscout.timer']);
 });
 
 test('doctor reports old units and old variables, with what to do', () => {
@@ -223,7 +223,7 @@ test('timer: a failed systemctl leaves the old units running; --keep-old-units k
   const keep = mk('units-keep'), runs2 = [];
   const k = installTimer({ time: '19:30', tz: 'UTC', bot: false, dir: keep, stdio: 'ignore', keepOld: true, run: (cmd, args) => { runs2.push(args.join(' ')); return { status: 0 }; } });
   assert.equal(k.code, 0);
-  assert.deepEqual(runs2, ['--user stop cometscout.timer', '--user daemon-reload', '--user enable --now cometscout.timer']);
+  assert.deepEqual(runs2, ['--user is-active --quiet cometscout.timer', '--user daemon-reload', '--user stop cometscout.timer', '--user enable --now cometscout.timer']);
   assert.match(k.lines.join('\n'), /Kept the units of the older install/);
   for (const u of L.OLD_UNITS) assert.ok(fs.existsSync(path.join(keep, u)), u);
 });

@@ -20,7 +20,7 @@
 import { SETTINGS, STATE, readJson, log, today } from '../lib/config.mjs';
 import { writeJob, htmlText, matchesAny, applications } from '../lib/queue.mjs';
 import { checkGates, fromText, gateTally, settle } from '../lib/gates.mjs';
-import { parsePersonio, personioHosts, parseGem } from '../lib/boards.mjs';
+import { fetchPersonio, parseGem } from '../lib/boards.mjs';
 import fs from 'node:fs';
 
 const cfg = SETTINGS.sources.ats_boards || {};
@@ -52,15 +52,7 @@ const FETCH = {
       text: [x.descriptionPlain, ...(x.lists || []).map(l => `${l.text}\n${htmlText(l.content)}`), x.additionalPlain].filter(Boolean).join('\n\n') }));
   },
   // the XML feed (lib/boards.mjs); "acme" is tried on jobs.personio.de, then on jobs.personio.com
-  async personio(board) {
-    const hosts = personioHosts(board); let last;
-    for (const host of hosts) {
-      const r = await fetch(`https://${host}/xml?language=en`, { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'cometscout/0.1' } });
-      if (r.ok) return parsePersonio(await r.text(), host);
-      last = new Error(`${r.status} https://${host}/xml`); if (r.status !== 404) break;
-    }
-    throw last;
-  },
+  personio: board => fetchPersonio(board),
   async gem(board) { return parseGem(await get(`https://api.gem.com/job_board/v0/${board}/job_posts`)); },
 };
 
