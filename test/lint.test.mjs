@@ -187,7 +187,7 @@ function packHome(name, response, opts = {}) {
   const h = home(name, opts);
   const fake = path.join(h, 'fake-claude.mjs');
   // stands in for `claude -p --output-format json`: reads the prompt, answers with the canned pack
-  fs.writeFileSync(fake, `#!${process.execPath}\nimport fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(path.join(h, 'calls.log'))}, 'call\\n');\nprocess.stdin.resume(); process.stdin.on('end', () => process.stdout.write(${JSON.stringify(JSON.stringify({ structured_output: response, total_cost_usd: 0 }))}));\n`, { mode: 0o755 });
+  fs.writeFileSync(fake, `#!${process.execPath}\nimport fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(path.join(h, 'calls.log'))}, 'call\\n');\nprocess.stdin.resume(); process.stdin.on('end', () => process.stdout.write(${JSON.stringify(JSON.stringify({ structured_output: response, total_cost_usd: opts.cost ?? 0 }))}));\n`, { mode: 0o755 });
   const s = JSON.parse(fs.readFileSync(path.join(h, 'settings.json'), 'utf8'));
   fs.writeFileSync(path.join(h, 'settings.json'), JSON.stringify({ ...s, llm: { provider: 'claude', model: 'sonnet', pack_model: 'opus', bin: fake }, delivery: { telegram: { enabled: true } } }));
   fs.writeFileSync(path.join(h, 'mock-fetch.mjs'), `import fs from 'node:fs';
@@ -217,8 +217,10 @@ const cvPick = (extra = {}) => ({ tagline: 'Product Manager  |  Clinic software'
 
 test('pack: a banned claim in the model tagline or summary brings back the vetted ones', { skip: !HAS_PY && 'python3 is not installed' }, () => {
   const p = packRun('pack-fallback', { positioning: 'Clinic billing.', flags: [], answers: [],
-    cv: cvPick({ tagline: 'The first PM for clinic software', summary: 'As the first product manager at a clinic startup, I built billing.' }) });
+    cv: cvPick({ tagline: 'The first PM for clinic software', summary: 'As the first product manager at a clinic startup, I built billing.' }) }, { cost: 0.25 });
   assert.equal(p.r.status, 0, p.r.stdout + p.r.stderr);
+  assert.equal(p.json.cost_usd, 0.25); assert.equal(p.record.cost_usd, 0.25, 'packs.json keeps the cost for the run log');
+  assert.match(p.record.at, /^\d{4}-\d{2}-\d{2}T/);
   assert.ok(p.json.flags.includes('CV lint: first-pm in model text, vetted summary used'), p.json.flags.join('\n'));
   assert.equal(p.json.cv.tagline, LIB.taglines[0].text);
   assert.equal(p.json.cv.summary, LIB.summaries[0].text);
@@ -250,7 +252,7 @@ test('pack: vetted text that still breaks a rule: refused, one Telegram line, re
   assert.deepEqual(p.tg, [{ method: 'sendMessage', text: 'Pack not built: ExampleCare, Product Manager. The CV still breaks big-team with vetted text; fix profile/cv-library.json.' }]);
   const prof = path.join(h, 'profile');
   assert.deepEqual(p.record, { refused: ['big-team'], date: '2026-10-02', at: p.record.at, library_mtime: fs.statSync(path.join(prof, 'cv-library.json')).mtimeMs,
-    rules_mtime: fs.statSync(path.join(prof, 'lint-rules.json')).mtimeMs, company: 'ExampleCare', role: 'Product Manager' });
+    rules_mtime: fs.statSync(path.join(prof, 'lint-rules.json')).mtimeMs, company: 'ExampleCare', role: 'Product Manager', cost_usd: 0 });
   // the next run skips it: no model call, no message
   const again = runPack(h, []);
   assert.equal(again.r.status, 0);
@@ -298,7 +300,7 @@ test('pack: cover letter and answers get lint flags, errors and warnings, each r
 
 test('run: a refused pack is listed in run_done and the closing line, and does not fail the run', { skip: !HAS_PY && 'python3 is not installed' }, () => {
   const h = packHome('run-refused', { positioning: 'Team lead.', flags: [], answers: [],
-    cv: cvPick({ experience: [{ key: 'northwind', bullet_ids: ['nw-launch', 'nw-team'] }] }) });
+    cv: cvPick({ experience: [{ key: 'northwind', bullet_ids: ['nw-launch', 'nw-team'] }] }) }, { cost: 0.5 });
   // a decoded strong fit from today, so the decoder makes it today's pick and the pack step takes it
   const day = new Date().toISOString().slice(0, 10);
   const dec = path.join(h, 'data', 'decoded', JOB);
@@ -316,4 +318,8 @@ test('run: a refused pack is listed in run_done and the closing line, and does n
   assert.deepEqual(done.refused, [{ file: JOB, company: 'ExampleCare', role: 'Product Manager', rules: ['big-team'] }]);
   assert.deepEqual(done.sources_failed, []);
   assert.ok(readLines(path.join(h, 'tg.jsonl')).some(l => JSON.parse(l).text?.startsWith('Pack not built: ExampleCare, Product Manager.')));
+  // the refused pack's model call is counted: in the run log and in the line the run adds to the digest after the packs
+  const run = JSON.parse(readLines(path.join(h, 'data', 'state', 'runs.jsonl')).at(-1));
+  assert.deepEqual(run.cost, { decodes: 0, decodes_usd: 0, packs: 1, packs_usd: 0.5, total_usd: 0.5 });
+  assert.match(fs.readFileSync(path.join(h, 'data', 'digests', `${day}.md`), 'utf8'), /\nCost of this run: decodes 0 \(USD 0\.00\), packs 1 \(USD 0\.50\), total USD 0\.50\.\n$/);
 });

@@ -34,7 +34,7 @@ write('data/state/applications.json', JSON.stringify({ 'acme--product-manager': 
 
 const L = await import('../lib/layout.mjs');
 const U = await import('../lib/update.mjs');
-const { releaseBody } = await import('../lib/release.mjs');
+const { releaseBody, compareVersions } = await import('../lib/release.mjs');
 const { ZipWriter, readZip } = await import('../lib/zip.mjs');
 const { listBackups } = await import('../lib/backup.mjs');
 const { takeLock } = await import('../lib/lock.mjs');
@@ -55,7 +55,9 @@ async function makeRelease(version, migrations = {}) {
   for (const rel of CODE_FILES) { const to = path.join(src, ...rel.split('/')); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(path.join(REPO, ...rel.split('/')), to); }
   const pkg = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')); pkg.version = version; fs.writeFileSync(path.join(src, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
   const entry = { version, date: '2026-11-01', min_node: 20, schema_version: 1, migrations: Object.keys(migrations), behaviour_changes: false, notes: { highlights: [`Synthetic release ${version}.`], new: ['A synthetic change.'] } };
-  fs.writeFileSync(path.join(src, 'release.json'), JSON.stringify([entry, ...JSON.parse(fs.readFileSync(path.join(src, 'release.json'), 'utf8'))], null, 2) + '\n');
+  // an unreleased entry at the top of this code's release.json (newer than BASE) stands in for no release here
+  const released = JSON.parse(fs.readFileSync(path.join(src, 'release.json'), 'utf8')).filter(e => compareVersions(e.version, BASE) <= 0);
+  fs.writeFileSync(path.join(src, 'release.json'), JSON.stringify([entry, ...released], null, 2) + '\n');
   const files = [...CODE_FILES];
   for (const [id, body] of Object.entries(migrations)) { fs.mkdirSync(path.join(src, 'migrations'), { recursive: true }); fs.writeFileSync(path.join(src, 'migrations', `${id}.mjs`), `export const id = '${id}';\nexport async function up(ctx) {\n${body}\n}\n`); files.push(`migrations/${id}.mjs`); }
   const zipFile = path.join(tmp, `cometscout-${version}.zip`), z = await ZipWriter.open(zipFile);

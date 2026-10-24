@@ -69,8 +69,9 @@ export const APPS_FILE = STATE('applications.json');
 // Strict, like the sources: a broken file throws instead of reading as "no applications", which would bring back
 // roles already applied to as picks. main() checks it before anything else.
 export const apps = () => readApplications(APPS_FILE);
-// What the candidate recorded (applied, rejected, offer ...) always reaches the model, newest first; past decodes,
-// newest first, fill the remaining lines. A long history must never drop "they already rejected me".
+// What the candidate recorded (applied, rejected, offer ...) always reaches the model, newest first; other roles
+// CometScout decoded at the company, newest first, fill the remaining lines in a block of their own (history()).
+// A long history must never drop "they already rejected me".
 // The company matches through alias families (lib/companies.mjs), so "Acme" also finds "Acme Robotics".
 // before (YYYY-MM-DD) shows the world as it was on that day (evals use it so a job's own outcome cannot leak into its
 // decode): an application counts when it was updated or has an event before that day; when it changed later, its
@@ -93,24 +94,42 @@ export function asOf(a, before = null) {
   set = set || events[events.length - 1];
   return { date: set.date, status: statusOfEvent(set) || set.type || 'applied', note: null, events };
 }
-export function history(company, { before = null, excludeFile = null } = {}) {
+// The two parts, newest first: recorded [{ d, line }] (the candidate's applications) and decodes [{ d, file, role, verdict }]
+// (other roles CometScout read at the company). The workspace shows both; the decode prompt gets history() below.
+export function historyParts(company, { before = null, excludeFile = null } = {}) {
   const fams = aliasFamilies(); const recorded = [], decodes = [];
   for (const [key, a] of Object.entries(apps())) {
     if (!a || key === excludeFile || laterOnly(a) || !companyMatch(a.company, company, fams)) continue;
     const s = asOf(a, before); if (!s) continue;
     // "later" (the workspace's "not now") says nothing about the employer
     const ev = s.events.filter(e => e.type !== 'later').slice(-3).map(e => `${e.date || '?'} ${e.type || ''}${e.note ? ` (${String(e.note).slice(0, 120)})` : ''}`).join('; ');
-    recorded.push({ d: s.date || '', line: `- ${s.date}: ${a.role}: ${s.status}${s.note ? ` (${s.note})` : ''}${ev ? ` [events: ${ev}]` : ''} [recorded by the candidate]` });
+    recorded.push({ d: s.date || '', line: `- ${s.date}: ${a.role}: ${s.status}${s.note ? ` (${s.note})` : ''}${ev ? ` [events: ${ev}]` : ''}` });
   }
   for (const dir of ['decoded', 'rejected']) for (const f of fs.readdirSync(DIRS[dir])) {
     if (!f.endsWith('.md') || f === excludeFile) continue; const t = read(path.join(DIRS[dir], f)); const fm = frontMatter(t);
     if (!companyMatch(fm.company, company, fams)) continue;
     const v = parseResult(t); const d = v.decoded_on || f.slice(0, 10);
-    if (!before || d < before) decodes.push({ d, line: `- ${d}: decoded "${fm.role}": ${v.verdict}` });
+    if (!before || d < before) decodes.push({ d, file: f, role: fm.role, verdict: v.verdict });
   }
-  const newest = list => list.sort((x, y) => (x.d < y.d ? 1 : x.d > y.d ? -1 : 0)).map(x => x.line);
-  const lines = [...newest(recorded).slice(0, 20), ...newest(decodes).slice(0, Math.max(5, 15 - recorded.length))];
-  return lines.length ? lines.join('\n') : '(nothing before with this company)';
+  const newest = list => list.sort((x, y) => (x.d < y.d ? 1 : x.d > y.d ? -1 : 0));
+  return { recorded: newest(recorded), decodes: newest(decodes) };
+}
+export const RECORDED_HEADING = 'Applications and outcomes the user recorded';
+export const OTHERS_HEADING = 'Other roles at this company that CometScout read (not applications)';
+/**
+ * The history as the decode prompt shows it, in two blocks: what the candidate recorded, and other roles CometScout
+ * read at the company. The second block has the date and the role only, never a verdict, so a decode cannot anchor
+ * on an earlier one or take it for an application. It leaves out decodes from the same day (before, or today() when
+ * there is no cutoff) and the files in skip (the run's own decodes), so jobs decoded together never see each other.
+ */
+export function history(company, { before = null, excludeFile = null, skip = null } = {}) {
+  const { recorded, decodes } = historyParts(company, { before, excludeFile });
+  const cut = before || today();
+  const others = decodes.filter(x => x.d < cut && !skip?.has(x.file));
+  const mine = recorded.slice(0, 20).map(x => x.line);
+  const seen = others.slice(0, Math.max(5, 15 - mine.length)).map(x => `- ${x.d}: ${x.role}`);
+  return [`## ${RECORDED_HEADING}`, ...(mine.length ? mine : ['none: the user has not applied to this company']), '',
+    `## ${OTHERS_HEADING}`, ...(seen.length ? seen : ['none'])].join('\n');
 }
 
 // ---------- fact check: regex guards from profile/fact-rules.json ----------
@@ -141,24 +160,30 @@ export function factFlags(v, rules = PROFILE.factRules) {
 
 /**
  * One verdict for a job { file, fm, body, text }. before and excludeFile cut the history (evals/decode.mjs replays a
- * job as of its own date, so no later outcome reaches the prompt); call is lib/llm.mjs callJson unless a test injects one.
+ * job as of its own date, so no later outcome reaches the prompt); skip leaves the run's own decodes out of it; call
+ * is lib/llm.mjs callJson unless a test injects one. The verdict carries cost_usd, what the model call cost (0 when the
+ * CLI does not say).
  */
-export async function decodeText(job, prompt, { before = null, excludeFile = null, call = callJson } = {}) {
+export async function decodeText(job, prompt, { before = null, excludeFile = null, skip = null, call = callJson } = {}) {
   if (job.fm.full_text === 'missing' || job.body.replace(/^#.*$/m, '').trim().length < MIN_TEXT) {
-    return { verdict: 'unreadable', confidence: 'low', rationale: 'No readable job text; open the link and judge by hand.', fit_signals: [], gaps: [], action: 'Open the link and decide manually.' };
+    return { verdict: 'unreadable', confidence: 'low', rationale: 'No readable job text; open the link and judge by hand.', fit_signals: [], gaps: [], action: 'Open the link and decide manually.', cost_usd: 0 };
   }
-  const input = `${prompt}\n\n## History with ${job.fm.company}\n${history(job.fm.company, { before, excludeFile })}\n\n## Job file\n\n${job.text.slice(0, 16000)}\n`;
-  const { value } = await call({ prompt: input, schema: SCHEMA, model: SETTINGS.llm.model });
+  const input = `${prompt}\n\n${history(job.fm.company, { before, excludeFile, skip })}\n\n## Job file\n\n${job.text.slice(0, 16000)}\n`;
+  const { value, cost } = await call({ prompt: input, schema: SCHEMA, model: SETTINGS.llm.model });
   if (!value?.verdict) throw new Error('no verdict');
   value.fact_flags = factFlags(value);
+  value.cost_usd = Number(cost) > 0 ? Number(cost) : 0;
   return value;
 }
-const decodeOne = (file, prompt) => decodeText(loadJob(file), prompt);
+const decodeOne = (file, prompt, skip) => decodeText(loadJob(file), prompt, { skip });
+/** USD with four decimals: one decode costs cents or less. */
+const usd = n => (Number(n) > 0 ? Number(n) : 0).toFixed(4);
 function resultBlock(v) {
   return ['', '## Decode Result', `Decoded ${today()} by CometScout (${SETTINGS.llm.provider}${SETTINGS.llm.model ? `/${SETTINGS.llm.model}` : ''}).`,
     `verdict: ${v.verdict}${v.gate ? ` (${v.gate})` : ''}`, `confidence: ${v.confidence}`, v.apply_priority ? `apply_priority: ${v.apply_priority}` : null,
     `rationale: ${v.rationale}`, `fit_signals: ${(v.fit_signals || []).join('; ')}`, `gaps: ${(v.gaps || []).join('; ') || 'none'}`, `action: ${v.action}`,
-    v.hold_reason ? `hold_reason: ${v.hold_reason}` : null, v.fact_flags?.length ? `fact_flags: ${v.fact_flags.map(f => f.id).join(', ')}` : null].filter(x => x !== null).join('\n') + '\n';
+    v.hold_reason ? `hold_reason: ${v.hold_reason}` : null, v.fact_flags?.length ? `fact_flags: ${v.fact_flags.map(f => f.id).join(', ')}` : null,
+    `cost_usd: ${usd(v.cost_usd)}`].filter(x => x !== null).join('\n') + '\n';
 }
 
 // ---------- picks ----------
@@ -309,7 +334,8 @@ export async function finishRun({ done = [], failed = [], gaveUp = [], left = 0,
   if (!dry && !off) { recordPicks(pk.picks, date); if (pk.picks.length) runHook('picks', { date, picks: pk.picks.map(p => ({ file: p.file, company: p.fm.company, role: p.fm.role, url: p.fm.url || null, verdict: p.v.verdict, apply_priority: p.v.apply_priority ?? null })) }); }
   const back = off ? [] : held.filter(h => h.date < date);
   if (!off && !done.length && !failed.length && !gaveUp.length && !pk.picks.length && !pk.prep && !back.length) { log(`nothing new and no picks${left ? ` (${left} waiting in the inbox)` : ''}`); return { text: null, pk, off, sendError: null }; }
-  const text = digestText({ name: SETTINGS.candidate_name, date, dry, done, failed, gaveUp, pk, left, cap, maxTries: MAX_TRIES, off: off ? date : null, held: back });
+  // in the evening run the packs come after this digest: the cost footer counts the decodes, cli.mjs run adds the total
+  const text = digestText({ name: SETTINGS.candidate_name, date, dry, done, failed, gaveUp, pk, left, cap, maxTries: MAX_TRIES, off: off ? date : null, held: back, packsLater: evening && !off && !!SETTINGS.pack?.enabled });
   // A dry run never touches the digest; a second real run on the same day is appended, not written over the first.
   if (!dry) {
     const dg = path.join(DIRS.digests, `${date}.md`); fs.existsSync(dg) ? fs.appendFileSync(dg, `\n---\n\n${text}\n`, 'utf8') : fs.writeFileSync(dg, text + '\n', 'utf8');
@@ -338,7 +364,7 @@ async function main() {
   if (ONE !== null) {
     // one queue file (inbox, decoded or rejected), decoded again with nothing written: no move, no digest, no hook
     if (!DRY || !ONE || ONE !== path.basename(ONE)) { log('decoder: --file needs --dry-run and a file name from data/inbox, decoded or rejected'); process.exit(1); }
-    try { const v = await decodeOne(ONE, buildPrompt() + contextBlock()); log(`${ONE}: ${v.verdict} (dry run, nothing written)`); process.exit(0); }
+    try { const v = await decodeOne(ONE, buildPrompt() + contextBlock(), new Set([ONE])); log(`${ONE}: ${v.verdict} (dry run, nothing written)`); process.exit(0); }
     catch (e) { log(`${ONE}: FAILED ${e.message}`); process.exit(1); }
   }
   // CometScout's own sources finish before decode starts, so no settle time is needed. If an outside producer writes
@@ -360,9 +386,10 @@ async function main() {
   // rejected/ as "failed" and named in the digest, so it cannot take a cap slot every evening forever.
   const TRIES_FILE = STATE('decode-failures.json'); const tries = readJson(TRIES_FILE, {});
   const done = [], failed = [], gaveUp = [];
+  const thisRun = new Set(files);   // jobs decoded together never see each other in the history (history(): skip)
   for (const f of files) {
     try {
-      const v = await decodeOne(f, prompt); const job = loadJob(f);
+      const v = await decodeOne(f, prompt, thisRun); const job = loadJob(f);
       const dest = ['gate-reject', 'weak-fit'].includes(v.verdict) ? DIRS.rejected : DIRS.decoded;
       if (!DRY) { fs.writeFileSync(path.join(dest, f), job.text.trimEnd() + '\n' + resultBlock(v), 'utf8'); fs.rmSync(job.path); delete tries[f]; }
       done.push({ file: f, fm: job.fm, v }); log(`${f}: ${v.verdict}`);

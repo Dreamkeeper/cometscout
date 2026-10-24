@@ -298,7 +298,8 @@ test('a later-only entry is no application: picks skip the job until then, dedup
   assert.equal(isApplication(later), false);
   assert.equal(d.closedRole({ file: F.later, fm: { company: 'Eastvale', role: 'Growth Product Manager' } }, APPS0), false);
   assert.equal(q.inApplications('Eastvale', 'Growth Product Manager'), null);
-  assert.equal(d.history('Eastvale', { excludeFile: F.later }), '(nothing before with this company)');
+  assert.match(d.history('Eastvale', { excludeFile: F.later }), /^## Applications and outcomes the user recorded\nnone: the user has not applied to this company\n/);
+  assert.deepEqual(d.historyParts('Eastvale', { excludeFile: F.later }).recorded, []);
   const pk = await d.buildPicks([], { fetch: async () => ({ ok: true, status: 200, url: '', text: async () => '' }) });
   assert.ok(!pk.picks.some(p => p.file === F.later), 'not a pick before its day');
   fs.writeFileSync(APPS, JSON.stringify({ ...APPS0, [F.later]: { ...later, events: [{ ...later.events[0], until: DAY }] } }));

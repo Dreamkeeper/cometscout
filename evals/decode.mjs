@@ -1,5 +1,6 @@
 // Decode eval: a system's verdicts on a label set against the user's labels.
 //   node cli.mjs evals decode --set <name> [--system queue|replay|file:<path>] [--compare <system>]
+//   node cli.mjs evals decode --set <name> --repeat [N]   # the set decoded N times (default 2): how many verdicts and priorities change
 // Systems: queue (the verdicts already in the queue files), replay (the sampled jobs decoded again now with the current
 // decoder and prompt, history cut at each job's own date; written to replay-<date>.json, nothing else), file:<path>
 // ({ file: verdict } or { file: { verdict, gate?, fact_flags? } } from any other pipeline; a replay file works too).
@@ -55,7 +56,7 @@ export async function replayVerdicts(sample, { set, call, date = today(), log = 
     if (!before) { out[file] = { verdict: null, error: 'no date on the job: the history cannot be cut, so it was not replayed' }; log(`${file}: skipped, no date`); continue; }
     try {
       const v = await decodeText(job, prompt, { before, excludeFile: file, ...(call ? { call } : {}) });
-      out[file] = { verdict: v.verdict, gate: v.gate || null, confidence: v.confidence || null, fact_flags: (v.fact_flags || []).map(f => f.id) };
+      out[file] = { verdict: v.verdict, gate: v.gate || null, confidence: v.confidence || null, apply_priority: v.apply_priority ?? null, fact_flags: (v.fact_flags || []).map(f => f.id), cost_usd: v.cost_usd || 0 };
       log(`${file}: ${v.verdict}`);
     } catch (e) { out[file] = { verdict: null, error: e.message }; log(`${file}: FAILED ${e.message}`); }
   }
@@ -141,6 +142,49 @@ export function reportMd(r) {
       r.compare.disagreements.length ? table(['Job', 'Label', r.system, r.other, 'Label agreed with', 'Your reason'], r.compare.disagreements.map(d => [d.file, d.label, d.a, d.b, d.agreed === 'a' ? r.system : r.other, d.reason])) : 'None.', '');
   }
   return out.join('\n');
+}
+
+// ---------- --repeat: the same jobs decoded N times ----------
+/** Changes between consecutive runs that have a value (a run with no verdict for the job is left out). */
+const changes = values => { const vs = values.filter(v => v != null); let n = 0; for (let i = 1; i < vs.length; i++) if (vs[i] !== vs[i - 1]) n++; return n; };
+/**
+ * How stable the decoder is: runs is N replay results ({ file: { verdict, apply_priority } }) on the same jobs.
+ * Per job the verdicts and priorities of each run and how many times each changed from one run to the next;
+ * totals over the jobs with a verdict in at least two runs.
+ */
+export function stability(sample, runs) {
+  const jobs = sample.jobs.map(({ file }) => {
+    const verdicts = runs.map(r => r[file]?.verdict ?? null), priorities = runs.map(r => (r[file]?.verdict ? r[file].apply_priority ?? null : null));
+    const got = verdicts.filter(v => v != null);
+    return { file, verdicts, priorities, compared: got.length >= 2, verdict_changes: changes(verdicts), priority_changes: changes(priorities),
+      surfaced_changed: new Set(got.map(surfaced)).size > 1, errors: runs.map(r => r[file]?.error || null).filter(Boolean).length };
+  });
+  const c = jobs.filter(j => j.compared);
+  return { runs: runs.length, jobs, total: {
+    jobs: sample.jobs.length, compared: c.length, verdict_changes: c.reduce((s, j) => s + j.verdict_changes, 0), jobs_verdict_changed: c.filter(j => j.verdict_changes).length,
+    priority_changes: c.reduce((s, j) => s + j.priority_changes, 0), jobs_priority_changed: c.filter(j => j.priority_changes).length, jobs_surfaced_changed: c.filter(j => j.surfaced_changed).length,
+    cost_usd: Math.round(runs.reduce((s, r) => s + Object.values(r).reduce((x, v) => x + (Number(v?.cost_usd) || 0), 0), 0) * 1e4) / 1e4 } };
+}
+export function repeatMd(r) {
+  const t = r.stability.total, show = l => l.map(x => x ?? '-').join(' / ');
+  return [`# Decode stability: ${r.set}`, '', `${r.date}. The ${t.jobs} jobs of the set decoded ${r.stability.runs} times with the current decoder and prompt (replay: history cut at each job's own date, nothing written to the queue).`,
+    'A change is a run whose verdict (or apply_priority) differs from the run before it. Labels are not used.', '',
+    `- Jobs with a verdict in at least two runs: ${t.compared}`, `- Verdict changes: ${t.verdict_changes}, on ${t.jobs_verdict_changed} job(s)`,
+    `- Priority changes: ${t.priority_changes}, on ${t.jobs_priority_changed} job(s)`, `- Jobs that moved across the surfaced line (strong fit or investable stretch): ${t.jobs_surfaced_changed}`,
+    `- Model cost of all runs: USD ${t.cost_usd.toFixed(2)}`, '', '## Per job', '',
+    table(['Job', 'Verdicts', 'Priorities', 'Verdict changes', 'Priority changes'], r.stability.jobs.map(j => [j.file, show(j.verdicts), show(j.priorities), j.verdict_changes, j.priority_changes])), ''].join('\n');
+}
+/** --repeat N: the set decoded N times (replay), compared run to run; writes repeat-<date>-x<N>.md and .json. */
+export async function repeatEval({ set, n = 2, call, date = today(), log = () => {}, noContext = false }) {
+  const sample = readSample(set); if (!sample) throw new Error(`no set "${set}" (make one with node cli.mjs evals sample --set ${set})`);
+  if (!Number.isInteger(n) || n < 2 || n > 20) throw new Error('--repeat must be a whole number from 2 to 20');
+  const runs = [];
+  for (let i = 1; i <= n; i++) runs.push(await replayVerdicts(sample, { call, date, log: l => log(`run ${i}: ${l}`), noContext }));
+  const r = { set, date, repeat: n, stability: stability(sample, runs), runs };
+  const base = path.join(setDir(set), `repeat-${date}-x${n}`);
+  fs.writeFileSync(`${base}.md`, repeatMd(r), 'utf8');
+  fs.writeFileSync(`${base}.json`, JSON.stringify(r, null, 1) + '\n', 'utf8');
+  return { report: r, md: `${base}.md`, json: `${base}.json` };
 }
 
 /** The whole eval: reads the set, gets the verdicts, writes report-<date>-<system>[-vs-<other>].md and .json. */

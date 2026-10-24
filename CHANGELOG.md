@@ -2,6 +2,23 @@
 
 Generated from `release.json` by `node tools/changelog.mjs`. Edit `release.json`, not this file.
 
+## 0.2.2 (2026-10-24)
+
+Needs Node 22 or newer. This version changes behaviour: read Changed before updating.
+
+### Highlights
+
+- Steadier verdicts: the decoder no longer sees its own earlier verdicts, and never mistakes a role it read for one you applied to.
+
+### New
+
+- node cli.mjs evals decode --set <name> --repeat [N] decodes the same jobs N times and counts how many verdicts and priorities change.
+- Each decode records what its model call cost; the digest ends with the run's cost (decodes, packs, total), and data/state/runs.jsonl keeps it for every run.
+
+### Changed
+
+- The decoder sees a company's history in two blocks: the applications and outcomes you recorded, and other roles CometScout read there (date and role only, no verdict). Decodes from the same run or the same day are left out, so jobs decoded together no longer sway each other.
+
 ## 0.2.1 (2026-10-15)
 
 Needs Node 22 or newer. This version changes behaviour: read Changed before updating.
